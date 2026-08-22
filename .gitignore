@@ -22,7 +22,7 @@ softhsm2.conf
 tokens/
 
 # SBOM / CBOM générés — recréés par make sbom
-security/sbom/*.json
+security/sbom/**/*.json
 security/crypto-inventory/*.json
 
 # OS / éditeurs

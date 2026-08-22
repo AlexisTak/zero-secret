@@ -18,8 +18,12 @@ help: ## Affiche cette aide
 setup: ## Dépendances, SoftHSM2, hooks git, outillage
 	@command -v cargo >/dev/null || { echo "cargo absent"; exit 1; }
 	@command -v go    >/dev/null || { echo "go absent"; exit 1; }
-	cargo install --locked cargo-deny cargo-audit cargo-fuzz cargo-nextest || true
+	cargo install --locked cargo-deny cargo-audit cargo-fuzz cargo-nextest cargo-cyclonedx || true
 	go install golang.org/x/vuln/cmd/govulncheck@latest || true
+	go install github.com/zricethezav/gitleaks/v8@latest || true
+	go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest || true
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest || true
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest || true
 	git config core.hooksPath .githooks
 	git config commit.gpgsign true
 	@echo "Vérifier SoftHSM2 : $$ZS_HSM_MODULE"
@@ -64,8 +68,8 @@ audit: ## cargo-audit, cargo-deny, govulncheck, gitleaks
 	gitleaks detect --no-banner --redact
 
 sbom: ## SBOM CycloneDX + inventaire cryptographique (CBOM)
-	cargo cyclonedx --format json --output-pattern package -- --all-features
-	cyclonedx-gomod mod -json -output security/sbom/go.cdx.json .
+	@bash tools/collect-sbom.sh
+	@mkdir -p security/crypto-inventory
 	@bash tools/generate-cbom.sh > security/crypto-inventory/cbom.json
 	@echo "CBOM régénéré — vérifier le diff avant commit."
 

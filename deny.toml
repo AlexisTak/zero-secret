@@ -1,0 +1,43 @@
+# cargo-deny — analyse de dépendances (backlog L0.4). Règle absolue #10 du CLAUDE.md racine :
+# licence OSI, pas de copyleft fort ; à documenter en cas de dérogation.
+
+[graph]
+all-features = true
+
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+# Nos propres crates (apps/, crates/) n'ont pas de champ license : dépôt propriétaire, réservé,
+# publish = false partout (voir Cargo.toml racine). Ce n'est pas un oubli, cargo-deny ne doit
+# pas les vérifier comme s'ils étaient destinés à crates.io.
+private = { ignore = true }
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0", # OpenBao et dépendances associées — voir ADR-002
+]
+confidence-threshold = 0.8
+
+# Note : l'interdiction d'import crypto direct hors zs-crypto (règle absolue #4) n'est PAS
+# exprimée ici — cargo-deny ne voit pas QUI importe une dépendance, seulement QUE le graphe la
+# contient. Cette détection reste le rôle de tools/lib/check-no-direct-crypto.sh (L0.2).
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Nos dépendances internes (crates/, apps/) sont en path sans version — normal pour un
+# workspace, pas un risque de chaîne d'approvisionnement comme un "*" sur crates.io.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

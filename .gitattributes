@@ -1,0 +1,15 @@
+# Fins de ligne forcées en LF quel que soit core.autocrlf du contributeur — gofmt, rustfmt et
+# les hooks git (scripts bash) refusent ou se comportent différemment sur CRLF.
+* text=auto eol=lf
+
+*.go   text eol=lf
+*.rs   text eol=lf
+*.sh   text eol=lf
+*.proto text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+
+*.pdf  binary
