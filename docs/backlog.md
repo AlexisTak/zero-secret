@@ -117,11 +117,47 @@ artefact signé et attesté.
 de l'analyseur d'attestation sans incident.
 
 ### L1.1 — Enregistrement d'authentificateur
-- [ ] Génération et stockage du challenge, expiration courte, usage unique
-- [ ] Vérification de `origin`, `rpId`, type, et de la structure d'attestation
-- [ ] Politique d'attestation configurable, refus par défaut si non satisfaite
+- [x] Génération du challenge (`zs_crypto::authenticator_proof::new_challenge`, CSPRNG, 32
+      octets, zeroize au drop) — **stockage DB non câblé** : schéma prêt
+      (`deploy/migrations/003_identity_challenges_et_authenticators.sql`, expiration et usage
+      unique portés par `expires_at`/`used_at`), mais aucun pilote Postgres async n'a été ajouté
+      à `identity-provider` (scope tranché en session : bibliothèque seule, pas de serveur HTTP
+      ni de nouvelle dépendance DB non discutée — voir décisions ci-dessous)
+- [x] Vérification de `origin`, `rpId`, type et structure d'attestation
+      (`crates/zs-webauthn/src/{client_data,registration}.rs`)
+- [x] Politique d'attestation configurable (`AttestationPolicy::{Any,Required}`), refus par
+      défaut si non satisfaite
 - **Acceptation** : challenge rejoué → refus ; `origin` incorrect → refus ; attestation absente
-  alors que la politique l'exige → refus. Trois tests, trois refus.
+  alors que la politique l'exige → refus. Trois tests, trois refus. **Fait** : 17 tests dans
+  `crates/zs-webauthn` (dont les trois obligatoires + cas supplémentaires signalés par
+  `referent-crypto` — `rpId` incorrect, format d'attestation non supporté, signature invalide,
+  `user present` absent), vérifiés avec de vraies signatures ECDSA P-256 (`aws-lc-rs`), pas des
+  doublures.
+- **Décisions structurantes prises en session** (voir ADR-006, ADR-007) :
+  - Suite `authenticator-proof/v1` : ES256 + EdDSA acceptés, RSA/`RS256` refusé (arbitrage
+    produit assumé — exclut une partie du parc Windows Hello/TPM), formats d'attestation `none`
+    et `packed` (auto-attestation) seulement — `tpm`/`android-key`/`apple`/x5c refusés
+    explicitement, pas silencieusement.
+  - Backend `aws-lc-rs` (FIPS 140-3, `prebuilt-nasm` — évite une dépendance de build à NASM).
+    **Correction en session** : contrairement à l'hypothèse initiale de `referent-crypto` et de
+    l'ADR-006, `unsafe_code = "forbid"` n'a **pas** eu besoin d'être levé pour `zs-crypto` —
+    vérifié empiriquement (l'API publique d'`aws-lc-rs` reste sûre, le FFI reste interne à
+    `aws-lc-sys`).
+  - `identity-assertion/v1|v2` spécifiée par avance (ADR-007) pour que la frontière
+    `zs-webauthn`/`zs-crypto` soit posée au bon endroit avant L1.2.
+  - `tools/lib/check-no-direct-crypto.sh` étendu (motif ne couvrait pas `openssl`,
+    `webauthn-rs`, `rsa`, `ml-dsa`, etc. — un contributeur aurait pu les ajouter sans que le
+    hook réagisse) ; nouvelle fixture de violation ; faux positif corrigé (le motif ignorait mal
+    le code crypto légitime des blocs `mod tests`, utilisé pour simuler un authentificateur
+    externe dans les tests).
+  - Fuzzing du parseur d'attestation écrit dans la même contribution
+    (`crates/zs-webauthn/fuzz/fuzz_targets/attestation_parser.rs`), conformément à la mise en
+    garde de `referent-crypto` — **non exécuté ici** : `cargo fuzz` (libFuzzer/ASan) échoue sur
+    ce poste Windows (bibliothèque runtime `clang_rt.asan` absente du toolchain MSVC local) ; le
+    code fuzz compile (`cargo +nightly check`), l'exécution réelle est à faire en CI/Jenkins
+    (Linux).
+  - Oracle différentiel de test contre `webauthn-rs` (recommandé par `referent-crypto`) :
+    **reporté**, pas de test différentiel écrit faute de temps dans cette contribution.
 
 ### L1.2 — Authentification et assertion
 - [ ] Vérification de signature via `zs-crypto`, jamais directement

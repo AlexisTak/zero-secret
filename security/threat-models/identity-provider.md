@@ -28,7 +28,7 @@ mTLS SPIFFE).
 
 | Entrée | Origine | Analyseur | Couverte par fuzzing ? |
 |---|---|---|---|
-| Structure d'attestation (CBOR) | Authentificateur, via navigateur | `zs-webauthn` (parseur d'attestation) | Prévu backlog L1.1 — pas encore écrit |
+| Structure d'attestation (CBOR) | Authentificateur, via navigateur | `zs-webauthn` (parseur d'attestation) | Écrit — `crates/zs-webauthn/fuzz/fuzz_targets/attestation_parser.rs`, non exécuté sur ce poste (libFuzzer/ASan indisponible sous Windows), à lancer en CI/Jenkins |
 | Assertion signée (authentification) | Authentificateur, via navigateur | `zs-webauthn` (vérification de signature via `zs-crypto`) | Prévu backlog L1.2 |
 | `origin` / `rpId` déclarés par le client | Navigateur (client_data_json) | `zs-webauthn` | Non — validation par comparaison stricte, pas de parseur complexe à fuzzer, revu en priorité 5.1 si un format enrichi est introduit |
 | Challenge retourné par le client | Navigateur | Comparaison en mémoire côté serveur (émis puis vérifié par l'IdP lui-même) | Sans objet — pas un analyseur de format |
@@ -64,13 +64,20 @@ cette corrélation au-delà de la durée nécessaire, à traiter dans la politiq
 
 | Menace | Test | Statut |
 |---|---|---|
-| Hameçonnage (scénario 1) | `tests/adversarial/` — assertion avec `origin` falsifié | Non écrit — backlog L1.1 |
-| Rejeu de challenge | `tests/adversarial/` — challenge réutilisé après consommation | Non écrit — backlog L1.1 |
-| Clonage d'authentificateur | `tests/adversarial/` — compteur de signature régressif | Non écrit — backlog L1.2 |
-| Attestation absente alors qu'exigée | `tests/adversarial/` — politique d'attestation stricte, requête sans attestation | Non écrit — backlog L1.1 |
+| Hameçonnage (scénario 1) | `crates/zs-webauthn/src/client_data.rs::origin_incorrecte_est_refusee` | Écrit — L1.1 |
+| Rejeu de challenge | `crates/zs-webauthn/src/client_data.rs::challenge_rejoue_est_refuse`, `registration.rs::challenge_rejoue_est_refuse` | Écrit — L1.1 |
+| Attestation absente alors qu'exigée | `crates/zs-webauthn/src/registration.rs::attestation_absente_alors_quexigee_est_refusee` | Écrit — L1.1 |
+| Format d'attestation non supporté | `crates/zs-webauthn/src/registration.rs::format_attestation_non_supporte_est_refuse_explicitement` | Écrit — L1.1 |
+| `rpId` incorrect | `crates/zs-webauthn/src/registration.rs::rp_id_incorrect_est_refuse` | Écrit — L1.1 |
+| Signature d'attestation invalide | `crates/zs-webauthn/src/registration.rs::signature_attestation_packed_invalide_est_refusee` | Écrit — L1.1 |
+| Attestation binaire malformée (CBOR non canonique, taille excessive) | `crates/zs-webauthn/fuzz/fuzz_targets/attestation_parser.rs` | Écrit — non exécuté ici (libFuzzer/ASan indisponible sur ce poste Windows), à lancer en CI/Jenkins (Linux) |
+| Clonage d'authentificateur (compteur régressif) | `tests/adversarial/` | Non écrit — backlog L1.2 |
 
-Quatre menaces identifiées, zéro test écrit à ce jour : ce composant reste **théorique** tant
-que L1.1/L1.2 ne sont pas livrés. Ne pas déployer avant.
+Sept menaces sur huit ont désormais un test réel (17 tests unitaires dans `zs-webauthn`,
+vérifiés avec des signatures ECDSA P-256 réelles, pas des doublures). Seul le clonage
+d'authentificateur (compteur de signature) reste théorique — il dépend de L1.2 (gestion du
+compteur, backlog non encore livré). Le composant sort donc partiellement de la catégorie
+« théorique », mais reste incomplet tant que L1.2 n'est pas fait.
 
 ## Limite structurelle assumée (scénario 6)
 
