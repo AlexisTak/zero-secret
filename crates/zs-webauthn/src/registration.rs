@@ -4,13 +4,11 @@
 //! signature avant contenu. Un `?` mal placé produirait un succès prématuré silencieux — chaque
 //! étape retourne explicitement avant la suivante, aucune n'est court-circuitée par accident.
 
+use crate::flags::{FLAG_ATTESTED_CRED_DATA, FLAG_USER_PRESENT};
 use crate::policy::AttestationPolicy;
 use ciborium::value::Value as CborValue;
 use std::io::Cursor;
 use zs_crypto::authenticator_proof::{self, Challenge};
-
-const FLAG_USER_PRESENT: u8 = 0x01;
-const FLAG_ATTESTED_CRED_DATA: u8 = 0x40;
 
 /// Taille maximale acceptée pour `attestationObject`, avant tout décodage CBOR (mise en garde
 /// « borner la taille d'entrée avant décodage, jamais après »). 64 Kio est largement au-delà de
@@ -33,6 +31,10 @@ pub struct RegistrationOutcome {
     pub attestation_format: &'static str,
     pub aaguid: [u8; 16],
     pub public_key_algorithm: authenticator_proof::Algorithm,
+    /// Clé publique brute acceptée (même encodage que `PublicKeyMaterial::raw`). Sans ce champ,
+    /// impossible de la persister pour l'authentification ultérieure (L1.2) sans re-parser
+    /// l'attestation — bloquant identifié par `referent-crypto` en amont de L1.2.
+    pub public_key_raw: Vec<u8>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -134,6 +136,7 @@ pub fn verify_registration_ceremony(
     //    zs-crypto (frontière ADR-006).
     let key_material = crate::cose::extract_public_key_material(&cred.public_key_cbor)?;
     let algorithm = key_material.algorithm;
+    let public_key_raw = key_material.raw.clone();
     let accepted_key = authenticator_proof::accept_key(authenticator_proof::SUITE_V1, key_material)
         .map_err(|_| RegistrationError::MalformedAttestationObject)?;
 
@@ -154,6 +157,7 @@ pub fn verify_registration_ceremony(
         attestation_format: if fmt == "none" { "none" } else { "packed" },
         aaguid: cred.aaguid,
         public_key_algorithm: algorithm,
+        public_key_raw,
     })
 }
 

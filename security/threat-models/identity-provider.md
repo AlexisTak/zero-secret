@@ -29,7 +29,7 @@ mTLS SPIFFE).
 | Entrée | Origine | Analyseur | Couverte par fuzzing ? |
 |---|---|---|---|
 | Structure d'attestation (CBOR) | Authentificateur, via navigateur | `zs-webauthn` (parseur d'attestation) | Écrit — `crates/zs-webauthn/fuzz/fuzz_targets/attestation_parser.rs`, non exécuté sur ce poste (libFuzzer/ASan indisponible sous Windows), à lancer en CI/Jenkins |
-| Assertion signée (authentification) | Authentificateur, via navigateur | `zs-webauthn` (vérification de signature via `zs-crypto`) | Prévu backlog L1.2 |
+| Assertion signée (authentification) | Authentificateur, via navigateur | `zs-webauthn` (vérification de signature via `zs-crypto`) | Non — mêmes structures binaires que l'attestation, pas d'analyseur distinct ; couverte par les tests unitaires d'`authentication.rs` (L1.2a) |
 | `origin` / `rpId` déclarés par le client | Navigateur (client_data_json) | `zs-webauthn` | Non — validation par comparaison stricte, pas de parseur complexe à fuzzer, revu en priorité 5.1 si un format enrichi est introduit |
 | Challenge retourné par le client | Navigateur | Comparaison en mémoire côté serveur (émis puis vérifié par l'IdP lui-même) | Sans objet — pas un analyseur de format |
 | Requête de révocation / récupération | `admin-api` (interne, mTLS) | Vérification de quorum (backlog L1.3) | Prévu, corrélé à l'analyseur de quorum quand il existera |
@@ -43,7 +43,7 @@ n'a pas encore de code — c'est une dette explicite avant tout déploiement, pa
 | Menace | Scénario concret | Probabilité | Impact | Mesure compensatoire | Risque résiduel |
 |---|---|---|---|---|---|
 | **S**poofing | Attaquant hameçonne l'utilisateur vers un domaine visuellement proche pour capturer une assertion | Faible (WebAuthn lie l'assertion à l'origine par construction — scénario 1) | Élevé si contourné | Vérification stricte de `origin`/`rpId` dans `zs-webauthn`, refus par défaut si absent ou non concordant | Un navigateur ou un client compromis en amont (extension malveillante interceptant l'API WebAuthn) reste hors du périmètre protégé par le protocole lui-même |
-| **T**ampering | Modification du compteur de signature stocké pour masquer un clonage d'authentificateur | Faible (accès direct à `identity` requis) | Élevé (clonage non détecté = usurpation durable) | Compteur vérifié strictement croissant à chaque assertion (backlog L1.2), rôle applicatif au principe du moindre privilège sur le schéma `identity` | Une compromission du rôle applicatif PostgreSQL avec droits d'écriture pourrait falsifier le compteur avant sa lecture — mesure compensatoire : événement d'audit signé indépendamment à chaque vérification, permettant la détection a posteriori par rejeu (`make replay`) |
+| **T**ampering | Modification du compteur de signature stocké pour masquer un clonage d'authentificateur | Faible (accès direct à `identity` requis) | Élevé (clonage non détecté = usurpation durable) | Compteur vérifié strictement croissant à chaque assertion, refus si `signCount ≤ stored` (`crates/zs-webauthn/src/authentication.rs`, L1.2). `counter_supported` figé une fois à l'enregistrement (migration 004), jamais réévalué par assertion — sans ça, un authentificateur cloné qui force `signCount=0` désactiverait rétroactivement la détection pour un authentificateur qui la supportait (mise en garde `referent-crypto`) ; rôle applicatif au principe du moindre privilège sur le schéma `identity` | Une compromission du rôle applicatif PostgreSQL avec droits d'écriture pourrait falsifier le compteur avant sa lecture — mesure compensatoire : événement d'audit signé indépendamment à chaque vérification, permettant la détection a posteriori par rejeu (`make replay`). Le contrat d'atomicité de l'avance (`SignCounterStore::advance`, `store.rs`) est posé mais son implémentation réelle reste à brancher (hors périmètre bibliothèque, L1.2a) |
 | **R**epudiation | Un enregistrement ou une révocation est contesté a posteriori | Faible | Moyen (perte de confiance dans l'historique) | Chaque action du parcours produit un événement d'audit signé et chaîné (backlog L1.4), horodaté par `audit-collector` | La fenêtre entre l'action et son inscription dans le journal (latence réseau `identity-provider` → `audit-collector`) reste un intervalle non couvert si l'IdP est compromis avant l'envoi — voir hypothèse de sécurité ci-dessous |
 | **I**nformation Disclosure | Fuite de challenges en cours ou de métadonnées d'authentificateur via un journal ou une erreur verbeuse | Moyenne (erreur de développement classique) | Faible à moyen (pas de secret durable ici — seules des clés publiques et compteurs) | Aucune clé privée ne transite jamais par ce composant ; règle absolue #1 du `CLAUDE.md` (aucun secret en journal), revue de code systématique sur les messages d'erreur | Une fuite de métadonnées (quels authentificateurs, quand) reste possible et facilite un ciblage social ultérieur — non éliminée, seulement réduite |
 | **D**enial of Service | Flot de demandes d'enregistrement ou d'authentification, ou challenges expirés non nettoyés | Moyenne | Moyen (bloque l'accès JIT le temps de l'incident) | Challenges à expiration courte et usage unique (backlog L1.1), limitation de débit au niveau du plan de données (à spécifier en L2+) | La disponibilité de l'IdP reste un point de défaillance unique structurel pour tout nouvel accès — assumé, voir « Limites assumées » de `docs/architecture.md` |
@@ -71,13 +71,16 @@ cette corrélation au-delà de la durée nécessaire, à traiter dans la politiq
 | `rpId` incorrect | `crates/zs-webauthn/src/registration.rs::rp_id_incorrect_est_refuse` | Écrit — L1.1 |
 | Signature d'attestation invalide | `crates/zs-webauthn/src/registration.rs::signature_attestation_packed_invalide_est_refusee` | Écrit — L1.1 |
 | Attestation binaire malformée (CBOR non canonique, taille excessive) | `crates/zs-webauthn/fuzz/fuzz_targets/attestation_parser.rs` | Écrit — non exécuté ici (libFuzzer/ASan indisponible sur ce poste Windows), à lancer en CI/Jenkins (Linux) |
-| Clonage d'authentificateur (compteur régressif) | `tests/adversarial/` | Non écrit — backlog L1.2 |
+| Clonage d'authentificateur (compteur régressif) | `crates/zs-webauthn/src/authentication.rs::{compteur_regressif_est_refuse,compteur_identique_est_refuse}` | Écrit — L1.2a |
+| Rejeu d'assertion d'authentification (challenge) | `crates/zs-webauthn/src/authentication.rs::challenge_rejoue_est_refuse` | Écrit — L1.2a |
+| Confusion de cérémonie (`webauthn.create` rejoué comme `webauthn.get`) | `crates/zs-webauthn/src/authentication.rs::confusion_de_ceremonie_est_refusee` | Écrit — L1.2a |
 
-Sept menaces sur huit ont désormais un test réel (17 tests unitaires dans `zs-webauthn`,
-vérifiés avec des signatures ECDSA P-256 réelles, pas des doublures). Seul le clonage
-d'authentificateur (compteur de signature) reste théorique — il dépend de L1.2 (gestion du
-compteur, backlog non encore livré). Le composant sort donc partiellement de la catégorie
-« théorique », mais reste incomplet tant que L1.2 n'est pas fait.
+Huit menaces sur huit ont désormais un test réel (27 tests unitaires dans `zs-webauthn`,
+vérifiés avec des signatures ECDSA P-256 réelles, pas des doublures) : le clonage
+d'authentificateur (compteur de signature) est couvert par L1.2a. Reste théorique/différé :
+l'émission de l'assertion d'identité **signée** elle-même (ADR-007/ADR-008, L1.2c — intégration
+HSM non encore faite) et le branchement réel des ports de stockage (`ChallengeStore`,
+`SignCounterStore` — traits posés, implémentation hors périmètre bibliothèque).
 
 ## Limite structurelle assumée (scénario 6)
 
