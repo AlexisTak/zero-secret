@@ -45,10 +45,21 @@ artefact signé et attesté.
   CI une fois `contracts/buf.yaml` présent sur `main`.
 
 ### L0.4 — Chaîne d'intégration continue
-- [ ] Étapes : format → lint → détection de secrets → build → tests → tests d'architecture →
+- [x] Étapes : format → lint → détection de secrets → build → tests → tests d'architecture →
       analyse de dépendances → SBOM → CBOM → build reproductible → signature → attestation
-- [ ] Exécuteurs éphémères, aucun secret durable, branche principale protégée
+      (`.github/workflows/ci.yml`)
+- [x] Exécuteurs éphémères (GitHub-hosted, par construction), aucun secret durable (attestation
+      keyless via OIDC — `actions/attest-build-provenance`, aucune clé stockée)
+- [ ] Branche principale protégée — réglage GitHub (branch protection rule), pas du code ;
+      pas fait sans validation explicite (touche la config partagée du dépôt)
 - **Acceptation** : un secret introduit volontairement dans une branche est bloqué avant fusion.
+  Vérifié localement (`gitleaks detect` sur un commit de test, secret détecté, commit annulé) ;
+  `gitleaks/gitleaks-action` reproduit ça en CI sur toute PR.
+- **Limite constatée et assumée** : le job `reproducible-build` est informatif
+  (`continue-on-error`), pas bloquant. Un `cargo build --release` identique, réexécuté à
+  l'identique, produit deux binaires différents bit à bit (non-déterminisme connu de l'écosystème
+  Rust sans configuration dédiée). À reprendre via un ADR si la reproductibilité devient un
+  critère de qualification (ANSSI/CESTI) plutôt qu'un objectif déclaré.
 
 ### L0.5 — Modèle de menaces v1
 - [ ] `security/threat-models/` : un fichier par composant, les six catégories STRIDE renseignées
