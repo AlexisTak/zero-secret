@@ -50,8 +50,10 @@ artefact signé et attesté.
       (`.github/workflows/ci.yml`)
 - [x] Exécuteurs éphémères (GitHub-hosted, par construction), aucun secret durable (attestation
       keyless via OIDC — `actions/attest-build-provenance`, aucune clé stockée)
-- [ ] Branche principale protégée — réglage GitHub (branch protection rule), pas du code ;
-      pas fait sans validation explicite (touche la config partagée du dépôt)
+- [ ] Branche principale protégée — **bloqué** : dépôt privé + plan GitHub Free renvoie 403
+      sur `branches/main/protection` et sur `rulesets` (« Upgrade to GitHub Pro or make this
+      repository public »). Nécessite un changement de plan GitHub (facturation — décision
+      humaine) ou de rendre le dépôt public. À refaire dès que l'un des deux est tranché.
 - **Acceptation** : un secret introduit volontairement dans une branche est bloqué avant fusion.
   Vérifié localement (`gitleaks detect` sur un commit de test, secret détecté, commit annulé) ;
   `gitleaks/gitleaks-action` reproduit ça en CI sur toute PR.
