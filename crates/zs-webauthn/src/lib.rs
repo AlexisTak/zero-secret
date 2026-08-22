@@ -7,6 +7,7 @@ pub mod client_data;
 pub mod cose;
 mod flags;
 pub mod policy;
+pub mod recovery;
 pub mod registration;
 pub mod store;
 
@@ -15,6 +16,7 @@ pub use authentication::{
     RegisteredCredential, verify_authentication_ceremony,
 };
 pub use policy::AttestationPolicy;
+pub use recovery::{RecoveryApproval, RecoveryError, RecoveryOutcome, verify_quorum};
 pub use registration::{
     RegistrationCeremonyInput, RegistrationError, RegistrationOutcome, verify_registration_ceremony,
 };

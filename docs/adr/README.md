@@ -14,6 +14,7 @@ divergence silencieuse.
 | [006](ADR-006-verification-webauthn-frontiere-crypto.md) | Vérification WebAuthn : frontière entre zs-webauthn et zs-crypto (authenticator-proof) | accepté | 2026-08-22 |
 | [007](ADR-007-suite-identity-assertion.md) | Spécification de la suite identity-assertion (émission, HSM) | accepté | 2026-08-22 |
 | [008](ADR-008-decoupage-l1-2-emission-assertion.md) | Découpage de L1.2 et frontière d'émission de l'assertion d'identité | accepté | 2026-08-22 |
+| [009](ADR-009-recuperation-quorum-sans-nouvelle-suite.md) | Récupération à quorum : réutilisation d'authenticator-proof, sans nouvelle suite | accepté | 2026-08-22 |
 
 ## Règles
 

@@ -32,6 +32,10 @@ pub struct RegisteredCredential {
     pub public_key_raw: Vec<u8>,
     pub counter_supported: bool,
     pub stored_sign_count: u32,
+    /// Révoqué (backlog L1.3) : refusé immédiatement, avant toute vérification de signature —
+    /// une révocation doit avoir un effet immédiat (`docs/architecture.md`, délai cible < 5 s),
+    /// jamais une fenêtre de grâce le temps qu'un cache expire.
+    pub revoked: bool,
 }
 
 pub struct AuthenticationCeremonyInput<'a> {
@@ -86,6 +90,8 @@ pub enum AuthenticationError {
     InvalidSignature,
     #[error("compteur de signature régressif ou rejoué — clonage suspecté")]
     SignCounterRegression,
+    #[error("authentificateur révoqué")]
+    AuthenticatorRevoked,
 }
 
 /// Vérifie une cérémonie d'authentification complète. Ne consulte aucun stockage : le challenge
@@ -95,6 +101,13 @@ pub enum AuthenticationError {
 pub fn verify_authentication_ceremony(
     input: AuthenticationCeremonyInput,
 ) -> Result<AuthenticationClaims, AuthenticationError> {
+    // 0. Révocation (backlog L1.3) : porte sur `input.credential`, déjà connu du registre —
+    //    ne dépend d'aucune entrée cliente non fiable, vérifié avant même le reste pour ne
+    //    dépenser aucun effort de parsing sur une entrée dont le sort est déjà scellé.
+    if input.credential.revoked {
+        return Err(AuthenticationError::AuthenticatorRevoked);
+    }
+
     // 1. clientDataJSON : type, origine, challenge — AVANT toute interprétation de l'assertion.
     //    "webauthn.get", jamais "webauthn.create" : un client ne peut pas rejouer une preuve
     //    d'enregistrement comme si c'était une authentification (confusion de cérémonie).
@@ -273,6 +286,7 @@ mod tests {
             public_key_raw: auth.public_key_raw(),
             counter_supported,
             stored_sign_count: stored,
+            revoked: false,
         }
     }
 
@@ -538,5 +552,33 @@ mod tests {
         });
 
         assert_eq!(result.unwrap_err(), AuthenticationError::InvalidSignature);
+    }
+
+    #[test]
+    fn authentificateur_revoque_est_refuse_immediatement() {
+        // Effet immédiat (backlog L1.3) : refusé même avec une signature par ailleurs valide,
+        // avant toute autre vérification (docs/architecture.md, délai cible < 5 s).
+        let auth = TestAuthenticator::new();
+        let challenge = new_challenge();
+        let cdj = client_data_json("webauthn.get", ORIGIN, challenge.as_bytes());
+        let auth_data = auth.auth_data(RP_ID, 0x01, 1);
+        let sig = sign_and_build(&auth, &cdj, &auth_data);
+        let mut credential = registered(&auth, true, 0);
+        credential.revoked = true;
+
+        let result = verify_authentication_ceremony(AuthenticationCeremonyInput {
+            client_data_json: &cdj,
+            authenticator_data: &auth_data,
+            signature: &sig,
+            expected_origin: ORIGIN,
+            expected_rp_id: RP_ID,
+            expected_challenge: &challenge,
+            credential: &credential,
+        });
+
+        assert_eq!(
+            result.unwrap_err(),
+            AuthenticationError::AuthenticatorRevoked
+        );
     }
 }
