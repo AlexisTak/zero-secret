@@ -51,11 +51,24 @@ artefact signé et attesté.
 - **Acceptation** : un secret introduit volontairement dans une branche est bloqué avant fusion.
 
 ### L0.5 — Modèle de menaces v1
-- [ ] `security/threat-models/` : un fichier par composant, les six catégories STRIDE renseignées
-      (« non applicable car… » est une réponse valide, « — » ne l'est pas)
-- [ ] Reprise des six scénarios d'attaque de `docs/architecture.md`
+- [x] `security/threat-models/` : un fichier par composant, les six catégories STRIDE renseignées
+      (« non applicable car… » est une réponse valide, « — » ne l'est pas) — 7 fichiers, un par
+      composant de `docs/architecture.md` (`identity-provider`, `policy-engine`, `access-broker`,
+      `credential-issuer`, `audit-collector`, `admin-api`, `console-web`)
+- [x] Reprise des six scénarios d'attaque de `docs/architecture.md` — vérifié par grep, chaque
+      scénario référencé dans au moins un fichier
 - **Acceptation** : chaque risque critique a une mesure compensatoire **et** un risque résiduel
   écrit. Un modèle sans risque résiduel est un modèle incomplet.
+- **Hors périmètre, signalé** : pas de modèle de menaces dédié pour `crates/zs-crypto` et
+  `crates/zs-hsm` (bibliothèques, pas des « composants » au sens du tableau de
+  `docs/architecture.md`) — leurs risques apparaissent en creux dans les hypothèses de sécurité
+  des composants qui en dépendent. À revoir avec `referent-crypto` si un modèle dédié devient
+  nécessaire (probable avant qualification).
+- **Angles morts explicites remontés** (à trancher avant L2, pas des oublis) :
+  authentification de l'approbateur non spécifiée (`access-broker`), distinction contexte
+  vérifié/déclaré dans `DecisionRequest.Context` non tranchée (`access-broker`), ordre
+  audit/émission non tranché (`credential-issuer`), granularité des rôles d'administration non
+  définie et chemin de modification de politique à chaud non clarifié (`admin-api`).
 
 ### L0.6 — Environnement de développement
 - [ ] `make up` : PostgreSQL, OpenBao en mode dev, SoftHSM2, collecteur OTel — via Podman
