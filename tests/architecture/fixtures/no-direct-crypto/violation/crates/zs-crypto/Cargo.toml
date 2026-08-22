@@ -1,0 +1,8 @@
+[package]
+name = "zs-crypto"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Autorisé : c'est ici, et seulement ici, que la crypto est composée.
+p256 = "0.13"

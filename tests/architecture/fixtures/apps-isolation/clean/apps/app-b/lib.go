@@ -1,0 +1,3 @@
+package appb
+
+func Noop() {}
