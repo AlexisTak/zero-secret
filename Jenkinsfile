@@ -17,8 +17,11 @@ pipeline {
 
     stages {
         stage('format + lint (Rust)') {
-            agent { docker { image 'rust:1-bookworm' } }
+            // -u root : zs-policy compile ses .proto via build.rs (prost-build/tonic-build),
+            // qui exige `protoc` — absent de l'image de base, installé ici.
+            agent { docker { image 'rust:1-bookworm'; args '-u root' } }
             steps {
+                sh 'apt-get update && apt-get install -y --no-install-recommends protobuf-compiler'
                 sh 'rustup component add rustfmt clippy'
                 sh 'cargo fmt --all -- --check'
                 sh 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
@@ -86,8 +89,9 @@ pipeline {
         }
 
         stage('build + tests (Rust)') {
-            agent { docker { image 'rust:1-bookworm' } }
+            agent { docker { image 'rust:1-bookworm'; args '-u root' } }
             steps {
+                sh 'apt-get update && apt-get install -y --no-install-recommends protobuf-compiler'
                 sh 'cargo build --workspace'
                 sh 'cargo install --locked cargo-nextest || true'
                 sh 'cargo nextest run --all-features || cargo test --all-features'
@@ -167,8 +171,9 @@ pipeline {
         }
 
         stage('build reproductible (informatif)') {
-            agent { docker { image 'rust:1-bookworm' } }
+            agent { docker { image 'rust:1-bookworm'; args '-u root' } }
             steps {
+                sh 'apt-get update && apt-get install -y --no-install-recommends protobuf-compiler'
                 // Non bloquant : voir docs/backlog.md L0.4 — limite constatée localement
                 // (build Rust non déterministe sans configuration dédiée).
                 catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
@@ -198,7 +203,7 @@ pipeline {
             }
             steps {
                 sh '''
-                    apt-get update && apt-get install -y --no-install-recommends curl jq
+                    apt-get update && apt-get install -y --no-install-recommends curl jq protobuf-compiler
                     curl -sSL https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64 -o /usr/local/bin/cosign
                     chmod +x /usr/local/bin/cosign
 
