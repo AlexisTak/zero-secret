@@ -5,7 +5,7 @@
   "description": "Événement du journal vérifiable. Sérialisation canonique obligatoire avant chaînage et signature : deux sérialisations d'un même événement doivent être identiques bit à bit, sinon la chaîne devient invérifiable. Toute évolution de ce schéma casse la vérifiabilité de l'historique et exige un ADR.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "event_id", "sequence", "occurred_at", "event_type", "actor", "outcome", "prev_hash", "signature"],
+  "required": ["schema_version", "event_id", "sequence", "occurred_at", "authority_domain", "event_type", "actor", "outcome", "prev_hash", "signature"],
   "properties": {
     "schema_version": { "const": 1 },
     "event_id": {
@@ -87,7 +87,7 @@
     "prev_hash": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$",
-      "description": "Empreinte de l'événement précédent. Racine de la chaîne : 64 zéros."
+      "description": "SHA-256 de la sérialisation canonique (RFC 8785) de l'événement précédent, signature incluse — inclure la signature empêche un downgrade de suite (remplacer une signature v2 par une v1 sur un événement passé) sans casser la chaîne. Racine de la chaîne : 64 zéros."
     },
     "signature": {
       "type": "object",
