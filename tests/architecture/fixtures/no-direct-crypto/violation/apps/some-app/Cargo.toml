@@ -1,0 +1,8 @@
+[package]
+name = "some-app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Violation : import crypto direct hors zs-crypto.
+p256 = "0.13"

@@ -1,0 +1,15 @@
+[package]
+name = "zs-hsm"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+description = "Intégration PKCS#11 (SoftHSM2 en dev). Seul crate autorisé à l'unsafe (FFI) — voir ADR."
+
+# Pas d'héritage des lints du workspace : c'est le seul crate où unsafe_code n'est pas "forbid"
+# (FFI PKCS#11, voir ADR-001). Cargo interdit de mélanger `workspace = true` et une redéfinition
+# locale de lint dans le même manifeste.
+[lints.rust]
+unsafe_code = "allow"
+
+[dependencies]
+thiserror = "2"

@@ -17,23 +17,32 @@ artefact signé et attesté.
       `security/`, `tests/`, `docs/`, `tools/`) avec un `README.md` par dossier de premier niveau
 - [ ] Workspace Cargo et modules Go initialisés
 - [ ] `Makefile` fonctionnel : toutes les cibles existent, même en no-op documenté
-- [ ] `.gitignore`, `SECURITY.md`, `LICENSE` (Apache 2.0), `CODEOWNERS`
+- [x] `.gitignore`, `SECURITY.md`, `CODEOWNERS` — pas de `LICENSE` : dépôt propriétaire, réservé
 - [ ] Hooks git : format, détection de secrets, commits signés
 - **Acceptation** : `make setup && make check` passe sur un dépôt fraîchement cloné.
 
 ### L0.2 — Test d'architecture
-- [ ] Test qui échoue si un composant de `apps/` importe un autre composant de `apps/`
-- [ ] Test qui échoue si un module hors `zs-crypto` / `zs-hsm` importe une bibliothèque crypto
-- [ ] Test qui échoue si un fichier généré diffère de ce que produirait `make generate`
+- [x] Test qui échoue si un composant de `apps/` importe un autre composant de `apps/`
+- [x] Test qui échoue si un module hors `zs-crypto` / `zs-hsm` importe une bibliothèque crypto
+- [x] Test qui échoue si un fichier généré diffère de ce que produirait `make generate`
 - **Acceptation** : les trois tests échouent quand on introduit volontairement la violation,
   et passent une fois retirée. Écrire la violation d'abord.
+  Fait : `tests/architecture/run.sh` (8/8), détecteurs dans `tools/lib/`, câblés dans
+  `tools/check-arch.sh` / `make test-arch`. Le check generated-up-to-date reste no-op contre
+  le vrai dépôt tant que `buf` est absent de l'environnement de dev — le mécanisme lui-même
+  est prouvé par la fixture `generated-drift` (générateur injectable, sans dépendance à buf).
 
 ### L0.3 — Contrat de décision et génération
-- [ ] `contracts/proto/policy/v1/decision.proto` complété et validé (`buf lint`)
-- [ ] `contracts/events/audit-event.schema.json` complété
-- [ ] `make generate` produit les types Rust et Go, aucun fichier généré écrit à la main
-- [ ] Vérification de compatibilité ascendante en CI (`buf breaking`)
-- **Acceptation** : une suppression de champ dans le proto fait échouer la CI.
+- [x] `contracts/proto/policy/v1/decision.proto` complété et validé (`buf lint`)
+- [x] `contracts/events/audit-event.schema.json` complété
+- [x] `make generate` produit les types Go (committés, `pkg/gen/`) ; Rust généré à la
+      compilation par `crates/zs-policy/build.rs` (ADR-004, pas via buf — incompatibilité
+      constatée entre protoc-gen-prost/protoc-gen-tonic sur ce poste), aucun fichier généré
+      écrit à la main
+- [x] Vérification de compatibilité ascendante en CI (`buf breaking`) — `.github/workflows/contracts.yml`
+- **Acceptation** : une suppression de champ dans le proto fait échouer la CI. Vérifié localement
+  (`tools/check-arch.sh` détecte la divergence de `pkg/gen`) ; `buf breaking` prend le relais en
+  CI une fois `contracts/buf.yaml` présent sur `main`.
 
 ### L0.4 — Chaîne d'intégration continue
 - [ ] Étapes : format → lint → détection de secrets → build → tests → tests d'architecture →

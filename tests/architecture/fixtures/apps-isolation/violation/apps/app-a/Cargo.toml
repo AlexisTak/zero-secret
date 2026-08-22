@@ -1,0 +1,8 @@
+[package]
+name = "app-a"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Violation : dépendance directe vers un autre composant de apps/.
+app-b = { path = "../app-b" }

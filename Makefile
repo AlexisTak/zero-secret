@@ -2,6 +2,16 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 .PHONY: help setup generate check test test-crypto fuzz audit sbom up down replay clean
 
+# go.work regroupe plusieurs modules sous des sous-dossiers indépendants (pas de module à la
+# racine) : le pattern ./... ne fonctionne pas depuis la racine du workspace. On itère sur les
+# modules déclarés dans go.work.
+define go-each
+	@go list -m -f '{{.Dir}}' | while IFS= read -r d; do \
+		echo "-- $$d --"; \
+		(cd "$$d" && $(1)) || exit 1; \
+	done
+endef
+
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
@@ -11,19 +21,23 @@ setup: ## Dépendances, SoftHSM2, hooks git, outillage
 	cargo install --locked cargo-deny cargo-audit cargo-fuzz cargo-nextest || true
 	go install golang.org/x/vuln/cmd/govulncheck@latest || true
 	git config core.hooksPath .githooks
+	git config commit.gpgsign true
 	@echo "Vérifier SoftHSM2 : $$ZS_HSM_MODULE"
+	@echo "commit.gpgsign activé localement — nécessite une clé de signature configurée (git config user.signingkey)."
 
 generate: ## Régénère types et clients depuis contracts/ — À LANCER APRÈS TOUTE MODIF DE CONTRAT
-	buf lint contracts/proto
-	buf breaking contracts/proto --against '.git#branch=main,subdir=contracts/proto' || true
-	buf generate contracts/proto
+	cd contracts && buf lint
+	cd contracts && buf breaking --against '../.git#branch=main,subdir=contracts' || true
+	cd contracts && buf generate
+	@echo "Go régénéré dans pkg/gen (committé). Rust régénéré à la compilation par"
+	@echo "crates/zs-policy/build.rs (ADR-004) — lancer 'cargo build -p zs-policy' pour vérifier."
 	@echo "Fichiers générés — ne jamais les éditer à la main."
 
 check: ## fmt + lint + tests d'architecture (rapide)
 	cargo fmt --all -- --check
 	cargo clippy --all-targets --all-features -- -D warnings
 	gofmt -l . | tee /dev/stderr | (! read)
-	go vet ./...
+	$(call go-each,go vet ./...)
 	$(MAKE) test-arch
 
 test-arch: ## Règles de dépendance, interdiction crypto directe, fichiers générés à jour
@@ -31,7 +45,7 @@ test-arch: ## Règles de dépendance, interdiction crypto directe, fichiers gén
 
 test: ## Unitaires + propriété + politiques
 	cargo nextest run --all-features
-	go test ./... -race
+	$(call go-each,go test ./... -race)
 	cedar test --policies policies/access --tests policies/tests || true
 	opa test policies/platform policies/tests -v || true
 
@@ -46,7 +60,7 @@ fuzz: ## Fuzzing ciblé — make fuzz TARGET=attestation_parser
 audit: ## cargo-audit, cargo-deny, govulncheck, gitleaks
 	cargo audit
 	cargo deny check licenses bans sources advisories
-	govulncheck ./...
+	$(call go-each,govulncheck ./...)
 	gitleaks detect --no-banner --redact
 
 sbom: ## SBOM CycloneDX + inventaire cryptographique (CBOM)

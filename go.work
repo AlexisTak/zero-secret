@@ -1,0 +1,10 @@
+go 1.23
+
+use (
+	./apps/access-broker
+	./apps/admin-api
+	./apps/audit-collector
+	./apps/credential-issuer
+	./pkg/gen
+	./pkg/zstelemetry
+)
