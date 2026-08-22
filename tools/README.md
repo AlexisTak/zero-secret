@@ -7,4 +7,5 @@ Scripts appelés par le `Makefile`. Pas de logique métier ici — orchestration
 | `check-arch.sh` | `make test-arch` | Règles de dépendance `apps/`, interdiction crypto directe, fichiers générés à jour |
 | `collect-sbom.sh` | `make sbom` | SBOM CycloneDX Rust (`cargo-cyclonedx`) + Go (`cyclonedx-gomod`), consolidés sous `security/sbom/` |
 | `generate-cbom.sh` | `make sbom` | Régénère l'inventaire cryptographique depuis `crates/zs-crypto` |
+| `generate-provenance.sh` | `Jenkinsfile` (stage signature) | Statement in-toto/SLSA simplifié, signé par cosign — ADR-005 |
 | `migrate.sh` | `make up` | Applique les migrations PostgreSQL sur l'environnement local |
