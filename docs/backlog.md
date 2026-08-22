@@ -33,11 +33,16 @@ artefact signé et attesté.
   est prouvé par la fixture `generated-drift` (générateur injectable, sans dépendance à buf).
 
 ### L0.3 — Contrat de décision et génération
-- [ ] `contracts/proto/policy/v1/decision.proto` complété et validé (`buf lint`)
-- [ ] `contracts/events/audit-event.schema.json` complété
-- [ ] `make generate` produit les types Rust et Go, aucun fichier généré écrit à la main
-- [ ] Vérification de compatibilité ascendante en CI (`buf breaking`)
-- **Acceptation** : une suppression de champ dans le proto fait échouer la CI.
+- [x] `contracts/proto/policy/v1/decision.proto` complété et validé (`buf lint`)
+- [x] `contracts/events/audit-event.schema.json` complété
+- [x] `make generate` produit les types Go (committés, `pkg/gen/`) ; Rust généré à la
+      compilation par `crates/zs-policy/build.rs` (ADR-004, pas via buf — incompatibilité
+      constatée entre protoc-gen-prost/protoc-gen-tonic sur ce poste), aucun fichier généré
+      écrit à la main
+- [x] Vérification de compatibilité ascendante en CI (`buf breaking`) — `.github/workflows/contracts.yml`
+- **Acceptation** : une suppression de champ dans le proto fait échouer la CI. Vérifié localement
+  (`tools/check-arch.sh` détecte la divergence de `pkg/gen`) ; `buf breaking` prend le relais en
+  CI une fois `contracts/buf.yaml` présent sur `main`.
 
 ### L0.4 — Chaîne d'intégration continue
 - [ ] Étapes : format → lint → détection de secrets → build → tests → tests d'architecture →

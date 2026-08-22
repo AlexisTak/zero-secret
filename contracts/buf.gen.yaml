@@ -1,0 +1,17 @@
+version: v2
+managed:
+  enabled: true
+plugins:
+  # Go — chemin fixé par l'option go_package du .proto. Plugins résolus via PATH
+  # (go install, voir make setup).
+  - local: protoc-gen-go
+    out: ../pkg/gen
+    opt: paths=source_relative
+  - local: protoc-gen-go-grpc
+    out: ../pkg/gen
+    opt: paths=source_relative
+
+# Rust : pas de génération buf. crates/zs-policy/build.rs appelle tonic-prost-build
+# directement sur ce même contrat, à la compilation. Voir ADR-004 pour la raison (bug de
+# compilation reproductible et non résolu avec protoc-gen-prost + protoc-gen-tonic séparés,
+# combinaison standard build.rs testée fonctionnelle).

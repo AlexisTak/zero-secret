@@ -11,4 +11,11 @@ contracts/
 ```
 
 Toute modification ici est suivie de `make generate`, sinon la compilation des consommateurs
-divergera silencieusement. Compatibilité ascendante vérifiée en CI (`buf breaking` pour les proto).
+divergera silencieusement. Compatibilité ascendante vérifiée en CI (`buf breaking` pour les proto,
+`.github/workflows/contracts.yml`).
+
+**Génération** : `buf.yaml`/`buf.gen.yaml` pilotent le lint et la génération Go (`pkg/gen/`,
+committé). Le Rust (`crates/zs-policy`) n'est **pas** généré par `buf` : `build.rs` appelle
+`tonic-prost-build` directement sur le `.proto` à la compilation, sortie non committée — voir
+[ADR-004](../docs/adr/ADR-004-generation-code-rust-proto.md) pour la raison (incompatibilité
+constatée entre `protoc-gen-prost`/`protoc-gen-tonic` séparés).

@@ -26,9 +26,11 @@ setup: ## Dépendances, SoftHSM2, hooks git, outillage
 	@echo "commit.gpgsign activé localement — nécessite une clé de signature configurée (git config user.signingkey)."
 
 generate: ## Régénère types et clients depuis contracts/ — À LANCER APRÈS TOUTE MODIF DE CONTRAT
-	buf lint contracts/proto
-	buf breaking contracts/proto --against '.git#branch=main,subdir=contracts/proto' || true
-	buf generate contracts/proto
+	cd contracts && buf lint
+	cd contracts && buf breaking --against '../.git#branch=main,subdir=contracts' || true
+	cd contracts && buf generate
+	@echo "Go régénéré dans pkg/gen (committé). Rust régénéré à la compilation par"
+	@echo "crates/zs-policy/build.rs (ADR-004) — lancer 'cargo build -p zs-policy' pour vérifier."
 	@echo "Fichiers générés — ne jamais les éditer à la main."
 
 check: ## fmt + lint + tests d'architecture (rapide)

@@ -22,12 +22,12 @@ if ! check_no_direct_crypto "$REPO_ROOT"; then
 	fail=1
 fi
 
-# La vérification "fichier généré à jour" dépend de `buf`, absent de cet environnement de dev.
-# Le mécanisme est testé indépendamment (tests/architecture/run.sh, fixture generated-drift) ;
-# ici, no-op documenté tant que buf n'est pas disponible ou que contracts/ n'a rien à générer.
+# Seul le Go est généré par buf et committé (pkg/gen/) — voir contracts/buf.gen.yaml. Le Rust
+# est généré à la compilation par crates/zs-policy/build.rs, non committé (ADR-004) : rien à
+# comparer ici pour lui.
 if command -v buf >/dev/null 2>&1; then
 	source "$SCRIPT_DIR/lib/check-generated-up-to-date.sh"
-	if ! check_generated_up_to_date "$REPO_ROOT" "buf generate contracts/proto" contracts; then
+	if ! check_generated_up_to_date "$REPO_ROOT" "cd contracts && buf generate" pkg/gen; then
 		echo "test-arch : fichier généré divergent détecté ci-dessus." >&2
 		fail=1
 	fi

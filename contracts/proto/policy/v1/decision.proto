@@ -10,13 +10,19 @@ syntax = "proto3";
 
 package policy.v1;
 
-option go_package = "github.com/biscuits-ia/zero-secret/pkg/gen/policy/v1;policyv1";
+option go_package = "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1;policyv1";
 
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
-service PolicyDecision {
+service PolicyDecisionService {
   // Évalue une requête d'accès. Sans état, déterministe, sans appel réseau sortant.
+  //
+  // DecisionRequest/DecisionResponse (et non DecideRequest/DecideResponse, la convention buf
+  // par défaut) pour rester alignés avec le vocabulaire de docs/architecture.md, où ces noms
+  // sont déjà le contrat documenté du flux JIT.
+  // buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
   rpc Decide(DecisionRequest) returns (DecisionResponse);
 }
 
@@ -92,6 +98,7 @@ message DecisionResponse {
 enum Effect {
   // 0 = DENY et non UNSPECIFIED : un message tronqué, mal désérialisé ou partiellement
   // initialisé produit un refus. C'est délibéré et ne doit pas être « corrigé ».
+  // buf:lint:ignore ENUM_ZERO_VALUE_SUFFIX
   EFFECT_DENY  = 0;
   EFFECT_ALLOW = 1;
 }

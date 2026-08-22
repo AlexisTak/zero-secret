@@ -15,10 +15,6 @@ node_modules/
 .next/
 dist/
 
-# Généré — régénérer via make generate, jamais commiter à la main sauf exception documentée
-*.pb.go
-*_pb2.py
-
 # SoftHSM2 / secrets locaux dev — jamais de secret durable dans le dépôt
 *.env
 .env.*

@@ -1,0 +1,52 @@
+name: contracts
+
+# Contrat public (contracts/) : lint, compatibilité ascendante, et fichiers générés à jour.
+# Règle absolue #8 du CLAUDE.md — contracts/ est la source de vérité, jamais un fichier
+# généré écrit à la main. Voir docs/backlog.md L0.3.
+on:
+  pull_request:
+    paths:
+      - "contracts/**"
+      - "pkg/gen/**"
+  push:
+    branches: [main]
+    paths:
+      - "contracts/**"
+      - "pkg/gen/**"
+
+jobs:
+  buf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # buf breaking compare contre main : historique complet requis
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      - name: buf lint
+        run: buf lint
+        working-directory: contracts
+
+      - name: buf breaking (contre main)
+        if: github.event_name == 'pull_request'
+        run: buf breaking --against '../.git#branch=main,subdir=contracts'
+        working-directory: contracts
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: install protoc-gen-go / protoc-gen-go-grpc
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+      - name: fichiers générés à jour (pkg/gen)
+        run: |
+          buf generate
+          git diff --exit-code -- ../pkg/gen || {
+            echo "::error::pkg/gen diverge de contracts/proto — lancer make generate et committer." >&2
+            exit 1
+          }
+        working-directory: contracts
