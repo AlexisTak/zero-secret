@@ -92,10 +92,22 @@ artefact signé et attesté.
   définie et chemin de modification de politique à chaud non clarifié (`admin-api`).
 
 ### L0.6 — Environnement de développement
-- [ ] `make up` : PostgreSQL, OpenBao en mode dev, SoftHSM2, collecteur OTel — via Podman
-- [ ] Migrations initiales : quatre schémas, rôles séparés, `UPDATE`/`DELETE` révoqués sur `audit`
+- [x] `make up` : PostgreSQL 17, OpenBao en mode dev, SoftHSM2, collecteur OTel — via Podman
+      (`deploy/compose.dev.yml`)
+- [x] Migrations initiales : quatre schémas (`identity`, `authz`, `issuance`, `audit`), un rôle
+      applicatif par schéma, `UPDATE`/`DELETE`/`TRUNCATE` révoqués explicitement sur `audit`
+      (`deploy/migrations/`, appliquées par `tools/migrate.sh`)
 - **Acceptation** : le rôle applicatif `audit_writer` échoue explicitement sur un `DELETE`.
-  Le prouver par un test, pas par une lecture du fichier de migration.
+  Prouvé par `tests/e2e/audit_writer_refuses_delete.sh` (`make test-e2e`) — connexion réelle en
+  tant que `audit_writer`, `INSERT` accepté, `DELETE`/`UPDATE` refusés avec le code PostgreSQL
+  `42501` (insufficient_privilege) vérifié explicitement, pas une lecture de la migration.
+- **Non testé de bout en bout ici** : Podman/Docker bloqués par la politique de permission de
+  cet environnement de développement (session Claude Code) — écrit et relu avec soin (syntaxe
+  SQL, YAML du compose, scripts bash), mais le premier run réel (`make up && make test-e2e`)
+  reste à faire par un humain ou en CI/Jenkins.
+- Aucun secret durable : mots de passe PostgreSQL (`tools/migrate.sh`) et PIN SoftHSM2
+  (`deploy/softhsm/init-token.sh`) générés à l'exécution, écrits dans `.env.dev`/`.env.softhsm`
+  (gitignorés) ; jeton root OpenBao auto-généré par OpenBao lui-même, jamais fixé.
 
 ---
 

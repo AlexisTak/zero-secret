@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
-.PHONY: help setup generate check test test-crypto fuzz audit sbom up down replay clean
+.PHONY: help setup generate check test test-crypto test-e2e fuzz audit sbom up down replay clean
 
 # go.work regroupe plusieurs modules sous des sous-dossiers indépendants (pas de module à la
 # racine) : le pattern ./... ne fonctionne pas depuis la racine du workspace. On itère sur les
@@ -75,10 +75,16 @@ sbom: ## SBOM CycloneDX + inventaire cryptographique (CBOM)
 
 up: ## Environnement local complet (Podman)
 	podman-compose -f deploy/compose.dev.yml up -d
-	@sleep 3 && bash tools/migrate.sh
+	@echo "Attente de PostgreSQL (healthcheck)..."
+	@until podman-compose -f deploy/compose.dev.yml ps postgres | grep -q "healthy"; do sleep 1; done
+	bash tools/migrate.sh
+	@echo "OpenBao : jeton root généré à la volée, voir 'podman-compose -f deploy/compose.dev.yml logs openbao'."
 
 down: ## Arrête l'environnement local
 	podman-compose -f deploy/compose.dev.yml down -v
+
+test-e2e: ## Tests de bout en bout contre l'environnement local (make up requis)
+	@bash tests/e2e/audit_writer_refuses_delete.sh
 
 replay: ## Rejeu des décisions depuis le journal d'audit
 	cargo run -p zs-replay -- --from $(FROM) --to $(TO)
