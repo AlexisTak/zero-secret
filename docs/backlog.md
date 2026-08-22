@@ -186,9 +186,23 @@ de l'analyseur d'attestation sans incident.
   scope-cut DB de L1.1.
 
 ### L1.3 — Cycle de vie
-- [ ] Révocation d'authentificateur, effet immédiat
-- [ ] Récupération à quorum (plusieurs porteurs distincts), sous scellés, systématiquement alarmante
-- **Acceptation** : un seul porteur ne peut jamais déclencher une récupération. Le prouver par test.
+- [x] Révocation d'authentificateur, effet immédiat (`RegisteredCredential.revoked`, vérifié en
+      premier dans `verify_authentication_ceremony` — colonne `revoked_at` déjà présente depuis
+      la migration 003, aucune migration nouvelle nécessaire)
+- [x] Récupération à quorum (plusieurs porteurs distincts) — `crates/zs-webauthn/src/recovery.rs`,
+      réutilise `authenticator-proof/v1` (chaque porteur approuve via sa propre cérémonie
+      d'authentification WebAuthn, L1.2), **aucune nouvelle suite cryptographique** (voir
+      ADR-009). « Sous scellés » : scellement/chaînage réel de l'événement de récupération
+      **différé à L1.4** (`zs-audit` est un stub vide) — `RecoveryOutcome` porte `#[must_use]`
+      pour qu'un appelant ne puisse pas ignorer silencieusement le résultat en attendant L1.4.
+- **Acceptation** : un seul porteur ne peut jamais déclencher une récupération. **Fait** —
+  `un_seul_porteur_ne_peut_jamais_declencher_une_recuperation` : un plancher `MINIMUM_THRESHOLD
+  = 2` est imposé par le module, non contournable même si l'appelant configure `threshold = 1`
+  par erreur.
+- **Hors périmètre, signalé** (ADR-009) : liaison cryptographique entre N approbations et une
+  demande de récupération précise (responsabilité de l'appelant, `identity-provider`, pas encore
+  construit) ; scénario de récupération « à froid » (principal sans aucun authentificateur
+  disponible) — non couvert, nécessiterait un mécanisme distinct.
 
 ### L1.4 — Audit du parcours
 - [ ] Événements : enregistrement, révocation, tentative, succès, échec, récupération

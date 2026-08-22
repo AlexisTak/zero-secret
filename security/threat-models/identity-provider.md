@@ -32,7 +32,7 @@ mTLS SPIFFE).
 | Assertion signée (authentification) | Authentificateur, via navigateur | `zs-webauthn` (vérification de signature via `zs-crypto`) | Non — mêmes structures binaires que l'attestation, pas d'analyseur distinct ; couverte par les tests unitaires d'`authentication.rs` (L1.2a) |
 | `origin` / `rpId` déclarés par le client | Navigateur (client_data_json) | `zs-webauthn` | Non — validation par comparaison stricte, pas de parseur complexe à fuzzer, revu en priorité 5.1 si un format enrichi est introduit |
 | Challenge retourné par le client | Navigateur | Comparaison en mémoire côté serveur (émis puis vérifié par l'IdP lui-même) | Sans objet — pas un analyseur de format |
-| Requête de révocation / récupération | `admin-api` (interne, mTLS) | Vérification de quorum (backlog L1.3) | Prévu, corrélé à l'analyseur de quorum quand il existera |
+| Requête de révocation / récupération | `admin-api` (interne, mTLS) | `crates/zs-webauthn::recovery::verify_quorum` (L1.3, ADR-009) — comptage de porteurs distincts, aucune structure binaire complexe à fuzzer | Sans objet — pas un analyseur de format |
 
 Toute entrée non fiable sans analyseur identifié est un angle mort : ici, le parseur
 d'attestation CBOR est le point le plus exposé (format binaire, source externe non fiable) et
@@ -74,12 +74,18 @@ cette corrélation au-delà de la durée nécessaire, à traiter dans la politiq
 | Clonage d'authentificateur (compteur régressif) | `crates/zs-webauthn/src/authentication.rs::{compteur_regressif_est_refuse,compteur_identique_est_refuse}` | Écrit — L1.2a |
 | Rejeu d'assertion d'authentification (challenge) | `crates/zs-webauthn/src/authentication.rs::challenge_rejoue_est_refuse` | Écrit — L1.2a |
 | Confusion de cérémonie (`webauthn.create` rejoué comme `webauthn.get`) | `crates/zs-webauthn/src/authentication.rs::confusion_de_ceremonie_est_refusee` | Écrit — L1.2a |
+| Authentificateur révoqué toujours accepté | `crates/zs-webauthn/src/authentication.rs::authentificateur_revoque_est_refuse_immediatement` | Écrit — L1.3 |
+| Récupération déclenchée par un seul porteur | `crates/zs-webauthn/src/recovery.rs::un_seul_porteur_ne_peut_jamais_declencher_une_recuperation` | Écrit — L1.3 |
+| Un même porteur compté plusieurs fois pour atteindre le quorum | `crates/zs-webauthn/src/recovery.rs::meme_porteur_repete_ne_compte_quune_fois` | Écrit — L1.3 |
 
-Huit menaces sur huit ont désormais un test réel (27 tests unitaires dans `zs-webauthn`,
+Onze menaces ont désormais un test réel (33 tests unitaires dans `zs-webauthn`,
 vérifiés avec des signatures ECDSA P-256 réelles, pas des doublures) : le clonage
-d'authentificateur (compteur de signature) est couvert par L1.2a. Reste théorique/différé :
-l'émission de l'assertion d'identité **signée** elle-même (ADR-007/ADR-008, L1.2c — intégration
-HSM non encore faite) et le branchement réel des ports de stockage (`ChallengeStore`,
+d'authentificateur (compteur de signature), la révocation et le quorum de récupération sont
+couverts par L1.2a/L1.3. Reste théorique/différé : l'émission de l'assertion d'identité
+**signée** elle-même (ADR-007/ADR-008, L1.2c — intégration HSM non encore faite), la liaison
+cryptographique entre approbations et une demande de récupération précise (ADR-009,
+responsabilité de l'appelant), le scellement réel de l'événement de récupération (L1.4) et le
+branchement réel des ports de stockage (`ChallengeStore`,
 `SignCounterStore` — traits posés, implémentation hors périmètre bibliothèque).
 
 ## Limite structurelle assumée (scénario 6)
