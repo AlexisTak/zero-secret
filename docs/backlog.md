@@ -160,10 +160,30 @@ de l'analyseur d'attestation sans incident.
     **reporté**, pas de test différentiel écrit faute de temps dans cette contribution.
 
 ### L1.2 — Authentification et assertion
-- [ ] Vérification de signature via `zs-crypto`, jamais directement
-- [ ] Gestion du compteur de signature et détection de clonage
-- [ ] Assertion d'identité signée portant le niveau AAL atteint et la méthode employée
-- **Acceptation** : compteur régressif → alerte et refus ; assertion rejouée → refus.
+- [x] Vérification de signature via `zs-crypto`, jamais directement
+      (`crates/zs-webauthn/src/authentication.rs::verify_authentication_ceremony`, réutilise
+      `authenticator-proof/v1` telle quelle — aucune ligne ajoutée à `zs-crypto`)
+- [x] Gestion du compteur de signature et détection de clonage (`counter_supported` figé à
+      l'enregistrement, migration 004 — voir mise en garde `referent-crypto` : une réévaluation
+      par assertion permettrait à un clone de désactiver la détection en forçant `signCount=0`)
+- [ ] Assertion d'identité signée portant le niveau AAL atteint et la méthode employée —
+      **différée à L1.2c** (ADR-008) : construction des claims faite (`AuthenticationClaims`,
+      non sérialisable par construction), la signature réelle exige une intégration PKCS#11/
+      SoftHSM2 dans `crates/zs-hsm` (aujourd'hui un stub vide), scopée hors de cette contribution
+      sur recommandation `referent-crypto` (mélange crate FFI unsafe + parsing WebAuthn, mauvais
+      périmètre d'audit).
+- **Acceptation** : compteur régressif → alerte et refus (**fait**, `compteur_regressif_est_refuse`,
+  `compteur_identique_est_refuse`) ; assertion rejouée → refus (**fait au niveau cérémonie
+  WebAuthn** — challenge à usage unique, même mécanisme qu'en L1.1, `challenge_rejoue_est_refuse` ;
+  **pas encore démontré au niveau de l'assertion d'identité signée**, qui n'existe pas avant
+  L1.2c — cocher partiellement est un choix assumé, voir ADR-008, pas un oubli).
+- **Découpage L1.2a/b/c** : voir ADR-008 pour la justification complète (pourquoi ne pas tout
+  livrer d'un bloc, pourquoi refuser une « assertion non signée » sérialisable).
+- **Frontière posée maintenant** : `crates/zs-webauthn` ne dépend jamais de `crates/zs-hsm`,
+  vérifié par un test d'architecture dédié (`tools/lib/check-webauthn-no-hsm.sh`).
+- **Ports de stockage** (`ChallengeStore`, `SignCounterStore`, `crates/zs-webauthn/src/store.rs`) :
+  traits documentés (contrat d'atomicité explicite), sans implémentation — cohérent avec le
+  scope-cut DB de L1.1.
 
 ### L1.3 — Cycle de vie
 - [ ] Révocation d'authentificateur, effet immédiat

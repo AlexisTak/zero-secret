@@ -1,0 +1,8 @@
+[package]
+name = "zs-webauthn"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zs-crypto = { path = "../zs-crypto" }
+zs-hsm = { path = "../zs-hsm" }

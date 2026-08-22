@@ -15,6 +15,8 @@ source "$REPO_ROOT/tools/lib/check-apps-isolation.sh"
 source "$REPO_ROOT/tools/lib/check-no-direct-crypto.sh"
 # shellcheck source=../../tools/lib/check-generated-up-to-date.sh
 source "$REPO_ROOT/tools/lib/check-generated-up-to-date.sh"
+# shellcheck source=../../tools/lib/check-webauthn-no-hsm.sh
+source "$REPO_ROOT/tools/lib/check-webauthn-no-hsm.sh"
 
 fail=0
 pass=0
@@ -70,6 +72,14 @@ assert_fails "generated-up-to-date / fixture violation" \
 	check_generated_up_to_date "$FIXTURES/generated-drift/violation" "bash generate.sh" generated
 assert_passes "generated-up-to-date / fixture clean" \
 	check_generated_up_to_date "$FIXTURES/generated-drift/clean" "bash generate.sh" generated
+
+# --- webauthn-no-hsm -----------------------------------------------------------
+assert_fails "webauthn-no-hsm / fixture violation" \
+	check_webauthn_no_hsm "$FIXTURES/webauthn-no-hsm/violation"
+assert_passes "webauthn-no-hsm / fixture clean" \
+	check_webauthn_no_hsm "$FIXTURES/webauthn-no-hsm/clean"
+assert_passes "webauthn-no-hsm / dépôt réel" \
+	check_webauthn_no_hsm "$REPO_ROOT"
 
 echo
 echo "$pass test(s) passé(s), $fail test(s) en échec."
