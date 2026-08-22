@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Hook git réel (installé via `make setup` -> git config core.hooksPath .githooks).
+# Distinct de scripts/hooks/ : ceux-là gardent les actions de Claude Code en session, celui-ci
+# garde tout commit, peu importe son origine.
+#
+# Règle 1 (CLAUDE.md) : aucun secret durable. Règle de convention : code formaté avant commit.
+set -euo pipefail
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+[[ -z "$STAGED" ]] && exit 0
+
+fail=0
+
+# --- Détection de secrets ---------------------------------------------------
+if command -v gitleaks >/dev/null 2>&1; then
+	if ! gitleaks protect --staged --no-banner --redact; then
+		echo "BLOQUÉ — gitleaks a détecté un secret potentiel dans les fichiers indexés." >&2
+		fail=1
+	fi
+else
+	echo "AVERTISSEMENT — gitleaks absent, repli sur une détection de motifs restreinte." >&2
+	PATTERNS='-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|hvs\.[A-Za-z0-9_-]{20,}'
+	while IFS= read -r f; do
+		[[ -f "$f" ]] || continue
+		if git show ":$f" | grep -Eqi -- "$PATTERNS"; then
+			echo "BLOQUÉ — motif de secret potentiel dans $f." >&2
+			fail=1
+		fi
+	done <<<"$STAGED"
+fi
+
+# --- Format ------------------------------------------------------------------
+while IFS= read -r f; do
+	case "$f" in
+	*.rs)
+		if command -v rustfmt >/dev/null 2>&1 && ! rustfmt --edition 2024 --check "$f" 2>/dev/null; then
+			echo "BLOQUÉ — $f non formaté (rustfmt). Lancer make check ou rustfmt --edition 2024 $f." >&2
+			fail=1
+		fi
+		;;
+	*.go)
+		if command -v gofmt >/dev/null 2>&1 && [[ -n "$(gofmt -l "$f" 2>/dev/null)" ]]; then
+			echo "BLOQUÉ — $f non formaté (gofmt). Lancer gofmt -w $f." >&2
+			fail=1
+		fi
+		;;
+	esac
+done <<<"$STAGED"
+
+if [[ "$fail" -ne 0 ]]; then
+	echo "Commit refusé. Corriger ci-dessus puis retenter." >&2
+	exit 1
+fi
+
+exit 0

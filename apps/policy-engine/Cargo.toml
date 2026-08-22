@@ -1,0 +1,15 @@
+[package]
+name = "policy-engine"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "PDP : évaluation de politique, sans état, aucun appel réseau pendant l'évaluation."
+
+[lints]
+workspace = true
+
+[dependencies]
+zs-policy = { path = "../../crates/zs-policy" }
+zs-audit = { path = "../../crates/zs-audit" }
+thiserror = "2"

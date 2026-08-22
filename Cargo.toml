@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/identity-provider",
+    "apps/policy-engine",
+    "crates/zs-crypto",
+    "crates/zs-webauthn",
+    "crates/zs-policy",
+    "crates/zs-audit",
+    "crates/zs-hsm",
+]
+
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

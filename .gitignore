@@ -1,0 +1,41 @@
+# Rust
+/target/
+**/target/
+Cargo.lock.bak
+
+# Go
+/pkg/*/bin/
+**/*.test
+/vendor/
+*.exe
+*.exe~
+
+# Node / console-web
+node_modules/
+.next/
+dist/
+
+# Généré — régénérer via make generate, jamais commiter à la main sauf exception documentée
+*.pb.go
+*_pb2.py
+
+# SoftHSM2 / secrets locaux dev — jamais de secret durable dans le dépôt
+*.env
+.env.*
+softhsm2.conf
+tokens/
+
+# SBOM / CBOM générés — recréés par make sbom
+security/sbom/*.json
+security/crypto-inventory/*.json
+
+# OS / éditeurs
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs locaux
+*.log

@@ -1,0 +1,11 @@
+# Revue obligatoire sur tout le dépôt.
+* @AlexisTak
+
+# Zones sensibles — revue explicite même si un CODEOWNERS de niveau supérieur matche déjà.
+/crates/zs-crypto/    @AlexisTak
+/crates/zs-hsm/       @AlexisTak
+/policies/access/     @AlexisTak
+/contracts/           @AlexisTak
+/security/            @AlexisTak
+/.githooks/           @AlexisTak
+/.claude/settings.json @AlexisTak

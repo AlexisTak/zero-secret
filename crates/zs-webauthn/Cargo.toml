@@ -1,0 +1,14 @@
+[package]
+name = "zs-webauthn"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Vérification WebAuthn/FIDO2 : attestation, assertion, challenge."
+
+[lints]
+workspace = true
+
+[dependencies]
+zs-crypto = { path = "../zs-crypto" }
+thiserror = "2"
