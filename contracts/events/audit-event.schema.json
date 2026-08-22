@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biscuits-ia.fr/zero-secret/contracts/events/audit-event/v1",
+  "title": "Événement d'audit — v1",
+  "description": "Événement du journal vérifiable. Sérialisation canonique obligatoire avant chaînage et signature : deux sérialisations d'un même événement doivent être identiques bit à bit, sinon la chaîne devient invérifiable. Toute évolution de ce schéma casse la vérifiabilité de l'historique et exige un ADR.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "sequence", "occurred_at", "event_type", "actor", "outcome", "prev_hash", "signature"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUIDv7 — l'ordre lexicographique reflète l'ordre temporel"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Compteur strictement croissant par domaine d'autorité. Un trou est une anomalie bloquante, pas un défaut d'affichage."
+    },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "authority_domain": { "type": "string" },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "authenticator.registered",
+        "authenticator.revoked",
+        "authentication.attempted",
+        "authentication.succeeded",
+        "authentication.failed",
+        "access.requested",
+        "access.approved",
+        "access.denied",
+        "policy.decided",
+        "credential.issued",
+        "credential.expired",
+        "credential.revoked",
+        "policy.modified",
+        "quorum.operation",
+        "recovery.initiated",
+        "audit.chain_verified"
+      ]
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject_id", "kind"],
+      "properties": {
+        "subject_id": { "type": "string" },
+        "kind": { "type": "string", "enum": ["human", "workload", "system"] },
+        "aal": { "type": "string", "enum": ["AAL1", "AAL2", "AAL3"] },
+        "auth_method": { "type": "string" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "id": { "type": "string" }
+      }
+    },
+    "outcome": { "type": "string", "enum": ["success", "denied", "error"] },
+    "decision": {
+      "type": "object",
+      "description": "Présent sur policy.decided et credential.issued. Permet le rejeu hors ligne : sans decision_hash et policy_version, la décision n'est pas vérifiable par un tiers.",
+      "additionalProperties": false,
+      "required": ["request_id", "decision_hash", "policy_version"],
+      "properties": {
+        "request_id": { "type": "string", "format": "uuid" },
+        "decision_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "policy_version": { "type": "string" },
+        "reasons": { "type": "array", "items": { "type": "string" } },
+        "granted_ttl_seconds": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "context": {
+      "type": "object",
+      "description": "Contexte minimal. INTERDIT : credential, clé, jeton complet, donnée biométrique, donnée personnelle non nécessaire.",
+      "additionalProperties": false,
+      "properties": {
+        "source_network": { "type": "string" },
+        "ticket_ref": { "type": "string" },
+        "justification": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "prev_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Empreinte de l'événement précédent. Racine de la chaîne : 64 zéros."
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["suite", "value"],
+      "properties": {
+        "suite": {
+          "type": "string",
+          "description": "Suite versionnée de zs-crypto. Jamais un nom d'algorithme brut.",
+          "enum": ["audit-seal/v1", "audit-seal/v2"]
+        },
+        "value": { "type": "string", "contentEncoding": "base64" },
+        "key_id": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+// Contrat du point de décision (PDP).
+//
+// Contrat le plus sensible du système : sa forme conditionne l'auditabilité de l'ensemble.
+// INVARIANT : une décision doit pouvoir être rejouée hors ligne, à l'identique, par un tiers,
+// à partir du seul enregistrement d'audit. Toute évolution qui casse cette propriété est refusée.
+//
+// Voir docs/architecture.md et ADR-003.
+
+package policy.v1;
+
+option go_package = "github.com/biscuits-ia/zero-secret/pkg/gen/policy/v1;policyv1";
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+service PolicyDecision {
+  // Évalue une requête d'accès. Sans état, déterministe, sans appel réseau sortant.
+  rpc Decide(DecisionRequest) returns (DecisionResponse);
+}
+
+message DecisionRequest {
+  string request_id            = 1; // UUIDv7, corrélation de bout en bout
+  Principal principal          = 2; // identité prouvée
+  Action action                = 3; // verbe demandé
+  Resource resource            = 4; // ressource cible
+  Context context              = 5; // contexte d'évaluation, fourni EN ENTRÉE
+  string policy_version        = 6; // version exacte du jeu de politiques évalué
+}
+
+message Principal {
+  string subject_id            = 1; // identifiant stable, jamais un identifiant nominatif
+  AuthLevel aal                = 2; // niveau atteint, NIST SP 800-63-4
+  string auth_method           = 3; // ex. "webauthn/device-bound"
+  google.protobuf.Timestamp authenticated_at = 4;
+  repeated string roles        = 5;
+  string authority_domain      = 6; // domaine d'autorité — cloisonnement multi-zone
+}
+
+enum AuthLevel {
+  // Valeur par défaut volontairement non exploitable : un champ non renseigné ne doit jamais
+  // être interprété comme un niveau d'assurance valide (P2 — refus par défaut).
+  AUTH_LEVEL_UNSPECIFIED = 0;
+  AUTH_LEVEL_AAL1        = 1;
+  AUTH_LEVEL_AAL2        = 2;
+  AUTH_LEVEL_AAL3        = 3;
+}
+
+message Action {
+  string verb                  = 1; // ex. "db.connect", "ssh.session", "secret.read"
+}
+
+message Resource {
+  string type                  = 1; // type déclaré dans contracts/cedar/
+  string id                    = 2;
+  string authority_domain      = 3;
+  map<string, string> attributes = 4; // attributs ABAC, typés par le schéma Cedar
+}
+
+message Context {
+  google.protobuf.Timestamp requested_at = 1;
+  string source_network        = 2;
+  DevicePosture posture        = 3;
+  string ticket_ref            = 4; // référence ITSM
+  string justification         = 5; // motif saisi par le demandeur
+  repeated Approval approvals  = 6;
+}
+
+message DevicePosture {
+  bool managed                 = 1;
+  bool disk_encrypted          = 2;
+  string agent_version         = 3;
+  google.protobuf.Timestamp evaluated_at = 4; // une posture périmée n'est pas une posture valide
+}
+
+message Approval {
+  string approver_id           = 1;
+  google.protobuf.Timestamp approved_at = 2;
+  bytes signature              = 3; // approbation signée, vérifiée via zs-crypto
+}
+
+message DecisionResponse {
+  Effect effect                = 1;
+  repeated string reasons      = 2; // politiques ayant déterminé la décision
+  google.protobuf.Duration max_ttl = 3; // plafond imposé PAR LA POLITIQUE, jamais par l'appelant
+  repeated string constraints  = 4; // périmètre réduit, obligations (RFC 9396)
+  bytes decision_hash          = 5; // empreinte requête + politiques, scellée à l'audit
+  string policy_version        = 6;
+}
+
+enum Effect {
+  // 0 = DENY et non UNSPECIFIED : un message tronqué, mal désérialisé ou partiellement
+  // initialisé produit un refus. C'est délibéré et ne doit pas être « corrigé ».
+  EFFECT_DENY  = 0;
+  EFFECT_ALLOW = 1;
+}
