@@ -1,0 +1,26 @@
+# Collecteur OTel minimal pour l'environnement de dev local (backlog L0.6). Aucun composant
+# n'émet encore de télémétrie réelle (backlog L2+) — ce collecteur ne fait que prouver que
+# `make up` expose un point de collecte fonctionnel, via pkg/zstelemetry plus tard.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      exporters: [debug]

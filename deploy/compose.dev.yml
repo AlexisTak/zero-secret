@@ -1,0 +1,61 @@
+# Environnement de développement local (backlog L0.6) — `make up` / `make down`.
+#
+# Podman en priorité (`podman-compose`), compatible `docker compose` pour qui n'a pas Podman.
+# Aucun secret durable : tous les mots de passe/PIN sont générés à l'exécution (voir
+# tools/migrate.sh, deploy/softhsm/init-token.sh), jamais écrits ici en dur.
+
+services:
+  postgres:
+    image: docker.io/library/postgres:17
+    environment:
+      POSTGRES_DB: zero_secret
+      POSTGRES_HOST_AUTH_METHOD: trust # dev local uniquement — jamais en dehors de ce compose
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - zero-secret-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  openbao:
+    image: docker.io/openbao/openbao:2
+    command: ["server", "-dev"]
+    # Pas de BAO_DEV_ROOT_TOKEN_ID fixé : OpenBao en génère un aléatoirement au démarrage et
+    # l'affiche dans ses logs (`podman logs zero-secret-openbao-1`) — règle absolue #1.
+    cap_add:
+      - IPC_LOCK
+    ports:
+      - "127.0.0.1:8200:8200"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8200/v1/sys/health?standbyok=true"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  softhsm-init:
+    image: docker.io/library/debian:bookworm-slim
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "apt-get update -qq && apt-get install -y -qq --no-install-recommends softhsm2 opensc >/dev/null && /init/init-token.sh"
+    volumes:
+      - ./softhsm/init-token.sh:/init/init-token.sh:ro,Z
+      - zero-secret-softhsm-tokens:/var/lib/softhsm/tokens
+      - zero-secret-env-out:/env-out
+    restart: "no" # job d'initialisation, pas un service qui tourne en continu
+
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro,Z
+    ports:
+      - "127.0.0.1:4317:4317" # OTLP gRPC
+      - "127.0.0.1:4318:4318" # OTLP HTTP
+
+volumes:
+  zero-secret-postgres-data:
+  zero-secret-softhsm-tokens:
+  zero-secret-env-out:
