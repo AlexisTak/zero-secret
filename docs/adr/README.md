@@ -11,6 +11,8 @@ divergence silencieuse.
 | [003](ADR-003-moteur-de-politiques.md) | Cedar pour les décisions d'accès, OPA pour la plateforme | accepté | 2026-08-22 |
 | [004](ADR-004-generation-code-rust-proto.md) | Génération du code Rust depuis les contrats proto : build.rs, pas buf generate | accepté | 2026-08-22 |
 | [005](ADR-005-jenkins-remplace-github-actions.md) | Jenkins remplace GitHub Actions pour la CI, clé de signature stockée (dérogation) | accepté | 2026-08-22 |
+| [006](ADR-006-verification-webauthn-frontiere-crypto.md) | Vérification WebAuthn : frontière entre zs-webauthn et zs-crypto (authenticator-proof) | accepté | 2026-08-22 |
+| [007](ADR-007-suite-identity-assertion.md) | Spécification de la suite identity-assertion (émission, HSM) | accepté | 2026-08-22 |
 
 ## Règles
 

@@ -11,3 +11,17 @@ workspace = true
 [dependencies]
 zs-crypto = { path = "../zs-crypto" }
 thiserror = "2"
+ciborium = "0.2"
+coset = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+# webauthn-rs en oracle différentiel (ADR-006) : reporté — pas de test différentiel écrit dans
+# cette contribution faute de temps, donc pas de dépendance de dev inutilisée. À ajouter avec
+# le premier test qui l'utilise réellement, pas avant.
+
+[dev-dependencies]
+# Simule un authentificateur FIDO2 externe dans les tests (signe avec sa propre clé de test) —
+# n'entre jamais dans le chemin de confiance du crate lui-même, seulement dans le fixture de test.
+aws-lc-rs = { version = "1", features = ["prebuilt-nasm"] }

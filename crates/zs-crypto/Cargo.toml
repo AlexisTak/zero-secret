@@ -10,5 +10,8 @@ workspace = true
 
 [dependencies]
 thiserror = "2"
+zeroize = { version = "1", features = ["derive"] }
+aws-lc-rs = { version = "1", features = ["prebuilt-nasm"] }
+subtle = "2"
 
 [dev-dependencies]

@@ -44,11 +44,20 @@ documente par un ADR, et attend une validation. Décris ce que tu ferais, puis a
 ## Cibles post-quantiques
 
 ```
-audit-seal/v1   → ECDSA P-256
-audit-seal/v2   → ECDSA P-256 + ML-DSA-65        (hybride, cible)
-channel-kex/v1  → X25519
-channel-kex/v2  → X25519 + ML-KEM-768            (hybride, cible)
+audit-seal/v1          → ECDSA P-256
+audit-seal/v2          → ECDSA P-256 + ML-DSA-65        (hybride, cible)
+channel-kex/v1         → X25519
+channel-kex/v2         → X25519 + ML-KEM-768            (hybride, cible)
+identity-assertion/v1  → ECDSA P-256                    (émission, via zs-hsm — ADR-007)
+identity-assertion/v2  → ECDSA P-256 + ML-DSA-65        (hybride, cible)
+authenticator-proof/v1 → ES256 (COSE -7) + EdDSA (COSE -8)   (vérification seule — ADR-006)
+authenticator-proof/v2 → + ML-DSA-44/65 (COSE -48/-49)  (cible, dès parc matériel disponible)
 ```
+
+**`authenticator-proof` est une exception documentée à l'invariant 5** (ADR-006) : nous sommes
+vérificateur, pas émetteur — l'algorithme est imposé par l'authentificateur FIDO2 externe, pas
+choisi par nous. L'hybridation stricte s'applique pleinement à `audit-seal`, `channel-kex` et
+`identity-assertion` (suites que nous émettons), pas à celle-ci.
 
 Échéance structurante : à partir de 2027, l'ANSSI n'accepte plus en qualification les produits
 sans composante post-quantique.
