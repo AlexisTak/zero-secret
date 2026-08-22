@@ -47,21 +47,29 @@ artefact signé et attesté.
 ### L0.4 — Chaîne d'intégration continue
 - [x] Étapes : format → lint → détection de secrets → build → tests → tests d'architecture →
       analyse de dépendances → SBOM → CBOM → build reproductible → signature → attestation
-      (`.github/workflows/ci.yml`)
-- [x] Exécuteurs éphémères (GitHub-hosted, par construction), aucun secret durable (attestation
-      keyless via OIDC — `actions/attest-build-provenance`, aucune clé stockée)
+      (`Jenkinsfile`, sur une instance Jenkins existante — bascule depuis GitHub Actions,
+      voir ADR-005)
+- [x] Exécuteurs éphémères : agents Docker jetables (plugin Docker Pipeline), un conteneur par
+      stage. Secret durable : **dérogation documentée** (ADR-005) — clé cosign dans le Jenkins
+      Credentials Store, rotation à 90 jours, périmètre limité au stage de signature sur `main`
 - [ ] Branche principale protégée — **bloqué** : dépôt privé + plan GitHub Free renvoie 403
       sur `branches/main/protection` et sur `rulesets` (« Upgrade to GitHub Pro or make this
       repository public »). Nécessite un changement de plan GitHub (facturation — décision
       humaine) ou de rendre le dépôt public. À refaire dès que l'un des deux est tranché.
+      Sans lien avec la bascule Jenkins — c'est un réglage GitHub, indépendant de la plateforme
+      qui exécute la CI.
 - **Acceptation** : un secret introduit volontairement dans une branche est bloqué avant fusion.
   Vérifié localement (`gitleaks detect` sur un commit de test, secret détecté, commit annulé) ;
-  `gitleaks/gitleaks-action` reproduit ça en CI sur toute PR.
-- **Limite constatée et assumée** : le job `reproducible-build` est informatif
-  (`continue-on-error`), pas bloquant. Un `cargo build --release` identique, réexécuté à
+  le stage `détection de secrets` du `Jenkinsfile` reproduit ça sur chaque build.
+- **Limite constatée et assumée** : le stage `build reproductible (informatif)` est non bloquant
+  (`catchError` → `UNSTABLE`, pas `FAILURE`). Un `cargo build --release` identique, réexécuté à
   l'identique, produit deux binaires différents bit à bit (non-déterminisme connu de l'écosystème
   Rust sans configuration dédiée). À reprendre via un ADR si la reproductibilité devient un
   critère de qualification (ANSSI/CESTI) plutôt qu'un objectif déclaré.
+- **Historique** : implémenté une première fois sur GitHub Actions (`.github/workflows/`,
+  PR #3), remplacé par Jenkins sur demande explicite — voir ADR-005 pour la justification
+  complète des deux dérogations que ça introduit (secret stocké, attestation non conforme SLSA
+  à la lettre).
 
 ### L0.5 — Modèle de menaces v1
 - [x] `security/threat-models/` : un fichier par composant, les six catégories STRIDE renseignées

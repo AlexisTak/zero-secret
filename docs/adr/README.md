@@ -10,6 +10,7 @@ divergence silencieuse.
 | [002](ADR-002-gestionnaire-de-secrets.md) | OpenBao comme gestionnaire de secrets | accepté | 2026-08-22 |
 | [003](ADR-003-moteur-de-politiques.md) | Cedar pour les décisions d'accès, OPA pour la plateforme | accepté | 2026-08-22 |
 | [004](ADR-004-generation-code-rust-proto.md) | Génération du code Rust depuis les contrats proto : build.rs, pas buf generate | accepté | 2026-08-22 |
+| [005](ADR-005-jenkins-remplace-github-actions.md) | Jenkins remplace GitHub Actions pour la CI, clé de signature stockée (dérogation) | accepté | 2026-08-22 |
 
 ## Règles
 
