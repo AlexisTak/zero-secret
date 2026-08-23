@@ -436,32 +436,44 @@ questions qu'elle pose.
   `lib.rs`/`main.rs`, gRPC en clair).
 
 ### L2.3 — Parcours JIT (`access-broker`, Go)
-- [ ] Ouverture de demande : ressource, motif, référence de ticket (`Context.ticket_ref`,
-      `Context.justification`, bornée à 512 caractères côté contrat)
-- [ ] Sollicitation d'approbation quand la politique l'exige, avant l'appel au PDP
-      (`Context.approvals`, `Approval.signature` vérifiée via `zs-crypto`, jamais directement)
-- [ ] Appel `PolicyDecisionService.Decide` en mTLS, contexte complet fourni en entrée (pas
-      d'enrichissement côté PDP)
-- [ ] Déclenchement de l'ordre d'émission vers `credential-issuer`, décision signée transmise
-      telle quelle
-- **Acceptation** : une demande sans approbation requise et non fournie est refusée avant même
-  l'appel au PDP — le refus n'attend pas une décision motivée qu'aucune politique n'aurait pu
-  produire de toute façon.
-- **Décision structurante à prendre avant l'implémentation** (mode plan requis, angle mort L0.5) :
-  comment l'approbateur prouve son identité (assertion `identity-assertion/v1` réutilisée, ou
-  mécanisme distinct ?) — conditionne le format d'`Approval.signature` et doit être actée par ADR
-  avant tout code d'approbation.
-- **Décision structurante à prendre avant l'implémentation** (angle mort L0.5) : distinction entre
-  contexte **vérifié** (ex. `DevicePosture` mesurée par un agent de confiance) et contexte
-  **déclaré** (ex. `justification` en texte libre) dans `DecisionRequest.Context` — sans elle, une
-  politique ne peut pas distinguer une posture prouvée d'une posture affirmée, ce qui rouvre la
-  confusion de requête qu'ADR-003 cherche à exclure. À trancher par ADR, pas par convention de
-  nommage informelle.
-- **Événements d'audit** : `authentication.attempted` et consorts sont couverts par L1 —
-  `policy.decided` est nouveau ici, porte le champ `decision` du contrat
-  (`request_id`, `decision_hash`, `policy_version`, `reasons`, `granted_ttl_seconds` — déjà
-  spécifié dans `contracts/events/audit-event.schema.json`, non consommé avant ce lot, cf.
-  « hors périmètre » de L1.4b).
+- [x] Ouverture de demande : `apps/access-broker/internal/broker` (bibliothèque testable, pas de
+      serveur HTTP dans ce lot — `contracts/openapi/` n'existe pas encore, ADR-017).
+      `Context.justification` bornée à 512 caractères **appliquée** ici (documentée dans le
+      contrat depuis L0.3, jamais vérifiée avant)
+- [x] Sollicitation d'approbation : chaque `RawApproval` vérifiée via `identity.v1.
+      AssertionVerificationService` (H3), jamais directement — une approbation invalide est
+      ignorée sans annuler les autres ; **règle universelle provisoire** (ADR-017) : toute
+      demande sans approbation vérifiée est refusée avant l'appel au PDP, faute d'un mécanisme de
+      métadonnées par politique (la seule politique réelle aujourd'hui, `db.connect`, exige déjà
+      une approbation inconditionnellement — ce n'est donc pas une simplification arbitraire)
+- [x] Appel `PolicyDecisionService.Decide` réel (gRPC en clair — mTLS hors périmètre, même
+      limite que L2.2/H3), contexte complet construit côté broker (`Context.requested_at` fixé
+      par l'horloge du broker, jamais fourni par l'appelant — même raisonnement qu'
+      `AcceptancePolicy.now`, H3/ADR-016)
+- [ ] Déclenchement de l'ordre d'émission vers `credential-issuer` — **non fait** :
+      `credential-issuer` est un stub vide (L2.4/H2), rien à déclencher réellement. `Broker.Decide`
+      retourne la décision complète (`Allowed`, `Reasons`, `DecisionHash`, `PolicyVersion`) pour
+      qu'un futur appelant l'utilise.
+- **Acceptation** : une demande sans approbation vérifiée est refusée avant même l'appel au PDP —
+  vérifié par test (`TestAucuneApprobationVerifieeEstRefuseeAvantAppelAuPDP`,
+  `TestDemandeSansApprobationFournieEstRefuseeAvantAppelAuPDP`), pas par lecture.
+- **Décisions structurantes tranchées** (ADR-017, mode plan) :
+  - Approbateur : assertion `identity-assertion/v1` réutilisée, vérifiée via le service H3 —
+    confirmé et implémenté, pas seulement décidé.
+  - Contexte vérifié/déclaré : **non résolu, traité comme déclaré uniquement**, signalé
+    explicitement en commentaire de code et en ADR — aucun agent de posture de confiance n'existe
+    dans ce dépôt, un mécanisme de vérification n'a pas été inventé sans instruction. Étendu par
+    cohérence à `Approval.approved_at` (H3 ne renvoie pas d'horodatage vérifié).
+- **Événements d'audit** : `policy.decided` **non scellé ici** — exigerait un service Rust de
+  scellement symétrique à H3, inexistant. `authentication.attempted` et consorts restent couverts
+  par L1.
+- **Pas de test d'intégration réel avec de vrais serveurs** (contrairement à L2.2/H3), raison
+  structurelle : `tools/lib/check-no-direct-crypto.sh` interdit tout import crypto Go direct,
+  **sans l'exemption de test que Rust possède** (`mod tests { ... }`) — un test Go ne peut pas
+  fabriquer sa propre assertion signée, même à des fins de test. Tests locaux avec doublures des
+  interfaces gRPC générées (7 cas, tous les chemins de refus + le chemin nominal + la propagation
+  d'erreur de transport).
+- Voir ADR-017 pour la conception complète et les conséquences négatives assumées.
 
 ### H2 — Intégration OpenBao (prérequis partagé L2.4, sur le modèle de H1)
 - [ ] `apps/credential-issuer` : client OpenBao (bail à durée bornée, révocation programmée),
