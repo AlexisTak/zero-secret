@@ -1,0 +1,83 @@
+openapi: 3.1.0
+info:
+  title: admin-api
+  version: "1.0.0"
+  description: >-
+    Quorum sur les opérations critiques (L2.5, ADR-021). Portée réduite, assumée : ce contrat ne
+    connaît ni la granularité des rôles d'administration ni le chemin de modification à chaud des
+    politiques (angles morts hérités de security/threat-models/admin-api.md, non tranchés). Un
+    seul appel synchrone porte toutes les assertions déjà réunies hors bande — aucune collecte
+    incrémentale, aucun magasin d'état.
+paths:
+  /v1/critical-operations/{operation_id}/quorum:
+    post:
+      operationId: verifyQuorum
+      summary: Vérifie qu'un quorum de porteurs distincts a approuvé une opération critique.
+      parameters:
+        - name: operation_id
+          in: path
+          required: true
+          description: >-
+            Identifiant opaque de l'opération critique — ce contrat ne sait pas quelle opération
+            il protège (politique, approbateur, identité) ; voir ADR-021.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuorumRequest'
+      responses:
+        '200':
+          description: Résultat du quorum (atteint ou non — le non-atteinte n'est pas une erreur).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuorumResult'
+        '400':
+          description: Corps de requête malformé, ou seuil inférieur au plancher imposé.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    QuorumRequest:
+      type: object
+      required: [assertions, threshold, expected_authority_domain]
+      additionalProperties: false
+      properties:
+        assertions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: byte
+            description: Assertion identity-assertion/v1 scellée (base64) d'un porteur.
+        threshold:
+          type: integer
+          minimum: 2
+          description: >-
+            Nombre de porteurs distincts requis — refusé (400) si inférieur au plancher imposé
+            (MinimumThreshold = 2, ADR-021), jamais silencieusement relevé.
+        expected_authority_domain:
+          type: string
+    QuorumResult:
+      type: object
+      required: [reached, distinct_subjects]
+      additionalProperties: false
+      properties:
+        reached:
+          type: boolean
+        distinct_subjects:
+          type: array
+          items:
+            type: string
+    Error:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string

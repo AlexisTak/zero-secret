@@ -1,0 +1,5 @@
+package: httpapi
+generate:
+  models: true
+  std-http-server: true
+output: ../../apps/access-broker/internal/httpapi/api_generated.go

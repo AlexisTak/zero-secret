@@ -443,8 +443,8 @@ questions qu'elle pose.
   `lib.rs`/`main.rs`, gRPC en clair).
 
 ### L2.3 — Parcours JIT (`access-broker`, Go)
-- [x] Ouverture de demande : `apps/access-broker/internal/broker` (bibliothèque testable, pas de
-      serveur HTTP dans ce lot — `contracts/openapi/` n'existe pas encore, ADR-017).
+- [x] Ouverture de demande : `apps/access-broker/internal/broker` (bibliothèque testable ; entrée
+      HTTP réelle livrée ensuite, voir ADR-022).
       `Context.justification` bornée à 512 caractères **appliquée** ici (documentée dans le
       contrat depuis L0.3, jamais vérifiée avant)
 - [x] Sollicitation d'approbation : chaque `RawApproval` vérifiée via `identity.v1.
@@ -602,16 +602,35 @@ questions qu'elle pose.
   il protège ni qui a le droit de l'initier — l'appelant fournit le domaine d'autorité attendu et
   les assertions, le module ne fait que compter des porteurs distincts vérifiés. Conception
   délibérément étroite pour rester réutilisable quel que soit le futur système de rôles.
-- **`apps/admin-api/internal/quorum`, bibliothèque d'abord** — même patron que L2.3/L2.4, aucun
-  contrat n'existe, `main.go` reste un stub. Pas de test d'intégration réel signé (même limite
-  structurelle que L2.3/L2.4 : `check-no-direct-crypto.sh` sans exemption de test côté Go).
+- **`apps/admin-api/internal/quorum`, bibliothèque d'abord** — entrée HTTP réelle livrée
+  ensuite, voir ADR-022. Pas de test d'intégration réel signé (même limite structurelle que
+  L2.3/L2.4 : `check-no-direct-crypto.sh` sans exemption de test côté Go).
 - Voir ADR-021 pour la conception complète.
 
+### Entrée HTTP réelle (`access-broker`, `admin-api`, `contracts/openapi/`)
+- [x] `contracts/openapi/{access-broker,admin-api}.yaml` (OpenAPI 3.1, source de vérité) +
+      `tools/generate-openapi.sh` (`oapi-codegen`, câblé dans `make generate`) — premier
+      outillage de génération HTTP Go de ce dépôt.
+- [x] `POST /v1/access-requests` (`access-broker`) et
+      `POST /v1/critical-operations/{operation_id}/quorum` (`admin-api`) : `main.go` cesse
+      d'être un stub dans les deux apps, premier vrai serveur HTTP côté Go (symétrique à
+      `policy-engine`/`identity-provider` côté Rust).
+- [x] Authentification du demandeur par assertion `identity-assertion/v1` en en-tête
+      (`X-Identity-Assertion`), vérifiée via H3 avant toute construction de requête interne —
+      jamais un `Principal` accepté depuis le corps JSON.
+- **Décision de portée** : un seul appel synchrone par endpoint, pas de collecte incrémentale
+  d'approbations/quorum (magasin d'état persistant hors périmètre, même famille que
+  `ConsumedDecisionStore`, L2.4). Pas de TLS/mTLS (signalé, même limite que partout ailleurs).
+- **Événement d'audit** : aucun nouveau — ces endpoints ne font que traduire HTTP vers les
+  bibliothèques déjà auditées (`broker.Decide`, `quorum.VerifyQuorum`), qui ne produisent
+  toujours pas d'événement scellé côté Go (même limite que L2.3/L2.4/L2.5).
+- Voir ADR-022 pour la conception complète.
+
 ### L2.6 — Console web (`console-web`, TypeScript)
-- **Explicitement hors périmètre de ce lot, différé** : `docs/architecture.md` l'exige sans
-  logique de sécurité côté client — dépend d'API stables sur `admin-api`/`access-broker`
-  (L2.3/L2.5), donc en aval, pas en parallèle. Ne pas ouvrir avant que ces deux API existent
-  réellement, pour éviter une interface construite contre un contrat qui bouge encore.
+- **Toujours hors périmètre, prêt à être ouvert** : `docs/architecture.md` l'exige sans logique
+  de sécurité côté client. Les deux API dont il dépend (`access-broker`/`admin-api`) ont
+  désormais une entrée HTTP réelle (voir ci-dessus, ADR-022) — le blocage initial (« ne pas
+  ouvrir avant que ces deux API existent réellement ») est levé.
 
 ---
 

@@ -1,0 +1,147 @@
+openapi: 3.1.0
+info:
+  title: access-broker
+  version: "1.0.0"
+  description: >-
+    Parcours JIT (L2.3). Premier point d'entrée HTTP du plan de données — voir
+    security/threat-models/access-broker.md. Le demandeur s'authentifie par une assertion
+    identity-assertion/v1 transmise dans l'en-tête X-Identity-Assertion (base64), vérifiée via
+    identity-provider (H3) AVANT toute construction de requête — jamais un champ "principal"
+    dans le corps, qui serait un contournement trivial de l'authentification.
+    Aucune collecte incrémentale d'approbations : la requête porte, en un seul appel, toutes les
+    assertions d'approbation déjà réunies hors bande (pas de magasin d'état, cohérent avec le
+    scope-cut DB du lot L2).
+paths:
+  /v1/access-requests:
+    post:
+      operationId: createAccessRequest
+      summary: Ouvre une demande d'accès JIT et retourne la décision du PDP.
+      parameters:
+        - name: X-Identity-Assertion
+          in: header
+          required: true
+          description: Assertion identity-assertion/v1 scellée (base64) du demandeur.
+          schema:
+            type: string
+            format: byte
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessRequestBody'
+      responses:
+        '200':
+          description: Décision rendue (autorisée ou refusée — le refus n'est pas une erreur).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+        '400':
+          description: Corps de requête malformé.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: >-
+            Assertion du demandeur absente ou invalide — refusé avant toute construction de
+            requête, avant tout appel au PDP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    AccessRequestBody:
+      type: object
+      required: [verb, resource, ticket_ref, justification, expected_authority_domain]
+      additionalProperties: false
+      properties:
+        verb:
+          type: string
+          examples: ["db.connect"]
+        resource:
+          $ref: '#/components/schemas/Resource'
+        source_network:
+          type: string
+        posture:
+          $ref: '#/components/schemas/Posture'
+        ticket_ref:
+          type: string
+        justification:
+          type: string
+          maxLength: 512
+        approvals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Approval'
+        expected_authority_domain:
+          type: string
+          description: Domaine d'autorité attendu pour la vérification des approbations.
+    Resource:
+      type: object
+      required: [type, id, authority_domain]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+        id:
+          type: string
+        authority_domain:
+          type: string
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+    Posture:
+      type: object
+      additionalProperties: false
+      properties:
+        managed:
+          type: boolean
+        disk_encrypted:
+          type: boolean
+        agent_version:
+          type: string
+        evaluated_at:
+          type: string
+          format: date-time
+    Approval:
+      type: object
+      required: [assertion, approved_at]
+      additionalProperties: false
+      properties:
+        assertion:
+          type: string
+          format: byte
+          description: Assertion identity-assertion/v1 scellée (base64) de l'approbateur.
+        approved_at:
+          type: string
+          format: date-time
+          description: >-
+            Horodatage DÉCLARÉ par l'appelant, pas vérifié (ADR-017) — identity.v1.
+            VerifyAssertionResponse ne renvoie pas d'horodatage vérifié pour l'assertion.
+    Decision:
+      type: object
+      required: [allowed, reasons]
+      additionalProperties: false
+      properties:
+        allowed:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            type: string
+        decision_hash:
+          type: string
+          format: byte
+        policy_version:
+          type: string
+    Error:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string

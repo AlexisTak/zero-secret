@@ -53,6 +53,20 @@ else
 	echo "test-arch : NO-OP pour generated-up-to-date — buf absent de cet environnement." >&2
 fi
 
+# api_generated.go (access-broker, admin-api) est généré par oapi-codegen depuis
+# contracts/openapi/*.yaml (tools/generate-openapi.sh) — même invariant que pkg/gen ci-dessus.
+if command -v go >/dev/null 2>&1; then
+	source "$SCRIPT_DIR/lib/check-generated-up-to-date.sh"
+	if ! check_generated_up_to_date "$REPO_ROOT" "bash tools/generate-openapi.sh" \
+		apps/access-broker/internal/httpapi/api_generated.go \
+		apps/admin-api/internal/httpapi/api_generated.go; then
+		echo "test-arch : fichier généré divergent détecté ci-dessus (OpenAPI)." >&2
+		fail=1
+	fi
+else
+	echo "test-arch : NO-OP pour generated-up-to-date/OpenAPI — go absent de cet environnement." >&2
+fi
+
 if [[ "$fail" -eq 0 ]]; then
 	echo "test-arch : aucune violation détectée."
 fi
