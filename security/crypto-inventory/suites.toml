@@ -1,0 +1,39 @@
+# Source de vérité du CBOM (ADR-011). `tools/generate-cbom.sh` dérive `cbom.json` (CycloneDX
+# 1.6) depuis ce fichier — ne jamais éditer `cbom.json` à la main. Une suite référencée dans
+# `crates/zs-crypto/src/**/*.rs` (motif `"<nom>/vN"`) sans entrée ici fait échouer
+# `make test-arch` (invariant 9 de `crates/zs-crypto/CLAUDE.md`, comblé par H1/ADR-011 : jusque
+# là, ce contrôle n'existait pas et `authenticator-proof/v1` était déjà en défaut).
+
+[[suite]]
+id = "authenticator-proof/v1"
+role = "verification"
+primitive = "signature"
+algorithms = ["ECDSA P-256 (COSE -7)", "EdDSA (COSE -8)"]
+execution_environment = "software"
+anssi_2027_compliant = false
+anssi_2027_exception_adr = "ADR-006"
+adrs = ["ADR-006"]
+notes = "Vérification seule : l'algorithme est imposé par l'authentificateur FIDO2 externe, pas choisi par nous (exception documentée à l'invariant 5 de zs-crypto/CLAUDE.md)."
+
+[[suite]]
+id = "identity-assertion/v1"
+role = "emission"
+primitive = "signature"
+algorithms = ["ECDSA P-256"]
+execution_environment = "hardware"
+anssi_2027_compliant = false
+successor = "identity-assertion/v2"
+adrs = ["ADR-007", "ADR-008", "ADR-011"]
+notes = "Scellement réel non implémenté (L1.2c, différé) : bloqué sur l'intégration HSM (H1, ADR-011)."
+
+[[suite]]
+id = "audit-seal/v1"
+role = "emission"
+primitive = "signature"
+algorithms = ["ECDSA P-256"]
+execution_environment = "hardware"
+anssi_2027_compliant = false
+successor = "audit-seal/v2"
+frequency = "per-business-action"
+adrs = ["ADR-010", "ADR-011"]
+notes = "Scellement réel non implémenté (L1.4b, différé) : opération HSM la plus fréquente du système (une par action métier, règle absolue #9)."

@@ -13,3 +13,13 @@ unsafe_code = "allow"
 
 [dependencies]
 thiserror = "2"
+cryptoki = "0.12"
+# Réexportée par cryptoki (types AuthPin/RawAuthPin) — pas une bibliothèque crypto au sens de la
+# règle absolue #4 : conteneur zeroizant, aucune primitive.
+secrecy = "0.10"
+
+# Bornes de capacité et timeout du pool de sessions (ADR-011) — pas une primitive crypto, aucune
+# raison de passer par zs-crypto pour un mutex/condvar applicatif.
+[dependencies.zeroize]
+version = "1"
+features = ["derive"]

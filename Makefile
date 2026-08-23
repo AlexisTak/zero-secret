@@ -53,9 +53,11 @@ test: ## Unitaires + propriété + politiques
 	cedar test --policies policies/access --tests policies/tests || true
 	opa test policies/platform policies/tests -v || true
 
-test-crypto: ## Vecteurs Wycheproof, conformité WebAuthn
+test-crypto: ## Vecteurs Wycheproof, conformité WebAuthn, intégration PKCS#11 (H1, ADR-011)
 	cargo test -p zs-crypto --features conformance -- --include-ignored
 	cargo test -p zs-webauthn --features conformance -- --include-ignored
+	@echo "Vérifier SoftHSM2 : $$ZS_HSM_MODULE"
+	cargo test -p zs-hsm -- --include-ignored
 
 fuzz: ## Fuzzing ciblé — make fuzz TARGET=attestation_parser
 	@test -n "$(TARGET)" || { echo "Usage: make fuzz TARGET=<cible>"; exit 1; }

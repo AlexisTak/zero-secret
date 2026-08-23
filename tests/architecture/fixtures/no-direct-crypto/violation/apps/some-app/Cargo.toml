@@ -8,3 +8,5 @@ edition = "2024"
 p256 = "0.13"
 # Violation : motif étendu L1.1 (referent-crypto) — webauthn-rs implique OpenSSL en FFI.
 webauthn-rs = "0.5"
+# Violation : motif étendu H1 (referent-crypto, ADR-011) — cryptoki (FFI PKCS#11) hors zs-hsm.
+cryptoki = "0.12"

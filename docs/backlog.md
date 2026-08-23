@@ -168,10 +168,9 @@ de l'analyseur d'attestation sans incident.
       par assertion permettrait à un clone de désactiver la détection en forçant `signCount=0`)
 - [ ] Assertion d'identité signée portant le niveau AAL atteint et la méthode employée —
       **différée à L1.2c** (ADR-008) : construction des claims faite (`AuthenticationClaims`,
-      non sérialisable par construction), la signature réelle exige une intégration PKCS#11/
-      SoftHSM2 dans `crates/zs-hsm` (aujourd'hui un stub vide), scopée hors de cette contribution
-      sur recommandation `referent-crypto` (mélange crate FFI unsafe + parsing WebAuthn, mauvais
-      périmètre d'audit).
+      non sérialisable par construction). H1 (intégration PKCS#11 réelle, ADR-011) est **fait** —
+      `crates/zs-hsm` n'est plus un stub — mais `zs_crypto::identity_assertion::seal` (qui
+      appellera `zs-hsm` en interne) reste à écrire : le prérequis est levé, pas encore consommé.
 - **Acceptation** : compteur régressif → alerte et refus (**fait**, `compteur_regressif_est_refuse`,
   `compteur_identique_est_refuse`) ; assertion rejouée → refus (**fait au niveau cérémonie
   WebAuthn** — challenge à usage unique, même mécanisme qu'en L1.1, `challenge_rejoue_est_refuse` ;
@@ -211,9 +210,9 @@ de l'analyseur d'attestation sans incident.
       en L1.2b) : la construction et le comptage sont faits, le scellement réel non.
 - [ ] Chaînage et signature vérifiés par test — **chaînage fait** (`crates/zs-audit/src/chain.rs`,
       `verify_chain`, testé sur octets scellés opaques). **Signature différée à L1.4b** (ADR-010) :
-      `audit-seal/v1` est une suite d'émission soumise à l'invariant HSM de `zs-crypto`,
-      bloquée tant que `crates/zs-hsm` reste un stub — même mur que L1.2c (identity-assertion).
-      Prérequis partagé identifié : H1 (intégration PKCS#11/SoftHSM2 réelle, contribution dédiée).
+      `audit-seal/v1` est une suite d'émission soumise à l'invariant HSM de `zs-crypto`. Le
+      prérequis partagé H1 (intégration PKCS#11 réelle, ADR-011) est **fait** — `crates/zs-hsm`
+      n'est plus un stub — mais `zs_crypto::audit_seal::seal` reste à écrire.
 - **Acceptation** : aucune action du parcours ne réussit sans produire son événement — **démontré
   au niveau de la complétude de flux** (`crates/zs-audit/src/sink.rs::echec_du_puits_nest_jamais_avale_silencieusement`
   : un puits qui échoue fait échouer l'enregistrement, jamais un succès silencieux) et **par
@@ -234,6 +233,43 @@ de l'analyseur d'attestation sans incident.
   `troncature_en_queue_de_chaine_nest_pas_detectee`) — seul un ancrage périodique publié à
   l'extérieur (`event_type: "audit.chain_verified"`, déjà réservé au contrat) la détecterait ;
   hors périmètre L1.4a.
+
+### H1 — Intégration HSM (prérequis partagé L1.2c/L1.4b)
+- [x] `crates/zs-hsm` : intégration PKCS#11 réelle (`cryptoki` 0.12, ADR-011) — pool de sessions
+      borné plafonné par `ulMaxSessionCount`, pré-authentifiées, jamais de `thread_local!` ;
+      règle absolue : aucune session du pool n'appelle `logout()` (portée application/token, pas
+      session — déloguerait toutes les autres sessions).
+- [x] `HsmSigner::{sign_digest, public_key}` — trait générique, sans vocabulaire métier
+      (`identity-assertion`/`audit-seal` restent inconnus de `zs-hsm`, portés par `zs-crypto` en
+      L1.2c/L1.4b). Encodage de signature figé : raw `r‖s`, 64 octets (entre dans `prev_hash`,
+      ADR-010 — irréversible après le premier événement scellé).
+- [x] Sémantique de refus stricte : aucun repli logiciel (même en dev), aucune reprise interne
+      (ECDSA randomisé + `prev_hash` signature incluse = risque de fourche de chaîne si deux
+      signatures valides du même contenu étaient produites), démarrage en échec dur si le
+      mécanisme requis n'est pas offert par le token.
+- [x] CBOM initialisé (`security/crypto-inventory/{suites.toml,cbom.json,README.md}`), trois
+      suites déclarées (`authenticator-proof/v1`, `identity-assertion/v1`, `audit-seal/v1`) —
+      comble l'invariant 9 de `zs-crypto/CLAUDE.md`, en défaut depuis L1.1 (aucun contrôle
+      n'existait avant). Contrôle bloquant ajouté (`tools/lib/check-cbom-coverage.sh`) : une
+      suite référencée dans `zs-crypto` sans entrée CBOM fait échouer `make test-arch`.
+- [x] Test d'architecture étendu : `cryptoki`/`cryptoki-sys` non importables hors `zs-hsm`
+      (`tools/lib/check-no-direct-crypto.sh`).
+- [ ] Tests d'intégration réels contre SoftHSM2 (`crates/zs-hsm/tests/pkcs11_integration.rs`,
+      `#[ignore]`, activés par `make test-crypto`) — **non exécutés dans cette contribution**
+      (SoftHSM2 non installé sur ce poste de développement Windows) ; 5 tests unitaires purs
+      (`decode_ec_point`) exécutés et verts, le reste attend un environnement Linux/CI avec
+      `ZS_HSM_MODULE` défini.
+- **Deux clés HSM séparées** dès H1 (une pour `identity-assertion`, une pour `audit-seal`,
+  ADR-011) : séparer après coup exigerait de rejouer tout l'historique signé.
+- **Pool saturé → refus complet de l'action métier** (ADR-011) : une surcharge HSM devient une
+  indisponibilité du système par conception, jamais une action qui réussirait sans événement
+  scellé — décision de disponibilité assumée, pas seulement de sécurité.
+- **Hors périmètre H1, signalé** : aucun HSM matériel cible identifié à ce jour — SoftHSM2 reste
+  la seule cible testée ; `SigningMechanism` (aujourd'hui `EcdsaP256Sha256` seul) peut nécessiter
+  révision selon les mécanismes réellement exposés par le matériel choisi. Mesures de latence
+  PKCS#11 (plancher, pas une capacité de production) non faites — pas de SoftHSM2 disponible ici.
+- Voir ADR-011 pour la conception complète (bibliothèque `cryptoki`, frontière `zs-crypto`/
+  `zs-hsm`, plan de test détaillé).
 
 ---
 
