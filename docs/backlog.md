@@ -654,11 +654,23 @@ questions qu'elle pose.
   chaque appel HSM (défaut identifié mais non corrigé dans `policy-engine`, hors périmètre).
 
 ### L2.6 — Console web (`console-web`, TypeScript)
-- **Toujours hors périmètre, prêt à être ouvert** : `docs/architecture.md` l'exige sans logique
-  de sécurité côté client. Les deux API dont il dépend (`access-broker`/`admin-api`) ont
-  désormais une entrée HTTP réelle (ADR-022) et `identity-provider` peut désormais émettre une
-  assertion réelle par cérémonie WebAuthn HTTP (H5, ADR-023) — les deux blocages initiaux sont
-  levés.
+- [x] Premier code réel : `node:http` natif, zéro dépendance runtime (`typescript`/`@types/node`
+      en devDependency uniquement) — même esprit qu'ADR-022 (Go)/ADR-023 (Rust, `axum` minimal).
+- [x] Login WebAuthn (enregistrement + authentification, relais vers `identity-provider` H5) et
+      demande d'accès (relais vers `access-broker`), flux à un seul utilisateur, testé de bout
+      en bout (`apps/console-web/src/server.test.ts`, 21 tests, faux serveurs HTTP en process).
+- [x] Session opaque côté serveur (`crypto.randomBytes(32)`, jamais un JWT), cookie
+      `__Host-session`, rotation à chaque authentification, purge active périodique — voir
+      ADR-024 pour la conception complète (frontière crypto TypeScript, liste blanche fermée).
+- [x] Échappement HTML systématique (`src/html.ts`, tagged template, testé contre une charge XSS)
+      et contrôle `Origin`/`Sec-Fetch-Site` sur tout `POST` (CSRF, `SameSite=Strict` jugé
+      insuffisant seul).
+- **Décision de portée** (mode plan + `AskUserQuestion`) : écran quorum (`admin-api`) différé à
+  L2.6b — flux à plusieurs porteurs s'authentifiant séparément, structurellement différent d'un
+  flux à un seul utilisateur, hors périmètre de ce lot.
+- **Angle mort hérité, pas résolu ici** : bootstrap du premier facteur (H5/ADR-023) —
+  `console-web` transmet le `subject_id` saisi tel quel, aucune authentification préalable.
+- Voir ADR-024 pour la conception complète.
 
 ---
 

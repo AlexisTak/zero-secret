@@ -29,6 +29,7 @@ divergence silencieuse.
 | [021](ADR-021-quorum-admin-api.md) | Quorum sur les opérations critiques (admin-api, L2.5, portée réduite) | accepté | 2026-08-23 |
 | [022](ADR-022-openapi-access-broker-admin-api.md) | Première entrée HTTP réelle (access-broker, admin-api, contracts/openapi/) | accepté | 2026-08-23 |
 | [023](ADR-023-ceremonie-webauthn-http-identity-provider.md) | Endpoints HTTP de cérémonie WebAuthn (identity-provider, H5) | accepté | 2026-08-23 |
+| [024](ADR-024-frontiere-crypto-typescript-console-web.md) | Frontière crypto TypeScript (console-web) | accepté | 2026-08-23 |
 
 ## Règles
 
