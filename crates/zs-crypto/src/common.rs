@@ -127,12 +127,53 @@ pub(crate) fn key_id_from_public_key(sec1_uncompressed: &[u8]) -> String {
     hex_encode(&sha256(sec1_uncompressed)[..8])
 }
 
-/// RFC 8785 (JCS) simplifié : `serde_json::Map` est adossée à une `BTreeMap` par défaut (feature
-/// `preserve_order` absente de ce workspace), donc les clés sont déjà triées à la sérialisation ;
-/// `serde_json::to_vec` ne produit aucun espace superflu — suffisant pour un document ne
-/// contenant que chaînes, entiers, tableaux et objets, jamais de nombre à virgule flottante.
+/// RFC 8785 (JCS) simplifié : tri **explicite et récursif** des clés d'objet (comparaison sur les
+/// octets UTF-8 des littéraux ASCII de ce workspace — diverge de JCS au-dessus de U+FFFF, où JCS
+/// trie sur les unités de code UTF-16 ; nos champs ne contiennent jamais un tel caractère, cf.
+/// `bounded_ascii_string!`), tableaux laissés dans leur ordre (JCS §3.2.3 : l'ordre y est
+/// sémantique, jamais trié) ; `serde_json::to_vec` ne produit aucun espace superflu.
+///
+/// **Ne repose plus sur le backing `BTreeMap` implicite de `serde_json::Map`.** Ancienne
+/// hypothèse invalidée en L2.2 : l'ajout de `cedar-policy` (dépendance transitive
+/// `cedar-policy-core` → `serde_json/preserve_order`, via `indexmap`) fait basculer
+/// `serde_json::Map` en `IndexMap` (ordre d'insertion) **pour tout le workspace** dès que les deux
+/// crates sont compilés ensemble (`cargo test --workspace`) — Cargo unifie les features d'une
+/// dépendance partagée sur tout le graphe compilé. Symptôme réel observé : le test de vecteurs
+/// figés `zs-audit::chain_vectors` échouait (`NonCanonical`) sous `--workspace` mais passait en
+/// isolation. Consultation `referent-crypto` (ADR-015) : une signature ne doit jamais dépendre
+/// d'un choix de feature Cargo d'une dépendance tierce — le tri est donc rendu explicite ici,
+/// correct quel que soit le backing de `serde_json::Map`.
+///
+/// Nombre à virgule flottante : refusé explicitement (`assert!`), pas silencieusement signé sous
+/// une forme ambiguë — JCS impose la sérialisation ES6 des flottants, non implémentée ici ; aucun
+/// document de ce workspace n'en porte (invariant déjà existant, désormais vérifié).
 pub(crate) fn canonical_bytes(value: &Value) -> Vec<u8> {
-    serde_json::to_vec(value).expect("un serde_json::Value construit ici est toujours sérialisable")
+    serde_json::to_vec(&sort_keys_recursively(value))
+        .expect("une Value canonicalisée par cette fonction est toujours sérialisable")
+}
+
+fn sort_keys_recursively(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+            let mut sorted = serde_json::Map::with_capacity(map.len());
+            for k in keys {
+                sorted.insert(k.clone(), sort_keys_recursively(&map[k]));
+            }
+            Value::Object(sorted)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(sort_keys_recursively).collect()),
+        Value::Number(n) => {
+            assert!(
+                !n.is_f64(),
+                "canonical_bytes : nombre à virgule flottante non supporté (JCS/ES6 non implémenté, \
+                 invariant du document signé)"
+            );
+            value.clone()
+        }
+        _ => value.clone(),
+    }
 }
 
 pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
@@ -141,4 +182,45 @@ pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
     out.copy_from_slice(d.as_ref());
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn cles_triees_quel_que_soit_lordre_dinsertion() {
+        // Reste rouge sous `--all-features` tant que canonical_bytes dépend du backing implicite
+        // de serde_json::Map (régression L2.2 : cedar-policy-core active preserve_order).
+        let insertion_inverse = json!({ "z": 1, "a": 2, "m": 3 });
+        let insertion_triee = json!({ "a": 2, "m": 3, "z": 1 });
+        assert_eq!(canonical_bytes(&insertion_inverse), canonical_bytes(&insertion_triee));
+        assert_eq!(canonical_bytes(&insertion_inverse), br#"{"a":2,"m":3,"z":1}"#);
+    }
+
+    #[test]
+    fn tri_recursif_dans_les_objets_imbriques() {
+        let value = json!({ "b": { "y": 1, "x": 2 }, "a": 1 });
+        assert_eq!(canonical_bytes(&value), br#"{"a":1,"b":{"x":2,"y":1}}"#);
+    }
+
+    #[test]
+    fn ordre_des_tableaux_jamais_trie() {
+        // RFC 8785 §3.2.3 : l'ordre d'un tableau est sémantique, ne doit jamais être réordonné.
+        let value = json!({ "a": [3, 1, 2] });
+        assert_eq!(canonical_bytes(&value), br#"{"a":[3,1,2]}"#);
+    }
+
+    #[test]
+    fn aucun_espace_superflu() {
+        let value = json!({ "a": 1, "b": [1, 2] });
+        assert!(!canonical_bytes(&value).contains(&b' '));
+    }
+
+    #[test]
+    #[should_panic(expected = "nombre à virgule flottante")]
+    fn nombre_a_virgule_flottante_est_refuse() {
+        canonical_bytes(&json!({ "a": 1.5 }));
+    }
 }
