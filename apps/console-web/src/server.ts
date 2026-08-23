@@ -18,11 +18,13 @@ import {
 } from "./session.js";
 import type { IdentityProviderClient } from "./clients/identity-provider.js";
 import { HttpAccessBrokerClient, AccessBrokerAuthError } from "./clients/access-broker.js";
+import { HttpAdminApiClient, AdminApiError, type QuorumResult } from "./clients/admin-api.js";
 
 export interface ServerConfig {
   origin: string;
   identityProvider: IdentityProviderClient;
   accessBroker: HttpAccessBrokerClient;
+  adminApi: HttpAdminApiClient;
   expectedAuthorityDomain: string;
   sessionTtlSeconds: number;
   publicDir: string;
@@ -47,6 +49,9 @@ export function createApp(config: ServerConfig) {
       if (method === "GET" && url.pathname === "/login") return sendPage(res, loginPage());
       if (method === "GET" && url.pathname === "/access-request") {
         return handleAccessRequestPage(req, res, sessions);
+      }
+      if (method === "GET" && url.pathname === "/quorum") {
+        return handleQuorumPage(req, res, sessions);
       }
       if (method === "GET" && url.pathname.startsWith("/static/")) {
         return serveStatic(res, url.pathname, config.publicDir);
@@ -86,6 +91,9 @@ export function createApp(config: ServerConfig) {
       if (method === "POST" && url.pathname === "/access-request") {
         return handleAccessRequestSubmit(req, res, config, sessions);
       }
+      if (method === "POST" && url.pathname === "/quorum") {
+        return handleQuorumSubmit(req, res, config, sessions);
+      }
       if (method === "POST" && url.pathname === "/logout") {
         return handleLogout(req, res, sessions);
       }
@@ -124,8 +132,8 @@ function send(res: ServerResponse, status: number, body: unknown, extraHeaders?:
   res.end(JSON.stringify(body));
 }
 
-function sendPage(res: ServerResponse, body: string): void {
-  res.statusCode = 200;
+function sendPage(res: ServerResponse, body: string, status = 200): void {
+  res.statusCode = status;
   res.setHeader("content-type", "text/html; charset=utf-8");
   res.end(body);
 }
@@ -274,12 +282,107 @@ async function handleAccessRequestSubmit(
       return;
     }
     if (err instanceof BadRequest) {
-      res.statusCode = 400;
-      sendPage(res, page("Demande refusée", html`<p>Requête invalide : ${err.message}</p>`));
+      sendPage(res, page("Demande refusée", html`<p>Requête invalide : ${err.message}</p>`), 400);
       return;
     }
-    res.statusCode = 502;
-    sendPage(res, page("Service indisponible", html`<p>access-broker est indisponible.</p>`));
+    sendPage(res, page("Service indisponible", html`<p>access-broker est indisponible.</p>`), 502);
+  }
+}
+
+async function handleQuorumPage(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessions: SessionStore,
+): Promise<void> {
+  const session = requireSession(req, sessions);
+  if (!session) {
+    res.statusCode = 302;
+    res.setHeader("location", "/login");
+    res.end();
+    return;
+  }
+  sendPage(res, quorumPage());
+}
+
+/** Parse le bloc "une assertion base64 standard par ligne" — lignes vides ignorées, jamais
+ * transmises telles quelles sans validation de décodabilité (ADR-024 : ne jamais faire confiance
+ * à une entrée non fiable sans la valider avant de la relayer). */
+function parseAssertionsBlock(raw: string): Uint8Array[] {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (lines.length === 0) {
+    throw new BadRequest("champ_manquant_ou_invalide:assertions");
+  }
+  return lines.map((line) => {
+    // Buffer.from(..., "base64") ignore silencieusement les caractères hors alphabet plutôt que
+    // de rejeter — revalider explicitement par ré-encodage (comparaison sans le padding, que
+    // l'opérateur peut omettre) avant de faire confiance à la valeur décodée (ADR-024).
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(line)) {
+      throw new BadRequest("assertion_encodee_en_base64_invalide");
+    }
+    const decoded = Buffer.from(line, "base64");
+    const reencoded = decoded.toString("base64").replace(/=+$/, "");
+    if (reencoded !== line.replace(/=+$/, "")) {
+      throw new BadRequest("assertion_encodee_en_base64_invalide");
+    }
+    return new Uint8Array(decoded);
+  });
+}
+
+async function handleQuorumSubmit(
+  req: IncomingMessage,
+  res: ServerResponse,
+  config: ServerConfig,
+  sessions: SessionStore,
+): Promise<void> {
+  const session = requireSession(req, sessions);
+  if (!session) {
+    res.statusCode = 302;
+    res.setHeader("location", "/login");
+    res.end();
+    return;
+  }
+
+  try {
+    const body = await readFormBody(req);
+    const operationId = requireString(body, "operation_id");
+    const thresholdRaw = requireString(body, "threshold");
+    const threshold = Number(thresholdRaw);
+    if (!Number.isInteger(threshold)) {
+      throw new BadRequest("champ_manquant_ou_invalide:threshold");
+    }
+    const assertions = parseAssertionsBlock(requireString(body, "assertions"));
+
+    const result = await config.adminApi.requestQuorum({
+      operationId,
+      assertions,
+      threshold,
+      expectedAuthorityDomain: requireString(body, "expected_authority_domain"),
+    });
+    sendPage(res, quorumResultPage(operationId, result));
+  } catch (err) {
+    if (err instanceof AdminApiError) {
+      sendPage(
+        res,
+        page("Quorum refusé", html`<p>${err.reason}</p><p><a href="/quorum">Retour</a></p>`),
+        err.status,
+      );
+      return;
+    }
+    if (err instanceof BadRequest) {
+      sendPage(
+        res,
+        page(
+          "Quorum refusé",
+          html`<p>Requête invalide : ${err.message}</p><p><a href="/quorum">Retour</a></p>`,
+        ),
+        400,
+      );
+      return;
+    }
+    sendPage(res, page("Service indisponible", html`<p>admin-api est indisponible.</p>`), 502);
   }
 }
 
@@ -349,11 +452,17 @@ function loginPage(): string {
   );
 }
 
+function navBar(subjectId: string): string {
+  return html`<p>Connecté comme <strong>${subjectId}</strong> —
+<a href="/access-request">Demande d'accès</a> · <a href="/quorum">Quorum</a> ·
+<form method="post" action="/logout" style="display:inline"><button type="submit">Se déconnecter</button></form></p>`;
+}
+
 function accessRequestPage(subjectId: string): string {
   return page(
     "Demande d'accès — console",
     html`<h1>Demande d'accès</h1>
-<p>Connecté comme <strong>${subjectId}</strong> — <form method="post" action="/logout" style="display:inline"><button type="submit">Se déconnecter</button></form></p>
+${raw(navBar(subjectId))}
 <form method="post" action="/access-request">
 <label>Verbe <input type="text" name="verb" required placeholder="db.connect"></label>
 <label>Type de ressource <input type="text" name="resource_type" required placeholder="Database"></label>
@@ -373,6 +482,35 @@ function accessDecisionPage(subjectId: string, decision: { allowed: boolean; rea
 <p>Connecté comme <strong>${subjectId}</strong></p>
 <ul>${decision.reasons.map((r) => raw(html`<li>${r}</li>`))}</ul>
 <p><a href="/access-request">Nouvelle demande</a></p>`,
+  );
+}
+
+function quorumPage(): string {
+  return page(
+    "Quorum — console",
+    html`<h1>Vérification de quorum</h1>
+<p>Chaque assertion a déjà été réunie hors bande (une par porteur) — ce formulaire ne collecte
+   rien en temps réel, il relaie un lot déjà complet vers admin-api (portée assumée, L2.6b).</p>
+<form method="post" action="/quorum">
+<label>Identifiant de l'opération <input type="text" name="operation_id" required></label>
+<label>Seuil (minimum 2) <input type="number" name="threshold" min="2" value="2" required></label>
+<label>Domaine d'autorité attendu <input type="text" name="expected_authority_domain" required></label>
+<label>Assertions (une par ligne, base64 standard)
+<textarea name="assertions" required rows="6"></textarea></label>
+<button type="submit">Vérifier le quorum</button>
+</form>
+<p><a href="/access-request">Retour</a></p>`,
+  );
+}
+
+function quorumResultPage(operationId: string, result: QuorumResult): string {
+  return page(
+    "Résultat du quorum — console",
+    html`<h1>${result.reached ? "Quorum atteint" : "Quorum non atteint"}</h1>
+<p>Opération <strong>${operationId}</strong></p>
+<p>Porteurs distincts vérifiés :</p>
+<ul>${result.distinctSubjects.map((s) => raw(html`<li>${s}</li>`))}</ul>
+<p><a href="/quorum">Nouvelle vérification</a></p>`,
   );
 }
 

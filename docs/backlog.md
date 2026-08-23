@@ -666,11 +666,34 @@ questions qu'elle pose.
       et contrôle `Origin`/`Sec-Fetch-Site` sur tout `POST` (CSRF, `SameSite=Strict` jugé
       insuffisant seul).
 - **Décision de portée** (mode plan + `AskUserQuestion`) : écran quorum (`admin-api`) différé à
-  L2.6b — flux à plusieurs porteurs s'authentifiant séparément, structurellement différent d'un
-  flux à un seul utilisateur, hors périmètre de ce lot.
+  L2.6b (fait, voir ci-dessous) — flux à plusieurs porteurs s'authentifiant séparément,
+  structurellement différent d'un flux à un seul utilisateur, hors périmètre de ce lot.
 - **Angle mort hérité, pas résolu ici** : bootstrap du premier facteur (H5/ADR-023) —
   `console-web` transmet le `subject_id` saisi tel quel, aucune authentification préalable.
 - Voir ADR-024 pour la conception complète.
+
+### L2.6b — Écran quorum (`console-web` → `admin-api`)
+- [x] `GET /quorum`/`POST /quorum` — formulaire **single-shot** (`operation_id`, `threshold`,
+      `expected_authority_domain`, assertions base64 standard réunies hors bande, une par
+      ligne) ; session requise pour y accéder, mais la session de l'opérateur n'est pas comptée
+      comme l'une des assertions du quorum.
+- [x] `apps/console-web/src/clients/admin-api.ts` — nouveau client HTTP fin, même patron que
+      `clients/access-broker.ts` (base64 standard, jamais base64url).
+- **Décision de portée** (mode plan + `AskUserQuestion`) : **aucune coordination temps réel
+  entre porteurs** — qui crée l'`operation_id`, comment les autres l'apprennent, reste un angle
+  mort non résolu (déjà signalé par ADR-022 : « collecte incrémentale » différée faute de
+  magasin persistant tranché). Résoudre cet angle mort exigerait un nouvel état serveur
+  (magasin d'opérations en attente) — décision structurante non instruite, pas inventée ici.
+- **Correctif trouvé en écrivant les tests de refus** (pas un ajout de portée, un bogue
+  préexistant de L2.6) : `sendPage()` réinitialisait toujours `res.statusCode` à `200` après
+  qu'un appelant l'ait positionné à `400`/`401`/`502` — toute page d'erreur HTML de L2.6
+  (`/access-request` compris) était donc renvoyée avec un statut `200` trompeur. Corrigé en
+  ajoutant un paramètre `status` explicite à `sendPage()`. Aucun test de L2.6 n'exerçait
+  auparavant un chemin de refus rendu en HTML (seuls les chemins JSON, via `send()`, étaient
+  couverts) — d'où l'angle mort resté invisible jusqu'ici.
+- 29 tests au total dans `apps/console-web` (`node --test`), dont les nouveaux tests de
+  `/quorum` (session requise, refus relayé, assertion mal encodée refusée avant tout appel
+  réseau).
 
 ---
 

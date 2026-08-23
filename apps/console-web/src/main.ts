@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "./server.js";
 import { HttpIdentityProviderClient } from "./clients/identity-provider.js";
 import { HttpAccessBrokerClient } from "./clients/access-broker.js";
+import { HttpAdminApiClient } from "./clients/admin-api.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +26,7 @@ function main(): void {
   const origin = requireEnv("CONSOLE_WEB_ORIGIN");
   const identityProviderUrl = requireEnv("CONSOLE_WEB_IDENTITY_PROVIDER_URL");
   const accessBrokerUrl = requireEnv("CONSOLE_WEB_ACCESS_BROKER_URL");
+  const adminApiUrl = requireEnv("CONSOLE_WEB_ADMIN_API_URL");
   const expectedAuthorityDomain = envOr("CONSOLE_WEB_EXPECTED_AUTHORITY_DOMAIN", "access-broker");
   const sessionTtlSeconds = Number(envOr("CONSOLE_WEB_SESSION_TTL_SECONDS", "120"));
 
@@ -32,6 +34,7 @@ function main(): void {
     origin,
     identityProvider: new HttpIdentityProviderClient(identityProviderUrl),
     accessBroker: new HttpAccessBrokerClient(accessBrokerUrl),
+    adminApi: new HttpAdminApiClient(adminApiUrl),
     expectedAuthorityDomain,
     sessionTtlSeconds,
     publicDir: path.join(__dirname, "..", "public"),
