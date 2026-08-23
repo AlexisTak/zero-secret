@@ -74,5 +74,24 @@ donnée biométrique.
 - **Bootstrap du premier facteur non résolu** hérité d'H5/ADR-023 : `console-web` transmet le
   `subject_id` saisi tel quel à `identity-provider` sans l'authentifier au préalable — même
   angle mort, pas aggravé ni résolu par ce lot.
-- **Écran quorum (`admin-api`) différé à L2.6b** — flux à plusieurs porteurs s'authentifiant
-  séparément, hors périmètre de ce lot (décision de portée explicite).
+- **Écran quorum (`admin-api`) livré en L2.6b** — voir addendum ci-dessous.
+
+## Addendum (L2.6b) — écran quorum
+
+- **`/quorum` requiert une session valide**, mêmes garde-fous que `/access-request` — mais la
+  session de l'opérateur n'est pas l'une des assertions comptées : le formulaire est
+  **single-shot**, les assertions de chaque porteur sont réunies hors bande et collées par
+  l'opérateur. Aucune coordination temps réel n'est introduite — angle mort déjà signalé par
+  ADR-022 (qui crée l'`operation_id`, comment les autres porteurs l'apprennent), non résolu
+  volontairement (décision de portée, `AskUserQuestion`), pas caché.
+- **Chaque assertion est revalidée par décodabilité base64 avant tout appel réseau** — une
+  entrée non décodable est refusée localement (400), jamais transmise telle quelle à
+  `admin-api` en espérant qu'il la refuse à sa place.
+- **Correctif de sécurité mineur découvert pendant L2.6b** : `sendPage()` (utilisé par tous les
+  écrans HTML de `console-web`, y compris `/access-request` depuis L2.6) réinitialisait
+  toujours le code de statut HTTP à `200`, même quand l'appelant avait explicitement positionné
+  `400`/`401`/`502` avant l'appel — une page d'erreur s'affichait donc avec un statut `200`
+  trompeur (impact limité : le contenu HTML restait correct, seul le code de statut mentait ;
+  aucun automate ne consomme ces pages, seul un navigateur humain). Corrigé en ajoutant un
+  paramètre `status` explicite à `sendPage()`. Trouvé uniquement parce que L2.6b a ajouté les
+  premiers tests exerçant un chemin de refus rendu en HTML — aucun test de L2.6 ne le faisait.
