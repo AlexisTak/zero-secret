@@ -5,4 +5,5 @@
 //! le sous-agent `referent-crypto` et une validation explicite avant tout code.
 
 pub mod authenticator_proof;
+mod common;
 pub mod identity_assertion;
