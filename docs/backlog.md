@@ -205,10 +205,35 @@ de l'analyseur d'attestation sans incident.
   disponible) — non couvert, nécessiterait un mécanisme distinct.
 
 ### L1.4 — Audit du parcours
-- [ ] Événements : enregistrement, révocation, tentative, succès, échec, récupération
-- [ ] Chaînage et signature vérifiés par test
-- **Acceptation** : aucune action du parcours ne réussit sans produire son événement — vérifié par
-  un test qui compte les événements attendus, pas par relecture.
+- [x] Événements : enregistrement, révocation, tentative, succès, échec, récupération —
+      `crates/zs-audit/src/record.rs::EventType` (+ `quorum.operation`, couvrant L1.3). Contenu
+      métier seulement (`AuditRecord`, non sérialisable — même raison que `AuthenticationClaims`
+      en L1.2b) : la construction et le comptage sont faits, le scellement réel non.
+- [ ] Chaînage et signature vérifiés par test — **chaînage fait** (`crates/zs-audit/src/chain.rs`,
+      `verify_chain`, testé sur octets scellés opaques). **Signature différée à L1.4b** (ADR-010) :
+      `audit-seal/v1` est une suite d'émission soumise à l'invariant HSM de `zs-crypto`,
+      bloquée tant que `crates/zs-hsm` reste un stub — même mur que L1.2c (identity-assertion).
+      Prérequis partagé identifié : H1 (intégration PKCS#11/SoftHSM2 réelle, contribution dédiée).
+- **Acceptation** : aucune action du parcours ne réussit sans produire son événement — **démontré
+  au niveau de la complétude de flux** (`crates/zs-audit/src/sink.rs::echec_du_puits_nest_jamais_avale_silencieusement`
+  : un puits qui échoue fait échouer l'enregistrement, jamais un succès silencieux) et **par
+  comptage** (`chaque_type_devenement_du_parcours_est_compte`, les 7 types du parcours L1.1-L1.3
+  comptés via un puits de test). **Pas encore démontré au niveau du scellement cryptographique
+  réel**, qui n'existe pas avant L1.4b — cocher partiellement est un choix assumé (ADR-010),
+  comme pour L1.2 (ADR-008).
+- **Découpage L1.4a/H1/L1.4b** : voir ADR-010 (justification complète, y compris le choix d'une
+  signature par événement plutôt qu'un ancrage Merkle périodique).
+- **Correctif de contrat** : `authority_domain` rendu obligatoire dans
+  `contracts/events/audit-event.schema.json` (ADR-010) — gratuit avant tout événement produit,
+  cassant après.
+- **Ports de stockage** (`AuditSink`, `AuditChainStore`, `crates/zs-audit/src/sink.rs`) : traits
+  documentés (contrat d'atomicité explicite pour `AuditChainStore::append`), sans implémentation
+  — cohérent avec le scope-cut DB de L1.1/L1.2.
+- **Limite assumée du chaînage** : une troncature en queue de chaîne d'un domaine reste
+  indétectable par `verify_chain` seul (prouvé par test,
+  `troncature_en_queue_de_chaine_nest_pas_detectee`) — seul un ancrage périodique publié à
+  l'extérieur (`event_type: "audit.chain_verified"`, déjà réservé au contrat) la détecterait ;
+  hors périmètre L1.4a.
 
 ---
 
