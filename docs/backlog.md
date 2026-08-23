@@ -166,23 +166,33 @@ de l'analyseur d'attestation sans incident.
 - [x] Gestion du compteur de signature et détection de clonage (`counter_supported` figé à
       l'enregistrement, migration 004 — voir mise en garde `referent-crypto` : une réévaluation
       par assertion permettrait à un clone de désactiver la détection en forçant `signCount=0`)
-- [ ] Assertion d'identité signée portant le niveau AAL atteint et la méthode employée —
-      **différée à L1.2c** (ADR-008) : construction des claims faite (`AuthenticationClaims`,
-      non sérialisable par construction). H1 (intégration PKCS#11 réelle, ADR-011) est **fait** —
-      `crates/zs-hsm` n'est plus un stub — mais `zs_crypto::identity_assertion::seal` (qui
-      appellera `zs-hsm` en interne) reste à écrire : le prérequis est levé, pas encore consommé.
+- [x] Assertion d'identité signée portant le niveau AAL atteint et la méthode employée —
+      **L1.2c fait** (ADR-012) : `crates/zs-crypto::identity_assertion::{seal,verify}`. Format
+      JSON canonique (RFC 8785), conteneur `signatures` à N composantes dès v1 (R8), séparation
+      de domaine par préfixe, encodage hexadécimal. Champs ajoutés au-delà d'ADR-007 :
+      `expires_at` (obligatoire, TTL 120 s — sans lui une assertion signée serait un jeton
+      porteur éternel) et `audience` (réduit le rejeu inter-service).
 - **Acceptation** : compteur régressif → alerte et refus (**fait**, `compteur_regressif_est_refuse`,
-  `compteur_identique_est_refuse`) ; assertion rejouée → refus (**fait au niveau cérémonie
-  WebAuthn** — challenge à usage unique, même mécanisme qu'en L1.1, `challenge_rejoue_est_refuse` ;
-  **pas encore démontré au niveau de l'assertion d'identité signée**, qui n'existe pas avant
-  L1.2c — cocher partiellement est un choix assumé, voir ADR-008, pas un oubli).
-- **Découpage L1.2a/b/c** : voir ADR-008 pour la justification complète (pourquoi ne pas tout
-  livrer d'un bloc, pourquoi refuser une « assertion non signée » sérialisable).
-- **Frontière posée maintenant** : `crates/zs-webauthn` ne dépend jamais de `crates/zs-hsm`,
-  vérifié par un test d'architecture dédié (`tools/lib/check-webauthn-no-hsm.sh`).
+  `compteur_identique_est_refuse`) ; assertion rejouée → refus (**fait aux deux niveaux** :
+  cérémonie WebAuthn — challenge à usage unique, L1.1 — **et** assertion d'identité signée —
+  `audit_event_id` sert d'identifiant unique, `expires_at` borne la fenêtre de validité, L1.2c).
+- **Découpage L1.2a/b/c** : voir ADR-008 (pourquoi ne pas tout livrer d'un bloc) et ADR-012
+  (format complet, une fois H1 débloqué).
+- **Frontière posée** : `crates/zs-webauthn` ne dépend jamais de `crates/zs-hsm`
+  (`tools/lib/check-webauthn-no-hsm.sh`, L1.2a) ; `crates/zs-crypto` ne dépend d'aucun crate
+  applicatif du workspace, seulement `zs-hsm` (`tools/lib/check-zs-crypto-deps.sh`, L1.2c —
+  ferme l'autre sens de dépendance).
 - **Ports de stockage** (`ChallengeStore`, `SignCounterStore`, `crates/zs-webauthn/src/store.rs`) :
   traits documentés (contrat d'atomicité explicite), sans implémentation — cohérent avec le
   scope-cut DB de L1.1.
+- **Piège corrigé en session** (ADR-012) : `aws_lc_rs::ECDSA_P256_SHA256_FIXED::verify` hache son
+  entrée en interne — `verify()` doit lui passer le message complet, jamais le condensé
+  pré-calculé envoyé à `zs-hsm::sign_digest` (qui, lui, signe le condensé directement, sans
+  re-hachage côté jeton). Documenté pour que L1.4b (même primitive) ne le reproduise pas.
+- **Non exécuté ici** : mesure de latence `sign_digest` réelle (pas de SoftHSM2 sur ce poste
+  Windows, même limite que H1) ; fuzzing de `identity_assertion::verify`
+  (`crates/zs-crypto/fuzz/fuzz_targets/identity_assertion_verify.rs`, compile via
+  `cargo +nightly check`, à lancer en CI/Jenkins Linux comme le fuzz target de L1.1).
 
 ### L1.3 — Cycle de vie
 - [x] Révocation d'authentificateur, effet immédiat (`RegisteredCredential.revoked`, vérifié en

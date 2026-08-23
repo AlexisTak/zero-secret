@@ -23,8 +23,13 @@ algorithms = ["ECDSA P-256"]
 execution_environment = "hardware"
 anssi_2027_compliant = false
 successor = "identity-assertion/v2"
-adrs = ["ADR-007", "ADR-008", "ADR-011"]
-notes = "Scellement réel non implémenté (L1.2c, différé) : bloqué sur l'intégration HSM (H1, ADR-011)."
+canonicalization = "RFC 8785 (JCS)"
+hash = "SHA-256"
+signature_encoding = "raw r||s, hexadécimal minuscule"
+domain_separation = "zero-secret/identity-assertion/v1"
+signature_container = "N composantes, arité et ordre imposés par la suite (R8/ADR-008/ADR-012)"
+adrs = ["ADR-007", "ADR-008", "ADR-011", "ADR-012"]
+notes = "Scellement et vérification réels implémentés (crates/zs-crypto::identity_assertion, L1.2c)."
 
 [[suite]]
 id = "audit-seal/v1"
