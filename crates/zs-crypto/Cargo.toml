@@ -13,5 +13,21 @@ thiserror = "2"
 zeroize = { version = "1", features = ["derive"] }
 aws-lc-rs = { version = "1", features = ["prebuilt-nasm"] }
 subtle = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Façade de télémétrie seule (pas une bibliothèque crypto) — évite de perdre le détail d'un
+# HsmError avant sa traduction en erreur opaque de façade (ADR-011, ADR-012).
+tracing = "0.1"
+zs-hsm = { path = "../zs-hsm" }
+secrecy = "0.10"
 
 [dev-dependencies]
+# Implémentation ECDSA indépendante d'aws-lc-rs, jamais dans le chemin de production (identity_
+# assertion::seal appelle exclusivement zs-hsm) — signature pré-hachée déterministe (RFC 6979)
+# pour des vecteurs de test figés, et test croisé entre deux bibliothèques distinctes plutôt
+# qu'un aller-retour avec soi-même (ADR-012).
+p256 = { version = "0.13", features = ["ecdsa"] }
+# Conformité au contrat (ADR-013) : les octets scellés doivent valider contre
+# contracts/events/audit-event.schema.json. default-features désactivées : notre schéma n'a
+# aucune référence distante ($ref http), pas besoin de reqwest/TLS pour un validateur local.
+jsonschema = { version = "0.50", default-features = false }

@@ -10,6 +10,8 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 source "$SCRIPT_DIR/lib/check-apps-isolation.sh"
 source "$SCRIPT_DIR/lib/check-no-direct-crypto.sh"
 source "$SCRIPT_DIR/lib/check-webauthn-no-hsm.sh"
+source "$SCRIPT_DIR/lib/check-cbom-coverage.sh"
+source "$SCRIPT_DIR/lib/check-zs-crypto-deps.sh"
 
 fail=0
 
@@ -25,6 +27,16 @@ fi
 
 if ! check_webauthn_no_hsm "$REPO_ROOT"; then
 	echo "test-arch : zs-webauthn dépend de zs-hsm, violation de frontière (ADR-008)." >&2
+	fail=1
+fi
+
+if ! check_cbom_coverage "$REPO_ROOT"; then
+	echo "test-arch : suite crypto sans entrée CBOM détectée ci-dessus (invariant 9, ADR-011)." >&2
+	fail=1
+fi
+
+if ! check_zs_crypto_deps "$REPO_ROOT"; then
+	echo "test-arch : zs-crypto dépend d'un crate applicatif, violation de frontière (ADR-012)." >&2
 	fail=1
 fi
 

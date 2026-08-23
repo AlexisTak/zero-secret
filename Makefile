@@ -50,12 +50,18 @@ test-arch: ## Règles de dépendance, interdiction crypto directe, fichiers gén
 test: ## Unitaires + propriété + politiques
 	cargo nextest run --all-features
 	$(call go-each,go test ./... -race)
-	cedar test --policies policies/access --tests policies/tests || true
+	# `cedar test` n'existe pas : le CLI expose `validate` et `run-tests`, et n'accepte qu'un
+	# fichier de politiques (pas un dossier). tools/cedar-test.sh fait les deux (L2.1).
+	# `|| true` conservé tel quel : rendre l'étape bloquante suppose de provisionner le CLI
+	# Cedar dans le Jenkinsfile — changement de CI, validation humaine explicite requise.
+	bash tools/cedar-test.sh || true
 	opa test policies/platform policies/tests -v || true
 
-test-crypto: ## Vecteurs Wycheproof, conformité WebAuthn
+test-crypto: ## Vecteurs Wycheproof, conformité WebAuthn, intégration PKCS#11 (H1, ADR-011)
 	cargo test -p zs-crypto --features conformance -- --include-ignored
 	cargo test -p zs-webauthn --features conformance -- --include-ignored
+	@echo "Vérifier SoftHSM2 : $$ZS_HSM_MODULE"
+	cargo test -p zs-hsm -- --include-ignored
 
 fuzz: ## Fuzzing ciblé — make fuzz TARGET=attestation_parser
 	@test -n "$(TARGET)" || { echo "Usage: make fuzz TARGET=<cible>"; exit 1; }

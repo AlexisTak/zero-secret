@@ -1,0 +1,30 @@
+[workspace]
+
+[package]
+name = "zs-crypto-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.zs-crypto]
+path = ".."
+
+[[bin]]
+name = "identity_assertion_verify"
+path = "fuzz_targets/identity_assertion_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "audit_seal_verify"
+path = "fuzz_targets/audit_seal_verify.rs"
+test = false
+doc = false
+bench = false

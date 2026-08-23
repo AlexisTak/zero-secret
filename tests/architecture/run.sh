@@ -17,6 +17,10 @@ source "$REPO_ROOT/tools/lib/check-no-direct-crypto.sh"
 source "$REPO_ROOT/tools/lib/check-generated-up-to-date.sh"
 # shellcheck source=../../tools/lib/check-webauthn-no-hsm.sh
 source "$REPO_ROOT/tools/lib/check-webauthn-no-hsm.sh"
+# shellcheck source=../../tools/lib/check-cbom-coverage.sh
+source "$REPO_ROOT/tools/lib/check-cbom-coverage.sh"
+# shellcheck source=../../tools/lib/check-zs-crypto-deps.sh
+source "$REPO_ROOT/tools/lib/check-zs-crypto-deps.sh"
 
 fail=0
 pass=0
@@ -80,6 +84,22 @@ assert_passes "webauthn-no-hsm / fixture clean" \
 	check_webauthn_no_hsm "$FIXTURES/webauthn-no-hsm/clean"
 assert_passes "webauthn-no-hsm / dépôt réel" \
 	check_webauthn_no_hsm "$REPO_ROOT"
+
+# --- cbom-coverage --------------------------------------------------------------
+assert_fails "cbom-coverage / fixture violation" \
+	check_cbom_coverage "$FIXTURES/cbom-coverage/violation"
+assert_passes "cbom-coverage / fixture clean" \
+	check_cbom_coverage "$FIXTURES/cbom-coverage/clean"
+assert_passes "cbom-coverage / dépôt réel" \
+	check_cbom_coverage "$REPO_ROOT"
+
+# --- zs-crypto-deps --------------------------------------------------------------
+assert_fails "zs-crypto-deps / fixture violation" \
+	check_zs_crypto_deps "$FIXTURES/zs-crypto-deps/violation"
+assert_passes "zs-crypto-deps / fixture clean" \
+	check_zs_crypto_deps "$FIXTURES/zs-crypto-deps/clean"
+assert_passes "zs-crypto-deps / dépôt réel" \
+	check_zs_crypto_deps "$REPO_ROOT"
 
 echo
 echo "$pass test(s) passé(s), $fail test(s) en échec."

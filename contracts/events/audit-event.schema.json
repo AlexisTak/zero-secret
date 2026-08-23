@@ -5,7 +5,7 @@
   "description": "Événement du journal vérifiable. Sérialisation canonique obligatoire avant chaînage et signature : deux sérialisations d'un même événement doivent être identiques bit à bit, sinon la chaîne devient invérifiable. Toute évolution de ce schéma casse la vérifiabilité de l'historique et exige un ADR.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "event_id", "sequence", "occurred_at", "event_type", "actor", "outcome", "prev_hash", "signature"],
+  "required": ["schema_version", "event_id", "sequence", "occurred_at", "authority_domain", "event_type", "actor", "outcome", "prev_hash", "signature"],
   "properties": {
     "schema_version": { "const": 1 },
     "event_id": {
@@ -87,20 +87,40 @@
     "prev_hash": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$",
-      "description": "Empreinte de l'événement précédent. Racine de la chaîne : 64 zéros."
+      "description": "SHA-256 de la sérialisation canonique (RFC 8785) de l'événement précédent, signature incluse — inclure la signature empêche un downgrade de suite (remplacer une signature v2 par une v1 sur un événement passé) sans casser la chaîne. Racine de la chaîne : 64 zéros."
     },
     "signature": {
       "type": "object",
+      "description": "Conteneur à N composantes dès v1 (ADR-012, rappel R8/ADR-008) : l'arité et l'ordre de 'components' sont imposés par 'suite', jamais par le message lui-même — un document v2 à une seule composante est refusé, pas validé partiellement. Corrigé en même temps qu'identity-assertion/v1 (ADR-012), avant tout événement réellement scellé (aucun ne l'est encore) : gratuit maintenant, cassant après L1.4b.",
       "additionalProperties": false,
-      "required": ["suite", "value"],
+      "required": ["suite", "components"],
       "properties": {
         "suite": {
           "type": "string",
           "description": "Suite versionnée de zs-crypto. Jamais un nom d'algorithme brut.",
           "enum": ["audit-seal/v1", "audit-seal/v2"]
         },
-        "value": { "type": "string", "contentEncoding": "base64" },
-        "key_id": { "type": "string" }
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["component", "value"],
+            "properties": {
+              "component": {
+                "type": "string",
+                "description": "Nom de composante, ex. 'ecdsa-p256' ou 'ml-dsa-65'. Jamais utilisé pour choisir un vérificateur (piège 'alg confusion') — comparé par égalité à ce que la suite impose, présent pour l'auditabilité humaine uniquement."
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^[0-9a-f]+$",
+                "description": "Signature brute, hexadécimal minuscule — pas base64 (canonicité triviale à vérifier, cohérent avec prev_hash)."
+              },
+              "key_id": { "type": "string" }
+            }
+          }
+        }
       }
     }
   }

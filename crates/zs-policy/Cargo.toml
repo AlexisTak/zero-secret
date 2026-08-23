@@ -15,6 +15,11 @@ prost-types = "0.14"
 tonic = "0.14"
 tonic-prost = "0.14"
 async-trait = "0.1"
+# cedar-policy (Apache-2.0, AWS) : moteur d'évaluation Cedar lui-même — même crate déjà validé
+# pour la vérification du corpus en L2.1 (cargo install cedar-policy-cli, même version).
+cedar-policy = "4.12.0"
+serde_json = "1"
+zs-crypto = { path = "../zs-crypto" }
 
 [build-dependencies]
 tonic-prost-build = "0.14"
