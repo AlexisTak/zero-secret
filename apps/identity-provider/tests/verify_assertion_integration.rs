@@ -13,8 +13,8 @@ mod tests {
     use p256::ecdsa::{Signature as P256Signature, SigningKey};
     use serde_json::{Value, json};
 
-    use zs_identity::identity::v1::assertion_verification_service_client::AssertionVerificationServiceClient;
     use zs_identity::identity::v1::VerifyAssertionRequest;
+    use zs_identity::identity::v1::assertion_verification_service_client::AssertionVerificationServiceClient;
 
     const DOMAIN_PREFIX: &str = "zero-secret/identity-assertion/v1";
     const AUTHORITY_DOMAIN: &str = "identity-provider";
@@ -25,11 +25,17 @@ mod tests {
 
     impl TestSigner {
         fn new() -> Self {
-            Self { signing_key: SigningKey::from_bytes(&[0x11u8; 32].into()).unwrap() }
+            Self {
+                signing_key: SigningKey::from_bytes(&[0x11u8; 32].into()).unwrap(),
+            }
         }
 
         fn public_key_sec1(&self) -> Vec<u8> {
-            self.signing_key.verifying_key().to_encoded_point(false).as_bytes().to_vec()
+            self.signing_key
+                .verifying_key()
+                .to_encoded_point(false)
+                .as_bytes()
+                .to_vec()
         }
 
         // Même convention que zs_crypto::common::key_id_from_public_key (8 premiers octets hex
@@ -50,8 +56,10 @@ mod tests {
     /// JCS simplifié, robuste au backing de `serde_json::Map` (même précaution que
     /// `zs_crypto::common::canonical_bytes`, ADR-015) : insertion depuis un `BTreeMap` déjà trié.
     fn canonical_bytes(fields: BTreeMap<&str, Value>) -> Vec<u8> {
-        let map: serde_json::Map<String, Value> =
-            fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+        let map: serde_json::Map<String, Value> = fields
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
         serde_json::to_vec(&Value::Object(map)).unwrap()
     }
 
@@ -71,7 +79,10 @@ mod tests {
         unsigned.insert("audience", json!("policy-engine"));
         unsigned.insert("issued_at", json!(issued_at));
         unsigned.insert("expires_at", json!(expires_at));
-        unsigned.insert("audit_event_id", json!("0198e6c1-0000-7000-8000-000000000000"));
+        unsigned.insert(
+            "audit_event_id",
+            json!("0198e6c1-0000-7000-8000-000000000000"),
+        );
 
         let unsigned_bytes = canonical_bytes(unsigned.clone());
 
@@ -105,7 +116,9 @@ mod tests {
         )
         .expect("clé de test valide");
         tokio::spawn(async move {
-            identity_provider::serve(addr, key).await.expect("serveur identity-provider");
+            identity_provider::serve(addr, key)
+                .await
+                .expect("serveur identity-provider");
         });
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
@@ -135,7 +148,11 @@ mod tests {
             .expect("appel gRPC")
             .into_inner();
 
-        assert!(response.valid, "raison de refus inattendue : {}", response.reason);
+        assert!(
+            response.valid,
+            "raison de refus inattendue : {}",
+            response.reason
+        );
         assert_eq!(response.subject_id, "sub-approbateur-1");
         assert_eq!(response.aal, "AAL2");
         assert!(response.reason.is_empty());

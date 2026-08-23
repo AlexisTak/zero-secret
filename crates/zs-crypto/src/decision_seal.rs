@@ -105,7 +105,12 @@ impl DecisionSealer {
         .map_err(opaque)?;
         let public_key = pool.public_key(&key).map_err(opaque)?;
         let key_id = common::key_id_from_public_key(&public_key.0);
-        Ok(Self { pool, key, key_id, public_key_sec1: public_key.0 })
+        Ok(Self {
+            pool,
+            key,
+            key_id,
+            public_key_sec1: public_key.0,
+        })
     }
 
     pub fn key_id(&self) -> &str {
@@ -227,11 +232,17 @@ mod tests {
 
     impl MockSigner {
         fn new() -> Self {
-            Self { signing_key: SigningKey::from_bytes(&[0x33u8; 32].into()).unwrap() }
+            Self {
+                signing_key: SigningKey::from_bytes(&[0x33u8; 32].into()).unwrap(),
+            }
         }
 
         fn public_key_sec1(&self) -> Vec<u8> {
-            self.signing_key.verifying_key().to_encoded_point(false).as_bytes().to_vec()
+            self.signing_key
+                .verifying_key()
+                .to_encoded_point(false)
+                .as_bytes()
+                .to_vec()
         }
 
         fn key_id(&self) -> String {
@@ -370,8 +381,11 @@ mod tests {
         let signer = MockSigner::new();
         let fields = sample_fields();
         let sig = signer.sign(&fields);
-        let autre = MockSigner { signing_key: SigningKey::from_bytes(&[0x44u8; 32].into()).unwrap() };
-        let key = accept_verifying_key(SUITE_V1, &signer.key_id(), &autre.public_key_sec1()).unwrap();
+        let autre = MockSigner {
+            signing_key: SigningKey::from_bytes(&[0x44u8; 32].into()).unwrap(),
+        };
+        let key =
+            accept_verifying_key(SUITE_V1, &signer.key_id(), &autre.public_key_sec1()).unwrap();
 
         assert_eq!(
             verify(&[key], &fields, &signer.key_id(), &sig),

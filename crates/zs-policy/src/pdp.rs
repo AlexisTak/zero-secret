@@ -23,8 +23,8 @@ use cedar_policy::{
 };
 
 use crate::policy::v1::{
-    Context as ProtoContext, DecisionRequest, DecisionResponse, Effect, Principal as ProtoPrincipal,
-    Resource as ProtoResource,
+    Context as ProtoContext, DecisionRequest, DecisionResponse, Effect,
+    Principal as ProtoPrincipal, Resource as ProtoResource,
 };
 
 const NAMESPACE: &str = "ZeroSecret";
@@ -75,7 +75,11 @@ impl Pdp {
                 continue;
             }
             let contents = fs::read_to_string(&path).map_err(PdpLoadError::ReadCorpus)?;
-            let relative = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+            let relative = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_string();
             cedar_files.push((relative, contents));
         }
         // Tri par chemin octet par octet, pas par ordre du système de fichiers (non garanti
@@ -85,11 +89,19 @@ impl Pdp {
         cedar_files.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
 
         if cedar_files.is_empty() {
-            return Err(PdpLoadError::Policies("aucun fichier .cedar dans le corpus".to_string()));
+            return Err(PdpLoadError::Policies(
+                "aucun fichier .cedar dans le corpus".to_string(),
+            ));
         }
 
-        let bundle = cedar_files.iter().map(|(_, c)| c.as_str()).collect::<Vec<_>>().join("\n");
-        let policies = bundle.parse::<PolicySet>().map_err(|e| PdpLoadError::Policies(e.to_string()))?;
+        let bundle = cedar_files
+            .iter()
+            .map(|(_, c)| c.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let policies = bundle
+            .parse::<PolicySet>()
+            .map_err(|e| PdpLoadError::Policies(e.to_string()))?;
 
         let corpus_files: Vec<zs_crypto::decision_binding::CorpusFile<'_>> = cedar_files
             .iter()
@@ -120,8 +132,9 @@ impl Pdp {
     /// version de politique demandée indisponible, ou refus Cedar) est une `DecisionResponse`
     /// normale à `effect: EFFECT_DENY` (P2).
     pub fn decide(&self, request: &DecisionRequest) -> DecisionResponse {
-        let decision_hash =
-            zs_crypto::decision_binding::bind_request(&request_to_json(request)).as_bytes().to_vec();
+        let decision_hash = zs_crypto::decision_binding::bind_request(&request_to_json(request))
+            .as_bytes()
+            .to_vec();
 
         if !request.policy_version.is_empty() && request.policy_version != self.policy_version {
             // Jamais un repli silencieux sur la version actuellement chargée (P2) : la version
@@ -138,7 +151,9 @@ impl Pdp {
             Err(reason) => return deny(vec![reason], decision_hash, self.policy_version.clone()),
         };
 
-        let response = self.authorizer.is_authorized(&cedar_request, &self.policies, &entities);
+        let response = self
+            .authorizer
+            .is_authorized(&cedar_request, &self.policies, &entities);
         let effect = match response.decision() {
             Decision::Allow => Effect::Allow,
             Decision::Deny => Effect::Deny,
@@ -193,8 +208,8 @@ fn entity_uid(type_name: &str, id: &str) -> Result<EntityUid, String> {
     let type_name = format!("{NAMESPACE}::{type_name}")
         .parse::<EntityTypeName>()
         .map_err(|e| format!("type_entite_invalide:{e}"))?;
-    let entity_id =
-        EntityId::from_str(id).map_err(|e: std::convert::Infallible| format!("identifiant_invalide:{e}"))?;
+    let entity_id = EntityId::from_str(id)
+        .map_err(|e: std::convert::Infallible| format!("identifiant_invalide:{e}"))?;
     Ok(EntityUid::from_type_name_and_id(type_name, entity_id))
 }
 
@@ -218,16 +233,29 @@ fn principal_entity(p: &ProtoPrincipal) -> Result<Entity, String> {
         .seconds;
 
     let mut attrs = HashMap::new();
-    attrs.insert("subject_id".to_string(), RestrictedExpression::new_string(p.subject_id.clone()));
+    attrs.insert(
+        "subject_id".to_string(),
+        RestrictedExpression::new_string(p.subject_id.clone()),
+    );
     attrs.insert(
         "aal".to_string(),
         RestrictedExpression::new_string(auth_level_to_str(p.aal).to_string()),
     );
-    attrs.insert("auth_method".to_string(), RestrictedExpression::new_string(p.auth_method.clone()));
-    attrs.insert("authenticated_at".to_string(), RestrictedExpression::new_long(authenticated_at));
+    attrs.insert(
+        "auth_method".to_string(),
+        RestrictedExpression::new_string(p.auth_method.clone()),
+    );
+    attrs.insert(
+        "authenticated_at".to_string(),
+        RestrictedExpression::new_long(authenticated_at),
+    );
     attrs.insert(
         "roles".to_string(),
-        RestrictedExpression::new_set(p.roles.iter().map(|r| RestrictedExpression::new_string(r.clone()))),
+        RestrictedExpression::new_set(
+            p.roles
+                .iter()
+                .map(|r| RestrictedExpression::new_string(r.clone())),
+        ),
     );
     attrs.insert(
         "authority_domain".to_string(),
@@ -249,15 +277,24 @@ fn database_entity(r: &ProtoResource) -> Result<Entity, String> {
         "authority_domain".to_string(),
         RestrictedExpression::new_string(r.authority_domain.clone()),
     );
-    attrs.insert("environment".to_string(), RestrictedExpression::new_string(environment.clone()));
+    attrs.insert(
+        "environment".to_string(),
+        RestrictedExpression::new_string(environment.clone()),
+    );
 
     Entity::new(uid, attrs, HashSet::new()).map_err(|e| format!("entite_resource_invalide:{e}"))
 }
 
 fn build_context(c: &ProtoContext) -> Result<CedarContext, String> {
-    let requested_at =
-        c.requested_at.as_ref().ok_or_else(|| "context_requested_at_absent".to_string())?.seconds;
-    let posture = c.posture.as_ref().ok_or_else(|| "context_posture_absent".to_string())?;
+    let requested_at = c
+        .requested_at
+        .as_ref()
+        .ok_or_else(|| "context_requested_at_absent".to_string())?
+        .seconds;
+    let posture = c
+        .posture
+        .as_ref()
+        .ok_or_else(|| "context_posture_absent".to_string())?;
     let evaluated_at = posture
         .evaluated_at
         .as_ref()
@@ -265,10 +302,22 @@ fn build_context(c: &ProtoContext) -> Result<CedarContext, String> {
         .seconds;
 
     let posture_record = RestrictedExpression::new_record([
-        ("managed".to_string(), RestrictedExpression::new_bool(posture.managed)),
-        ("disk_encrypted".to_string(), RestrictedExpression::new_bool(posture.disk_encrypted)),
-        ("agent_version".to_string(), RestrictedExpression::new_string(posture.agent_version.clone())),
-        ("evaluated_at".to_string(), RestrictedExpression::new_long(evaluated_at)),
+        (
+            "managed".to_string(),
+            RestrictedExpression::new_bool(posture.managed),
+        ),
+        (
+            "disk_encrypted".to_string(),
+            RestrictedExpression::new_bool(posture.disk_encrypted),
+        ),
+        (
+            "agent_version".to_string(),
+            RestrictedExpression::new_string(posture.agent_version.clone()),
+        ),
+        (
+            "evaluated_at".to_string(),
+            RestrictedExpression::new_long(evaluated_at),
+        ),
     ])
     .map_err(|e| format!("contexte_posture_invalide:{e}"))?;
 
@@ -282,20 +331,41 @@ fn build_context(c: &ProtoContext) -> Result<CedarContext, String> {
         // Approval.signature exclue délibérément (contracts/cedar/README.md, écarts assumés) :
         // déjà vérifiée avant l'appel au PDP, jamais réévaluée ici.
         let rec = RestrictedExpression::new_record([
-            ("approver_id".to_string(), RestrictedExpression::new_string(a.approver_id.clone())),
-            ("approved_at".to_string(), RestrictedExpression::new_long(approved_at)),
+            (
+                "approver_id".to_string(),
+                RestrictedExpression::new_string(a.approver_id.clone()),
+            ),
+            (
+                "approved_at".to_string(),
+                RestrictedExpression::new_long(approved_at),
+            ),
         ])
         .map_err(|e| format!("contexte_approbation_invalide:{e}"))?;
         approvals.push(rec);
     }
 
     CedarContext::from_pairs([
-        ("requested_at".to_string(), RestrictedExpression::new_long(requested_at)),
-        ("source_network".to_string(), RestrictedExpression::new_string(c.source_network.clone())),
+        (
+            "requested_at".to_string(),
+            RestrictedExpression::new_long(requested_at),
+        ),
+        (
+            "source_network".to_string(),
+            RestrictedExpression::new_string(c.source_network.clone()),
+        ),
         ("posture".to_string(), posture_record),
-        ("ticket_ref".to_string(), RestrictedExpression::new_string(c.ticket_ref.clone())),
-        ("justification".to_string(), RestrictedExpression::new_string(c.justification.clone())),
-        ("approvals".to_string(), RestrictedExpression::new_set(approvals)),
+        (
+            "ticket_ref".to_string(),
+            RestrictedExpression::new_string(c.ticket_ref.clone()),
+        ),
+        (
+            "justification".to_string(),
+            RestrictedExpression::new_string(c.justification.clone()),
+        ),
+        (
+            "approvals".to_string(),
+            RestrictedExpression::new_set(approvals),
+        ),
     ])
     .map_err(|e| format!("contexte_invalide:{e}"))
 }
@@ -306,11 +376,26 @@ fn build_context(c: &ProtoContext) -> Result<CedarContext, String> {
 /// et `Request::new`) couvre aussi une `Action.verb` non déclarée dans le schéma — même principe :
 /// une action non encore instruite est un refus explicite de traduction, pas un refus Cedar
 /// implicite par absence de politique correspondante.
-fn translate(request: &DecisionRequest, schema: &Schema) -> Result<(CedarRequest, Entities), String> {
-    let principal = request.principal.as_ref().ok_or_else(|| "principal_absent".to_string())?;
-    let resource = request.resource.as_ref().ok_or_else(|| "resource_absent".to_string())?;
-    let action = request.action.as_ref().ok_or_else(|| "action_absent".to_string())?;
-    let context = request.context.as_ref().ok_or_else(|| "context_absent".to_string())?;
+fn translate(
+    request: &DecisionRequest,
+    schema: &Schema,
+) -> Result<(CedarRequest, Entities), String> {
+    let principal = request
+        .principal
+        .as_ref()
+        .ok_or_else(|| "principal_absent".to_string())?;
+    let resource = request
+        .resource
+        .as_ref()
+        .ok_or_else(|| "resource_absent".to_string())?;
+    let action = request
+        .action
+        .as_ref()
+        .ok_or_else(|| "action_absent".to_string())?;
+    let context = request
+        .context
+        .as_ref()
+        .ok_or_else(|| "context_absent".to_string())?;
 
     if resource.r#type != "Database" {
         return Err(format!("resource_type_inconnu:{}", resource.r#type));
@@ -326,8 +411,14 @@ fn translate(request: &DecisionRequest, schema: &Schema) -> Result<(CedarRequest
     let entities = Entities::from_entities([principal_ent, resource_ent], Some(schema))
         .map_err(|e| format!("entites_invalides:{e}"))?;
 
-    let cedar_request = CedarRequest::new(principal_uid, action_uid, resource_uid, cedar_context, Some(schema))
-        .map_err(|e| format!("requete_invalide:{e}"))?;
+    let cedar_request = CedarRequest::new(
+        principal_uid,
+        action_uid,
+        resource_uid,
+        cedar_context,
+        Some(schema),
+    )
+    .map_err(|e| format!("requete_invalide:{e}"))?;
 
     Ok((cedar_request, entities))
 }
@@ -377,9 +468,7 @@ fn request_to_json(r: &DecisionRequest) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::policy::v1::{
-        Action, Approval, Context, DevicePosture, Principal, Resource,
-    };
+    use crate::policy::v1::{Action, Approval, Context, DevicePosture, Principal, Resource};
     use std::collections::HashMap as StdHashMap;
 
     fn repo_root() -> std::path::PathBuf {
@@ -412,7 +501,9 @@ mod tests {
                 roles: vec!["dba".to_string()],
                 authority_domain: "corp.eu-west".to_string(),
             }),
-            action: Some(Action { verb: "db.connect".to_string() }),
+            action: Some(Action {
+                verb: "db.connect".to_string(),
+            }),
             resource: Some(Resource {
                 r#type: "Database".to_string(),
                 id: "db-billing-prod".to_string(),
@@ -445,7 +536,11 @@ mod tests {
         let pdp = Pdp::load(&schema_path(), &policies_dir()).expect("chargement du PDP");
         let response = pdp.decide(&nominal_request());
         assert_eq!(response.effect, Effect::Allow as i32);
-        assert!(response.reasons.contains(&"db-connect-production".to_string()));
+        assert!(
+            response
+                .reasons
+                .contains(&"db-connect-production".to_string())
+        );
         assert_eq!(response.decision_hash.len(), 32);
         assert_eq!(response.policy_version, pdp.policy_version());
     }
@@ -494,10 +589,15 @@ mod tests {
     fn policy_version_demandee_indisponible_est_refusee() {
         let pdp = Pdp::load(&schema_path(), &policies_dir()).expect("chargement du PDP");
         let mut req = nominal_request();
-        req.policy_version = "decision-binding/v1:0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        req.policy_version =
+            "decision-binding/v1:0000000000000000000000000000000000000000000000000000000000000000"
+                .to_string();
         let response = pdp.decide(&req);
         assert_eq!(response.effect, Effect::Deny as i32);
-        assert_eq!(response.reasons, vec!["policy_version_indisponible".to_string()]);
+        assert_eq!(
+            response.reasons,
+            vec!["policy_version_indisponible".to_string()]
+        );
         // La réponse rapporte quand même la version réellement chargée, jamais celle demandée.
         assert_eq!(response.policy_version, pdp.policy_version());
     }

@@ -52,6 +52,8 @@ pub enum Error {
     MalformedKey,
     #[error("signature invalide")]
     InvalidSignature,
+    #[error("challenge malformé")]
+    MalformedChallenge,
 }
 
 /// Accepte une clé publique d'authentificateur pour la suite donnée. Refuse toute suite qui
@@ -122,6 +124,29 @@ pub fn new_challenge() -> Challenge {
     // refus par panic est correct ici : il n'existe aucun repli sûr à un CSPRNG absent.
     rng.fill(&mut bytes).expect("CSPRNG système indisponible");
     Challenge(bytes)
+}
+
+/// Réhydrate un challenge précédemment émis par `new_challenge` et persisté par l'appelant
+/// (H5 : `identity.challenges.challenge`). Ce n'est **pas** un constructeur arbitraire : la
+/// longueur est celle imposée par la suite, et l'origine CSPRNG reste garantie par le fait que
+/// `new_challenge` est le seul émetteur (ADR-006 : un challenge est tiré, jamais dérivé).
+/// Nécessaire à tout serveur sans état — entre l'émission et la vérification, le processus peut
+/// avoir redémarré ou changer d'instance, un `Challenge` ne peut donc pas rester seulement en
+/// mémoire.
+///
+/// Prend `bytes` **par valeur** délibérément : le tampon lu en base est déplacé dans le type
+/// effacé au drop, sans laisser de copie non effacée chez l'appelant (invariant 8). L'appelant
+/// doit déplacer directement la colonne lue (`Vec<u8>`), jamais un `clone()` intermédiaire.
+pub fn accept_challenge(suite: &str, mut bytes: Vec<u8>) -> Result<Challenge, Error> {
+    if suite != SUITE_V1 {
+        bytes.zeroize();
+        return Err(Error::UnknownSuite);
+    }
+    if bytes.len() != CHALLENGE_LEN {
+        bytes.zeroize();
+        return Err(Error::MalformedChallenge);
+    }
+    Ok(Challenge(bytes))
 }
 
 /// Compare un challenge attendu à ce qu'un client a présenté, en temps constant (invariant 6 —
@@ -232,5 +257,34 @@ mod tests {
         let c2 = new_challenge();
         assert!(!challenge_matches(&c1, c2.as_bytes()));
         assert!(challenge_matches(&c1, c1.as_bytes()));
+    }
+
+    // --- accept_challenge (H5) ---------------------------------------------------------------
+    #[test]
+    fn challenge_reussit_le_round_trip_par_ses_octets() {
+        let original = new_challenge();
+        let bytes = original.as_bytes().to_vec();
+        let rehydrated = accept_challenge(SUITE_V1, bytes).unwrap();
+        assert!(challenge_matches(&original, rehydrated.as_bytes()));
+    }
+
+    #[test]
+    fn challenge_de_longueur_incorrecte_est_refuse() {
+        assert!(matches!(
+            accept_challenge(SUITE_V1, vec![0u8; 31]),
+            Err(Error::MalformedChallenge)
+        ));
+        assert!(matches!(
+            accept_challenge(SUITE_V1, vec![0u8; 33]),
+            Err(Error::MalformedChallenge)
+        ));
+    }
+
+    #[test]
+    fn challenge_avec_suite_inconnue_est_refuse() {
+        assert!(matches!(
+            accept_challenge("autre-suite/v1", vec![0u8; 32]),
+            Err(Error::UnknownSuite)
+        ));
     }
 }

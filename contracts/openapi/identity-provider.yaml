@@ -1,0 +1,200 @@
+openapi: "3.1.0"
+info:
+  title: identity-provider — cérémonie WebAuthn
+  version: "1.0.0"
+  description: >
+    Endpoints HTTP d'émission de challenge et de vérification de cérémonie WebAuthn (H5,
+    ADR-023). Vérification seule côté cryptographie (zs-webauthn) ; le scellement d'assertion
+    (identity-assertion/v1) et de l'événement d'audit (audit-seal/v1) passe par zs-crypto via
+    zs-hsm. Aucun type n'est généré automatiquement depuis ce contrat côté Rust (pas de
+    générateur OpenAPI Rust retenu dans ce lot, voir ADR-023) — ce fichier reste la source de
+    vérité documentée, testée par un test de conformité (`tests::contrat_openapi_correspond`).
+    Tous les champs `format: byte` sont encodés en base64url sans padding (RFC 4648 §5), pas le
+    base64 standard que `format: byte` désigne d'ordinaire — convention imposée par
+    `clientDataJSON` côté navigateur (spec WebAuthn §5.8.1), reprise pour les autres champs
+    binaires par cohérence plutôt que de mélanger deux encodages dans le même contrat.
+servers:
+  - url: http://127.0.0.1:50063
+paths:
+  /v1/webauthn/registration/challenge:
+    post:
+      summary: Émet un challenge d'enregistrement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegistrationChallengeRequest"
+      responses:
+        "200":
+          description: Challenge émis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChallengeResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/webauthn/registration/verify:
+    post:
+      summary: Vérifie une cérémonie d'enregistrement et persiste le credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegistrationVerifyRequest"
+      responses:
+        "200":
+          description: Credential enregistré
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationVerifyResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/webauthn/authentication/challenge:
+    post:
+      summary: Émet un challenge d'authentification pour un sujet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthenticationChallengeRequest"
+      responses:
+        "200":
+          description: Challenge émis, avec les credentials autorisés pour ce sujet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthenticationChallengeResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/webauthn/authentication/verify:
+    post:
+      summary: Vérifie une cérémonie d'authentification et scelle une assertion d'identité
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthenticationVerifyRequest"
+      responses:
+        "200":
+          description: Assertion identity-assertion/v1 scellée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthenticationVerifyResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "503":
+          description: Scellement indisponible (HSM ou base de données injoignable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  responses:
+    Error:
+      description: Refus explicite
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+    RegistrationChallengeRequest:
+      type: object
+      required: [subject_id]
+      properties:
+        subject_id:
+          type: string
+          description: >
+            Fourni tel quel par l'appelant dans ce lot — aucun mécanisme d'invitation ou de
+            première authentification n'est instruit ici (angle mort documenté, ADR-023) ;
+            l'enregistrement d'un premier facteur reste un problème de bootstrap non résolu
+            par ce contrat.
+    ChallengeResponse:
+      type: object
+      required: [challenge, rp_id, expires_at]
+      properties:
+        challenge:
+          type: string
+          format: byte
+        rp_id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    RegistrationVerifyRequest:
+      type: object
+      required: [client_data_json, attestation_object]
+      properties:
+        client_data_json:
+          type: string
+          format: byte
+        attestation_object:
+          type: string
+          format: byte
+    RegistrationVerifyResponse:
+      type: object
+      required: [credential_id]
+      properties:
+        credential_id:
+          type: string
+          format: byte
+    AuthenticationChallengeRequest:
+      type: object
+      required: [subject_id]
+      properties:
+        subject_id:
+          type: string
+    AuthenticationChallengeResponse:
+      type: object
+      required: [challenge, rp_id, expires_at, allow_credentials]
+      properties:
+        challenge:
+          type: string
+          format: byte
+        rp_id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        allow_credentials:
+          type: array
+          items:
+            type: string
+            format: byte
+    AuthenticationVerifyRequest:
+      type: object
+      required: [credential_id, client_data_json, authenticator_data, signature]
+      properties:
+        credential_id:
+          type: string
+          format: byte
+        client_data_json:
+          type: string
+          format: byte
+        authenticator_data:
+          type: string
+          format: byte
+        signature:
+          type: string
+          format: byte
+    AuthenticationVerifyResponse:
+      type: object
+      required: [assertion]
+      properties:
+        assertion:
+          type: string
+          format: byte
+          description: Assertion identity-assertion/v1 scellée (JCS canonique).
