@@ -41,9 +41,15 @@ async fn main() {
     // Mêmes variables d'environnement que crates/zs-hsm/tests/pkcs11_integration.rs (H1) : un
     // seul module PKCS#11 par poste, pas de convention distincte par service.
     let module_path = env_path("ZS_HSM_MODULE", "/usr/lib/softhsm/libsofthsm2.so");
-    let pin = SecretString::from(
-        std::env::var("SOFTHSM2_PIN").unwrap_or_else(|_| "1234test5678".to_string()),
-    );
+    // Aucun repli sur un PIN par défaut (règle absolue #1 — aucun secret durable) : un PIN en
+    // dur aurait permis de démarrer contre n'importe quel token portant ce PIN sans que
+    // l'opérateur l'ait explicitement fourni. Échec dur si absent, même discipline que
+    // apps/identity-provider/src/main.rs (H5, ADR-023) — correctif signalé pendant H5, appliqué
+    // ici séparément.
+    let pin = SecretString::from(std::env::var("SOFTHSM2_PIN").unwrap_or_else(|_| {
+        eprintln!("policy-engine: variable d'environnement manquante : SOFTHSM2_PIN");
+        std::process::exit(1);
+    }));
     let key_label = std::env::var("ZS_POLICY_ENGINE_HSM_KEY_LABEL")
         .unwrap_or_else(|_| "zs-decision-seal-v1".to_string());
 
