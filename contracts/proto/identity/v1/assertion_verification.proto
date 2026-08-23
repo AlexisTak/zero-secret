@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+// Vérification d'assertion d'identité scellée (identity-assertion/v1, ADR-007/008/012).
+//
+// Frontière Rust/Go = réseau (gRPC), jamais FFI (ADR-001) : ce contrat est la seule façon dont
+// un composant Go (access-broker, L2.3) peut faire vérifier une assertion sans importer de
+// bibliothèque crypto directement (règle absolue #4 du CLAUDE.md racine).
+//
+// INVARIANT : un refus cryptographique n'est JAMAIS une erreur gRPC (P2 — le refus est la
+// réponse). Une erreur gRPC ne survient que pour une requête protobuf malformée, déjà rejetée
+// par le transport avant d'atteindre le code applicatif.
+//
+// Voir docs/adr/ADR-016 (prérequis H3, service de vérification), ADR-001, ADR-012.
+
+package identity.v1;
+
+option go_package = "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1;identityv1";
+
+service AssertionVerificationService {
+  // Vérifie une assertion scellée identity-assertion/v1. Sans état, aucun appel réseau sortant
+  // pendant la vérification elle-même.
+  rpc VerifyAssertion(VerifyAssertionRequest) returns (VerifyAssertionResponse);
+}
+
+message VerifyAssertionRequest {
+  bytes assertion                    = 1; // octets scellés identity-assertion/v1 (JSON canonique)
+  string expected_authority_domain   = 2; // domaine d'autorité attendu, jamais implicite
+}
+
+message VerifyAssertionResponse {
+  bool valid                = 1;
+  // Non vide si et seulement si valid = false — motif du refus, jamais un détail exploitable
+  // pour affiner une attaque (mêmes catégories que zs_crypto::identity_assertion::VerifyError).
+  string reason              = 2;
+  // Présents seulement si valid = true — un champ non renseigné ne doit jamais être lu par
+  // l'appelant comme une valeur par défaut valide (P2).
+  string subject_id          = 3;
+  string aal                 = 4; // "AAL1" / "AAL2" / "AAL3"
+  string auth_method         = 5;
+  string audit_event_id      = 6;
+}

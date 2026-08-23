@@ -8,6 +8,7 @@ Bibliothèques Rust internes, partagées entre les composants de `apps/`. Éditi
 | `zs-crypto` | Façade unique vers les bibliothèques cryptographiques auditées. Toute opération crypto du dépôt passe par ici — voir [zs-crypto/CLAUDE.md](zs-crypto/CLAUDE.md) |
 | `zs-webauthn` | Vérification WebAuthn/FIDO2 : attestation, assertion, challenge |
 | `zs-policy` | Types et évaluation partagés du moteur de politiques (Cedar) |
+| `zs-identity` | Types générés du contrat `identity.v1` (vérification d'assertion, H3) |
 | `zs-audit` | Construction, chaînage et signature des événements d'audit |
 | `zs-hsm` | Intégration PKCS#11 (SoftHSM2 en dev). Seul crate autorisé à l'`unsafe` (FFI) |
 

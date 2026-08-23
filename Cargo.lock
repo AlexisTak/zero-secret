@@ -1181,8 +1181,16 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 name = "identity-provider"
 version = "0.1.0"
 dependencies = [
+ "p256",
+ "serde_json",
+ "sha2",
  "thiserror",
+ "tokio",
+ "tonic",
+ "tonic-prost",
  "zs-audit",
+ "zs-crypto",
+ "zs-identity",
  "zs-webauthn",
 ]
 
@@ -3264,6 +3272,16 @@ dependencies = [
  "secrecy",
  "thiserror",
  "zeroize",
+]
+
+[[package]]
+name = "zs-identity"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
 ]
 
 [[package]]

@@ -21,6 +21,7 @@ divergence silencieuse.
 | [013](ADR-013-format-evenement-audit-scelle.md) | Format de l'événement d'audit scellé (audit-seal/v1) | accepté | 2026-08-23 |
 | [014](ADR-014-schema-cedar-et-corpus-db-connect.md) | Schéma d'entités Cedar et premier corpus de politiques (db.connect) | accepté | 2026-08-23 |
 | [015](ADR-015-pdp-cedar-et-liaison-de-decision.md) | PDP Cedar (policy-engine) et liaison de décision (decision-binding/v1) | accepté | 2026-08-23 |
+| [016](ADR-016-service-verification-assertion.md) | Service de vérification d'assertion d'identité (H3, prérequis L2.3) | accepté | 2026-08-23 |
 
 ## Règles
 
