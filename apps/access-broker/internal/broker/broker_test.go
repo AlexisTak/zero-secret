@@ -21,6 +21,13 @@ import (
 // qu'improvisé — voir ADR-017.
 
 type fakePolicyClient struct {
+	// Interface complète embarquée (champ anonyme) : ce double n'implémente que Decide() ci-
+	// dessous, mais reste compatible avec toute méthode ajoutée plus tard à l'interface générée
+	// (ex. VerifyDecision, H4) sans que ce fichier n'ait besoin d'être mis à jour à chaque fois —
+	// régression réelle découverte à la fusion du lot L2 (ce test compilait seul mais plus une
+	// fois assemblé avec H4 dans le même module resolution) ; même patron déjà utilisé dans
+	// apps/credential-issuer/internal/issuer (L2.4).
+	policyv1.PolicyDecisionServiceClient
 	response *policyv1.DecisionResponse
 	err      error
 	called   bool
