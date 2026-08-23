@@ -26,6 +26,7 @@ divergence silencieuse.
 | [018](ADR-018-client-openbao-credential-issuer.md) | Client OpenBao (credential-issuer, H2, prérequis L2.4) | accepté | 2026-08-23 |
 | [019](ADR-019-signature-de-decision.md) | Signature de décision (decision-seal/v1, H4, prérequis L2.4) | accepté | 2026-08-23 |
 | [020](ADR-020-emission-credential-issuer.md) | Émission de credential (credential-issuer, L2.4) | accepté | 2026-08-23 |
+| [021](ADR-021-quorum-admin-api.md) | Quorum sur les opérations critiques (admin-api, L2.5, portée réduite) | accepté | 2026-08-23 |
 
 ## Règles
 
