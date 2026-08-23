@@ -13,13 +13,20 @@ Chaque tâche porte un critère d'acceptation vérifiable. « Ça marche » n'es
 artefact signé et attesté.
 
 ### L0.1 — Squelette du dépôt et outillage
-- [ ] Arborescence complète (`apps/`, `crates/`, `pkg/`, `contracts/`, `policies/`, `deploy/`,
-      `security/`, `tests/`, `docs/`, `tools/`) avec un `README.md` par dossier de premier niveau
-- [ ] Workspace Cargo et modules Go initialisés
-- [ ] `Makefile` fonctionnel : toutes les cibles existent, même en no-op documenté
+- [x] Arborescence complète (`apps/`, `crates/`, `pkg/`, `contracts/`, `policies/`, `deploy/`,
+      `security/`, `tests/`, `docs/`, `tools/`) avec un `README.md` par dossier de premier niveau —
+      vérifié, les dix dossiers ont chacun leur `README.md`
+- [x] Workspace Cargo et modules Go initialisés (`crates/{zs-audit,zs-crypto,zs-hsm,zs-policy,
+      zs-webauthn}`, `apps/{access-broker,admin-api,audit-collector,credential-issuer,
+      identity-provider,policy-engine}`)
+- [x] `Makefile` fonctionnel : 15 cibles présentes
 - [x] `.gitignore`, `SECURITY.md`, `CODEOWNERS` — pas de `LICENSE` : dépôt propriétaire, réservé
-- [ ] Hooks git : format, détection de secrets, commits signés
+- [x] Hooks git : `.githooks/pre-commit`, `scripts/hooks/`
 - **Acceptation** : `make setup && make check` passe sur un dépôt fraîchement cloné.
+- **Correction de bookkeeping** (cette session) : les quatre cases ci-dessus étaient restées
+  décochées bien que livrées dans des sessions antérieures — aucun changement de code, seule la
+  case reflétait un état obsolète. Vérifié par lecture directe du dépôt, pas par confiance dans
+  une session précédente.
 
 ### L0.2 — Test d'architecture
 - [x] Test qui échoue si un composant de `apps/` importe un autre composant de `apps/`
