@@ -22,6 +22,7 @@ divergence silencieuse.
 | [014](ADR-014-schema-cedar-et-corpus-db-connect.md) | Schéma d'entités Cedar et premier corpus de politiques (db.connect) | accepté | 2026-08-23 |
 | [015](ADR-015-pdp-cedar-et-liaison-de-decision.md) | PDP Cedar (policy-engine) et liaison de décision (decision-binding/v1) | accepté | 2026-08-23 |
 | [016](ADR-016-service-verification-assertion.md) | Service de vérification d'assertion d'identité (H3, prérequis L2.3) | accepté | 2026-08-23 |
+| [017](ADR-017-parcours-jit-access-broker.md) | Parcours JIT (access-broker) : bibliothèque d'abord, portée réduite | accepté | 2026-08-23 |
 
 ## Règles
 
