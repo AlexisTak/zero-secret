@@ -18,7 +18,8 @@
 //! Types partagés (`Timestamp`, `EventId`, encodage, canonicalisation) extraits dans
 //! `crate::common` (ADR-013) — `audit_seal` les réutilise, jamais un second validateur dupliqué.
 
-use crate::common::{self, EventId, FieldError, Timestamp, bounded_ascii_string};
+use crate::common::{self, FieldError, bounded_ascii_string};
+pub use crate::common::{EventId, Timestamp};
 use aws_lc_rs::signature::{ECDSA_P256_SHA256_FIXED, UnparsedPublicKey};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -40,7 +41,7 @@ pub enum AssuranceLevel {
 }
 
 impl AssuranceLevel {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             AssuranceLevel::Aal1 => "AAL1",
             AssuranceLevel::Aal2 => "AAL2",

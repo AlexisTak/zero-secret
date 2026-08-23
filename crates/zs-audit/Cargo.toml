@@ -11,5 +11,8 @@ workspace = true
 [dependencies]
 zs-crypto = { path = "../zs-crypto" }
 thiserror = "2"
-serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# Test seulement (tests/chain_vectors.rs) : parse le fichier de vecteurs figés
+# tests/vectors/audit-seal-v1/chain.json. Aucun usage en code de production.
 serde_json = "1"

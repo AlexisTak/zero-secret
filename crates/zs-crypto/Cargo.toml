@@ -27,3 +27,7 @@ secrecy = "0.10"
 # pour des vecteurs de test figés, et test croisé entre deux bibliothèques distinctes plutôt
 # qu'un aller-retour avec soi-même (ADR-012).
 p256 = { version = "0.13", features = ["ecdsa"] }
+# Conformité au contrat (ADR-013) : les octets scellés doivent valider contre
+# contracts/events/audit-event.schema.json. default-features désactivées : notre schéma n'a
+# aucune référence distante ($ref http), pas besoin de reqwest/TLS pour un validateur local.
+jsonschema = { version = "0.50", default-features = false }
