@@ -49,3 +49,16 @@ signature_container = "objet {suite, components}, arité imposée par la suite �
 key_label = "zs-audit-seal-v1"
 adrs = ["ADR-010", "ADR-011", "ADR-013"]
 notes = "Scellement et vérification réels implémentés (crates/zs-crypto::audit_seal, L1.4b) — opération HSM la plus fréquente du système (une par action métier, règle absolue #9)."
+
+[[suite]]
+id = "decision-binding/v1"
+role = "integrity"
+primitive = "hash"
+algorithms = ["SHA-256"]
+execution_environment = "software"
+anssi_2027_compliant = true
+canonicalization = "RFC 8785 (JCS) pour la requête ; arbre trié à longueur préfixée pour le corpus de politiques"
+hash = "SHA-256"
+domain_separation = "decision-binding/v1/request, decision-binding/v1/policy-corpus"
+adrs = ["ADR-012", "ADR-013", "ADR-015"]
+notes = "Empreintes d'intégrité (decision_hash/policy_version de DecisionResponse, L2.2), pas une suite de signature : aucune clé, pas d'émission/vérification, invariant d'hybridation PQC de zs-crypto/CLAUDE.md non applicable (concerne signature/échange de clé, pas le hachage de contenu)."

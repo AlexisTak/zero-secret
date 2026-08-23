@@ -353,21 +353,56 @@ questions qu'elle pose.
   ne peut donc pas encore exécuter `tools/cedar-test.sh` de façon bloquante).
 
 ### L2.2 — PDP (`policy-engine`, Rust)
-- [ ] `Decide(DecisionRequest) → DecisionResponse` (`decision.proto`) : évaluation Cedar contre le
-      corpus L2.1, `effect` par défaut `EFFECT_DENY` sur tout chemin d'erreur ou politique
-      absente (R2)
-- [ ] **Aucun appel réseau pendant l'évaluation** (invariant du contrat, règle absolue #5 du
-      `CLAUDE.md` racine) — le contexte arrive intégralement en entrée, y compris `DevicePosture`
-      et `approvals`, aucun enrichissement en cours d'évaluation
-- [ ] `decision_hash` : empreinte de la requête + version exacte des politiques évaluées,
-      suffisante pour un rejeu hors ligne bit-exact — voir L2.3 pour son scellement dans
-      l'événement `policy.decided`
-- **Acceptation** : rejeu hors ligne d'une décision archivée (requête + `policy_version` +
-  politiques à cette version) produit exactement le même `effect`/`decision_hash`. Sans état,
-  déterministe — vérifié en exécutant deux fois la même requête sur deux instances distinctes.
-- **Frontière posée** : `policy-engine` ne dépend d'aucun autre composant `apps/` (règle absolue
-  #7 et règle de dépendance dédiée de `docs/architecture.md`) — vérifiable par le même patron de
-  test d'architecture que `zs-crypto-deps`/`webauthn-no-hsm`.
+- [x] `Decide(DecisionRequest) → DecisionResponse` (`decision.proto`) : évaluation Cedar réelle
+      (`zs_policy::pdp::Pdp`, crate `cedar-policy` 4.12.0) contre le corpus L2.1 —
+      `effect` par défaut `EFFECT_DENY` sur tout chemin d'erreur ou politique absente (R2).
+      `apps/policy-engine` est un adaptateur mince (`tonic`) qui charge le `Pdp` une fois et
+      délègue chaque appel — premier serveur réseau réel du dépôt (ADR-015)
+- [x] **Aucun appel réseau pendant l'évaluation** — `Pdp::decide` est synchrone, lecture du
+      corpus faite une seule fois au démarrage (`Pdp::load`), le contexte arrive intégralement en
+      entrée (`DevicePosture`, `approvals`), aucun enrichissement en cours d'évaluation
+- [x] `decision_hash`/`policy_version` : `zs_crypto::decision_binding` (suite
+      `decision-binding/v1`, ADR-015, consultation `referent-crypto`) — pas un hash calculé dans
+      `zs-policy`, pour éviter le piège du double-hachage déjà rencontré en L1.2c. `policy_version`
+      = empreinte seule (`decision-binding/v1:<hex>`, validé explicitement), jamais un couple
+      tag/empreinte. Scellement dans l'événement `policy.decided` reste L2.3.
+- **Acceptation** : rejeu hors ligne d'une décision archivée produit exactement le même
+  `effect`/`decision_hash`. **Vérifié réellement** (pas différé) : test d'intégration
+  (`apps/policy-engine/tests/decide_integration.rs`) démarrant deux instances distinctes du
+  service gRPC sur deux ports séparés, interrogées avec un vrai client `tonic` — même requête,
+  `decision_hash`/`policy_version`/`effect` strictement identiques sur les deux.
+- **Frontière posée** : `policy-engine` ne dépend d'aucun autre composant `apps/` — vérifié par le
+  détecteur `apps-isolation` déjà générique (aucun nouveau test d'architecture nécessaire).
+- **Traduction `Resource`/`Action`** (`contracts/cedar/README.md`, L2.1) : `Resource.type`
+  inconnu ou attribut manquant → refus de traduction explicite, jamais une entité partielle.
+  `Action.verb` validé contre le schéma (`Request::new(..., Some(&schema))`) : une action non
+  déclarée est un refus de traduction documenté, pas un « deny » Cedar implicite par absence de
+  politique — cohérent avec « schéma d'abord » (L2.1).
+- **`DecisionRequest.policy_version` en entrée** : si non vide et différent de la version chargée
+  par cette instance → refus explicite (`policy_version_indisponible`), jamais un repli silencieux
+  sur la version courante. Le PDP sert une seule version à la fois (pas de magasin multi-version
+  en mémoire) ; un rejeu relance ce même binaire déterministe contre les fichiers du commit
+  historique correspondant.
+- **Annotation `@id` du corpus remappée** (`PolicySet::annotation`) : `PolicySet::from_str`
+  attribue des identifiants auto-générés (`policy0`, …), pas l'annotation `@id("...")` de L2.1 —
+  sans ce remappage, `DecisionResponse.reasons` aurait divergé silencieusement des identifiants
+  déjà référencés par les règles Sigma de L2.1 (ex. `guardrail-authority-domain-isolation`).
+- **Régression découverte et corrigée** : `cedar-policy-core` active `serde_json/preserve_order`
+  — Cargo unifiant les features d'une dépendance partagée sur tout le workspace compilé ensemble,
+  `zs_crypto::common::canonical_bytes` (JCS, ADR-012/013) ne pouvait plus compter sur le backing
+  `BTreeMap` implicite de `serde_json::Map` dès que `policy-engine` entrait dans le graphe de
+  compilation (`cargo test --workspace`) — signatures `identity-assertion/v1`/`audit-seal/v1`
+  déjà en production auraient cessé d'être canoniques silencieusement. Corrigé : tri explicite et
+  récursif des clés (`sort_keys_recursively`), indépendant de tout backing/feature Cargo — vérifié
+  octet-identique aux vecteurs figés existants (pas de régénération). Détail complet : ADR-015.
+- **`tools/lib/check-no-direct-crypto.sh` étendu** (`sha2`/`sha3`/`blake3`/`digest`) : trou du
+  hook comblé dans la même contribution (prérequis, pas une tâche séparée) — `sha2` n'était pas
+  bloqué hors `zs-crypto`/`zs-hsm` avant ce lot.
+- **Hors périmètre L2.2, signalé** : mTLS/authentification de l'appelant (aucune intégration
+  SPIFFE/SPIRE dans le dépôt — prérequis d'infrastructure séparé, à traiter à l'ouverture de L2.3) ;
+  `max_ttl`/`constraints` de `DecisionResponse` non calculés (dépendent de métadonnées de
+  politique non encore spécifiées) ; le PDP tourne sans authentification en développement local
+  uniquement.
 
 ### L2.3 — Parcours JIT (`access-broker`, Go)
 - [ ] Ouverture de demande : ressource, motif, référence de ticket (`Context.ticket_ref`,
