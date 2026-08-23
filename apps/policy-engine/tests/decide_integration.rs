@@ -2,8 +2,15 @@
 //! `PolicyDecisionService` sur deux ports séparés, les interroge avec un vrai client `tonic`
 //! (pas un double), et vérifie que la même requête produit exactement le même `decision_hash`/
 //! `policy_version`/`effect` sur les deux — déterminisme inter-processus, pas seulement
-//! inter-appel (critère d'acceptation de `docs/backlog.md` L2.2). Testable réellement sur ce
-//! poste (pas de dépendance externe type SoftHSM2), donc exécuté ici, pas différé.
+//! inter-appel (critère d'acceptation de `docs/backlog.md` L2.2).
+//!
+//! **Régression de couverture assumée (H4/ADR-019)** : jusqu'à H4, ce test tournait réellement
+//! sur ce poste (pas de dépendance externe). Depuis que `policy_engine::serve` scelle chaque
+//! décision via `zs_crypto::decision_seal::DecisionSealer` (HSM réel, `zs-hsm`), ce test exige
+//! SoftHSM2 — indisponible ici (Podman bloqué), même limite que
+//! `crates/zs-hsm/tests/pkcs11_integration.rs` (H1). `#[ignore]`, `ZS_HSM_MODULE` requis pour
+//! l'exécuter (CI/Jenkins Linux, ou un humain avec SoftHSM2 disponible) — signalé explicitement,
+//! pas contourné par un double qui masquerait ce que H4 a réellement changé.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -11,10 +18,33 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use policy_engine::PolicyDecisionServiceClient;
+use secrecy::SecretString;
+use zs_crypto::decision_seal::{DecisionSealer, HsmSettings};
 use zs_policy::pdp::Pdp;
 use zs_policy::policy::v1::{
     Action, Approval, Context, DecisionRequest, DevicePosture, Effect, Principal, Resource,
 };
+
+/// Construit un scelleur réel depuis `ZS_HSM_MODULE`/`SOFTHSM2_PIN` — mêmes variables que
+/// `crates/zs-hsm/tests/pkcs11_integration.rs`. Panique avec un message explicite si absent :
+/// ce test ne doit jamais se dérober silencieusement (même discipline que H1).
+fn open_sealer(key_label: &str) -> DecisionSealer {
+    let module_path = PathBuf::from(std::env::var("ZS_HSM_MODULE").expect(
+        "ZS_HSM_MODULE doit pointer vers le module PKCS#11 SoftHSM2 — ce test exige un HSM réel",
+    ));
+    let pin = SecretString::from(
+        std::env::var("SOFTHSM2_PIN").unwrap_or_else(|_| "1234test5678".to_string()),
+    );
+    DecisionSealer::open(HsmSettings {
+        module_path,
+        slot_id: None,
+        pin,
+        pool_size: 2,
+        acquire_timeout: Duration::from_secs(5),
+        key_label: key_label.to_string(),
+    })
+    .expect("ouverture du scelleur decision-seal/v1")
+}
 
 fn repo_root() -> PathBuf {
     // apps/policy-engine -> racine du dépôt
@@ -75,10 +105,11 @@ fn nominal_request() -> DecisionRequest {
     }
 }
 
-async fn spawn_server(addr: SocketAddr) {
+async fn spawn_server(addr: SocketAddr, key_label: &str) {
     let pdp = load_pdp();
+    let sealer = open_sealer(key_label);
     tokio::spawn(async move {
-        policy_engine::serve(addr, pdp).await.expect("serveur policy-engine");
+        policy_engine::serve(addr, pdp, sealer).await.expect("serveur policy-engine");
     });
     // Attente courte que le port soit lié — pas de sonde de disponibilité dédiée dans ce dépôt à
     // ce stade, borné pour éviter un test qui traîne indéfiniment en cas d'échec réel de bind.
@@ -86,11 +117,12 @@ async fn spawn_server(addr: SocketAddr) {
 }
 
 #[tokio::test]
+#[ignore = "exige SoftHSM2 réel (ZS_HSM_MODULE) — indisponible sur ce poste, H4/ADR-019"]
 async fn deux_instances_distinctes_du_service_produisent_la_meme_decision() {
     let addr_a: SocketAddr = "127.0.0.1:51601".parse().unwrap();
     let addr_b: SocketAddr = "127.0.0.1:51602".parse().unwrap();
-    spawn_server(addr_a).await;
-    spawn_server(addr_b).await;
+    spawn_server(addr_a, "zs-decision-seal-v1-test-a").await;
+    spawn_server(addr_b, "zs-decision-seal-v1-test-a").await;
 
     let mut client_a = PolicyDecisionServiceClient::connect(format!("http://{addr_a}"))
         .await
@@ -113,9 +145,10 @@ async fn deux_instances_distinctes_du_service_produisent_la_meme_decision() {
 }
 
 #[tokio::test]
+#[ignore = "exige SoftHSM2 réel (ZS_HSM_MODULE) — indisponible sur ce poste, H4/ADR-019"]
 async fn requete_refusee_sur_le_reseau_reste_une_reponse_normale_pas_une_erreur_grpc() {
     let addr: SocketAddr = "127.0.0.1:51603".parse().unwrap();
-    spawn_server(addr).await;
+    spawn_server(addr, "zs-decision-seal-v1-test-b").await;
 
     let mut client =
         PolicyDecisionServiceClient::connect(format!("http://{addr}")).await.expect("connexion");
