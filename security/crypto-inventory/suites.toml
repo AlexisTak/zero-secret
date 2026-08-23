@@ -62,3 +62,21 @@ hash = "SHA-256"
 domain_separation = "decision-binding/v1/request, decision-binding/v1/policy-corpus"
 adrs = ["ADR-012", "ADR-013", "ADR-015"]
 notes = "Empreintes d'intégrité (decision_hash/policy_version de DecisionResponse, L2.2), pas une suite de signature : aucune clé, pas d'émission/vérification, invariant d'hybridation PQC de zs-crypto/CLAUDE.md non applicable (concerne signature/échange de clé, pas le hachage de contenu)."
+
+[[suite]]
+id = "decision-seal/v1"
+role = "emission"
+primitive = "signature"
+algorithms = ["ECDSA P-256"]
+execution_environment = "hardware"
+anssi_2027_compliant = false
+successor = "decision-seal/v2"
+frequency = "per-business-action"
+canonicalization = "RFC 8785 (JCS) sur un objet de scellement dédié — pas le DecisionResponse protobuf brut"
+hash = "SHA-256"
+signature_encoding = "raw r||s, hexadécimal minuscule (transmis en bytes bruts côté proto)"
+domain_separation = "zero-secret/decision-seal/v1"
+signature_container = "champs decision_signature/decision_signature_key_id de DecisionResponse (proto), pas un document JSON opaque — DecisionResponse est déjà typé, pas reparsé depuis des octets non fiables"
+key_label = "zs-decision-seal-v1"
+adrs = ["ADR-011", "ADR-015", "ADR-019"]
+notes = "Authentifie l'origine PDP d'une DecisionResponse (policy-engine, L2.2) pour credential-issuer (L2.4), qui ne peut pas vérifier lui-même (ADR-001). Couvre effect/reasons/max_ttl/constraints/decision_hash/policy_version/issued_at — jamais decision_hash isolément (H4, ADR-019). Troisième clé HSM dédiée après zs-identity-assertion-v1/zs-audit-seal-v1."

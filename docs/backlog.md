@@ -499,6 +499,38 @@ questions qu'elle pose.
   bibliothèque, pas le binaire (cohérent avec H1, qui n'a câblé aucun `main.go` non plus).
 - Voir ADR-018 pour la conception complète.
 
+### H4 — Signature de décision (prérequis L2.4)
+- [x] Nouvelle suite `crates/zs-crypto::decision_seal` (`decision-seal/v1`) : message signé
+      fermé — `request_id`, `decision_hash`, `policy_version`, `effect`, `reasons`, `max_ttl`,
+      `constraints`, `issued_at` — jamais `decision_hash` isolément (un `effect` substitué sous
+      un `decision_hash` valide serait sinon indétectable, vérifié par test dédié)
+- [x] Clé HSM dédiée `zs-decision-seal-v1`, troisième clé séparée (ADR-011)
+- [x] `contracts/proto/policy/v1/decision.proto` : `DecisionResponse` gagne `issued_at`,
+      `decision_signature`, `decision_signature_key_id` ; nouveau RPC `VerifyDecision` — un refus
+      cryptographique n'est jamais une erreur gRPC (P2, même discipline que H3)
+- [x] `apps/policy-engine` ouvre une session HSM au démarrage (nouvelle dépendance `zs-hsm`),
+      scelle systématiquement (ALLOW et DENY) après `Pdp::decide` — `Pdp::decide` reste pur, sans
+      HSM (voir ci-dessous). Vérification hébergée dans `policy-engine` lui-même
+      (`VerifyDecision`), clé de vérification dérivée du scelleur — pas de configuration séparée
+- **Acceptation** : 9 tests unitaires `decision_seal` avec signeur déterministe — scellement/
+  vérification nominale, `effect`/`reasons`/`max_ttl` substitués sous un `decision_hash` valide
+  → refusés, clé/suite inconnue → refusée, signature absente → refusée explicitement.
+- **Règle absolue #5 réinterprétée, `CLAUDE.md` non modifié** (décision validée) : elle porte sur
+  les entrées de la décision (déterminisme, rejeu hors ligne) — le scellement de la réponse est
+  une étape postérieure et isolée, documentée dans ADR-019 plutôt que gravée dans la gouvernance.
+- **Vérification hébergée dans `policy-engine`, pas un nouveau composant** (décision validée) :
+  même patron que H3. Compromis de défense en profondeur assumé et signalé (signataire =
+  vérificateur).
+- **Régression de couverture de test assumée et signalée** : le test d'intégration réel de L2.2
+  (`decide_integration.rs`, deux instances, même `decision_hash`) exige désormais SoftHSM2 réel
+  (`policy_engine::serve` requiert un `DecisionSealer`) — `#[ignore]`, `ZS_HSM_MODULE` requis,
+  même limite que H1. Signalé explicitement comme une régression causée par ce lot, pas une
+  limite préexistante glissée sous le tapis.
+- **Hors périmètre H4, signalé** : `request_id` absent de `DecisionResponse` (choix de contrat
+  antérieur à L2.2, non révisé) — le message signé porte une valeur vide pour ce champ,
+  documenté explicitement dans le code, pas oublié silencieusement.
+- Voir ADR-019 pour la conception complète.
+
 ### L2.4 — Émission de credential (`credential-issuer`, Go)
 - [ ] Ordre d'émission accepté uniquement d'un `access-broker` authentifié en mTLS et porteur
       d'une décision signée par le PDP (`docs/architecture.md` — règle de dépendance déjà posée,

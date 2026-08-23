@@ -27,14 +27,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PolicyDecisionService_Decide_FullMethodName = "/policy.v1.PolicyDecisionService/Decide"
+	PolicyDecisionService_Decide_FullMethodName         = "/policy.v1.PolicyDecisionService/Decide"
+	PolicyDecisionService_VerifyDecision_FullMethodName = "/policy.v1.PolicyDecisionService/VerifyDecision"
 )
 
 // PolicyDecisionServiceClient is the client API for PolicyDecisionService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PolicyDecisionServiceClient interface {
-	// Évalue une requête d'accès. Sans état, déterministe, sans appel réseau sortant.
+	// Évalue une requête d'accès. Sans état, déterministe, sans appel réseau sortant — cette
+	// propriété porte sur les ENTRÉES de la décision uniquement : le scellement de la réponse
+	// (decision-seal/v1, H4/ADR-019) est une étape postérieure et isolée, sans consultation externe
+	// pour DÉCIDER.
 	//
 	// DecisionRequest/DecisionResponse (et non DecideRequest/DecideResponse, la convention buf
 	// par défaut) pour rester alignés avec le vocabulaire de docs/architecture.md, où ces noms
@@ -42,6 +46,11 @@ type PolicyDecisionServiceClient interface {
 	// buf:lint:ignore RPC_REQUEST_STANDARD_NAME
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
 	Decide(ctx context.Context, in *DecisionRequest, opts ...grpc.CallOption) (*DecisionResponse, error)
+	// Vérifie la signature decision-seal/v1 d'une DecisionResponse déjà émise (H4/ADR-019) —
+	// consommé par credential-issuer (L2.4), qui ne peut pas vérifier lui-même (ADR-001 : frontière
+	// Rust/Go réseau, jamais FFI). Un refus cryptographique n'est jamais une erreur gRPC (P2) :
+	// valid: false + reason, même discipline que VerifyAssertion (H3).
+	VerifyDecision(ctx context.Context, in *VerifyDecisionRequest, opts ...grpc.CallOption) (*VerifyDecisionResponse, error)
 }
 
 type policyDecisionServiceClient struct {
@@ -62,11 +71,24 @@ func (c *policyDecisionServiceClient) Decide(ctx context.Context, in *DecisionRe
 	return out, nil
 }
 
+func (c *policyDecisionServiceClient) VerifyDecision(ctx context.Context, in *VerifyDecisionRequest, opts ...grpc.CallOption) (*VerifyDecisionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VerifyDecisionResponse)
+	err := c.cc.Invoke(ctx, PolicyDecisionService_VerifyDecision_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PolicyDecisionServiceServer is the server API for PolicyDecisionService service.
 // All implementations must embed UnimplementedPolicyDecisionServiceServer
 // for forward compatibility.
 type PolicyDecisionServiceServer interface {
-	// Évalue une requête d'accès. Sans état, déterministe, sans appel réseau sortant.
+	// Évalue une requête d'accès. Sans état, déterministe, sans appel réseau sortant — cette
+	// propriété porte sur les ENTRÉES de la décision uniquement : le scellement de la réponse
+	// (decision-seal/v1, H4/ADR-019) est une étape postérieure et isolée, sans consultation externe
+	// pour DÉCIDER.
 	//
 	// DecisionRequest/DecisionResponse (et non DecideRequest/DecideResponse, la convention buf
 	// par défaut) pour rester alignés avec le vocabulaire de docs/architecture.md, où ces noms
@@ -74,6 +96,11 @@ type PolicyDecisionServiceServer interface {
 	// buf:lint:ignore RPC_REQUEST_STANDARD_NAME
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
 	Decide(context.Context, *DecisionRequest) (*DecisionResponse, error)
+	// Vérifie la signature decision-seal/v1 d'une DecisionResponse déjà émise (H4/ADR-019) —
+	// consommé par credential-issuer (L2.4), qui ne peut pas vérifier lui-même (ADR-001 : frontière
+	// Rust/Go réseau, jamais FFI). Un refus cryptographique n'est jamais une erreur gRPC (P2) :
+	// valid: false + reason, même discipline que VerifyAssertion (H3).
+	VerifyDecision(context.Context, *VerifyDecisionRequest) (*VerifyDecisionResponse, error)
 	mustEmbedUnimplementedPolicyDecisionServiceServer()
 }
 
@@ -86,6 +113,9 @@ type UnimplementedPolicyDecisionServiceServer struct{}
 
 func (UnimplementedPolicyDecisionServiceServer) Decide(context.Context, *DecisionRequest) (*DecisionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Decide not implemented")
+}
+func (UnimplementedPolicyDecisionServiceServer) VerifyDecision(context.Context, *VerifyDecisionRequest) (*VerifyDecisionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method VerifyDecision not implemented")
 }
 func (UnimplementedPolicyDecisionServiceServer) mustEmbedUnimplementedPolicyDecisionServiceServer() {}
 func (UnimplementedPolicyDecisionServiceServer) testEmbeddedByValue()                               {}
@@ -126,6 +156,24 @@ func _PolicyDecisionService_Decide_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PolicyDecisionService_VerifyDecision_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyDecisionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PolicyDecisionServiceServer).VerifyDecision(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PolicyDecisionService_VerifyDecision_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PolicyDecisionServiceServer).VerifyDecision(ctx, req.(*VerifyDecisionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PolicyDecisionService_ServiceDesc is the grpc.ServiceDesc for PolicyDecisionService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -136,6 +184,10 @@ var PolicyDecisionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Decide",
 			Handler:    _PolicyDecisionService_Decide_Handler,
+		},
+		{
+			MethodName: "VerifyDecision",
+			Handler:    _PolicyDecisionService_VerifyDecision_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

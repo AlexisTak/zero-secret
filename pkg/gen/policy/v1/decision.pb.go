@@ -627,15 +627,24 @@ func (x *Approval) GetSignature() []byte {
 }
 
 type DecisionResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Effect        Effect                 `protobuf:"varint,1,opt,name=effect,proto3,enum=policy.v1.Effect" json:"effect,omitempty"`
-	Reasons       []string               `protobuf:"bytes,2,rep,name=reasons,proto3" json:"reasons,omitempty"`                               // politiques ayant déterminé la décision
-	MaxTtl        *durationpb.Duration   `protobuf:"bytes,3,opt,name=max_ttl,json=maxTtl,proto3" json:"max_ttl,omitempty"`                   // plafond imposé PAR LA POLITIQUE, jamais par l'appelant
-	Constraints   []string               `protobuf:"bytes,4,rep,name=constraints,proto3" json:"constraints,omitempty"`                       // périmètre réduit, obligations (RFC 9396)
-	DecisionHash  []byte                 `protobuf:"bytes,5,opt,name=decision_hash,json=decisionHash,proto3" json:"decision_hash,omitempty"` // empreinte requête + politiques, scellée à l'audit
-	PolicyVersion string                 `protobuf:"bytes,6,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Effect       Effect                 `protobuf:"varint,1,opt,name=effect,proto3,enum=policy.v1.Effect" json:"effect,omitempty"`
+	Reasons      []string               `protobuf:"bytes,2,rep,name=reasons,proto3" json:"reasons,omitempty"`                               // politiques ayant déterminé la décision
+	MaxTtl       *durationpb.Duration   `protobuf:"bytes,3,opt,name=max_ttl,json=maxTtl,proto3" json:"max_ttl,omitempty"`                   // plafond imposé PAR LA POLITIQUE, jamais par l'appelant
+	Constraints  []string               `protobuf:"bytes,4,rep,name=constraints,proto3" json:"constraints,omitempty"`                       // périmètre réduit, obligations (RFC 9396)
+	DecisionHash []byte                 `protobuf:"bytes,5,opt,name=decision_hash,json=decisionHash,proto3" json:"decision_hash,omitempty"` // empreinte requête + politiques (decision-binding/v1) — lie
+	// la décision à SA requête et SON corpus, ne prouve pas à
+	// elle seule l'origine PDP (voir decision_signature)
+	PolicyVersion string `protobuf:"bytes,6,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	// Champs decision-seal/v1 (H4/ADR-019) : signent l'ensemble effect/reasons/max_ttl/constraints/
+	// decision_hash/policy_version/issued_at — jamais decision_hash isolément (rejeu d'un effect
+	// différent sous un decision_hash valide sinon possible). Absents = décision non scellée,
+	// credential-issuer doit refuser (P2), jamais traiter une signature absente comme optionnelle.
+	IssuedAt               *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=issued_at,json=issuedAt,proto3" json:"issued_at,omitempty"`                            // instant du scellement, pas de l'évaluation
+	DecisionSignature      []byte                 `protobuf:"bytes,8,opt,name=decision_signature,json=decisionSignature,proto3" json:"decision_signature,omitempty"` // raw r‖s, ECDSA P-256
+	DecisionSignatureKeyId string                 `protobuf:"bytes,9,opt,name=decision_signature_key_id,json=decisionSignatureKeyId,proto3" json:"decision_signature_key_id,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *DecisionResponse) Reset() {
@@ -710,6 +719,123 @@ func (x *DecisionResponse) GetPolicyVersion() string {
 	return ""
 }
 
+func (x *DecisionResponse) GetIssuedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.IssuedAt
+	}
+	return nil
+}
+
+func (x *DecisionResponse) GetDecisionSignature() []byte {
+	if x != nil {
+		return x.DecisionSignature
+	}
+	return nil
+}
+
+func (x *DecisionResponse) GetDecisionSignatureKeyId() string {
+	if x != nil {
+		return x.DecisionSignatureKeyId
+	}
+	return ""
+}
+
+type VerifyDecisionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Decision      *DecisionResponse      `protobuf:"bytes,1,opt,name=decision,proto3" json:"decision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyDecisionRequest) Reset() {
+	*x = VerifyDecisionRequest{}
+	mi := &file_policy_v1_decision_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyDecisionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyDecisionRequest) ProtoMessage() {}
+
+func (x *VerifyDecisionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_policy_v1_decision_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyDecisionRequest.ProtoReflect.Descriptor instead.
+func (*VerifyDecisionRequest) Descriptor() ([]byte, []int) {
+	return file_policy_v1_decision_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *VerifyDecisionRequest) GetDecision() *DecisionResponse {
+	if x != nil {
+		return x.Decision
+	}
+	return nil
+}
+
+type VerifyDecisionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Valid         bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"` // non vide si et seulement si valid = false
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyDecisionResponse) Reset() {
+	*x = VerifyDecisionResponse{}
+	mi := &file_policy_v1_decision_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyDecisionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyDecisionResponse) ProtoMessage() {}
+
+func (x *VerifyDecisionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_policy_v1_decision_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyDecisionResponse.ProtoReflect.Descriptor instead.
+func (*VerifyDecisionResponse) Descriptor() ([]byte, []int) {
+	return file_policy_v1_decision_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *VerifyDecisionResponse) GetValid() bool {
+	if x != nil {
+		return x.Valid
+	}
+	return false
+}
+
+func (x *VerifyDecisionResponse) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 var File_policy_v1_decision_proto protoreflect.FileDescriptor
 
 const file_policy_v1_decision_proto_rawDesc = "" +
@@ -762,14 +888,22 @@ const file_policy_v1_decision_proto_rawDesc = "" +
 	"approverId\x12;\n" +
 	"\vapproved_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"approvedAt\x12\x1c\n" +
-	"\tsignature\x18\x03 \x01(\fR\tsignature\"\xf9\x01\n" +
+	"\tsignature\x18\x03 \x01(\fR\tsignature\"\x9c\x03\n" +
 	"\x10DecisionResponse\x12)\n" +
 	"\x06effect\x18\x01 \x01(\x0e2\x11.policy.v1.EffectR\x06effect\x12\x18\n" +
 	"\areasons\x18\x02 \x03(\tR\areasons\x122\n" +
 	"\amax_ttl\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x06maxTtl\x12 \n" +
 	"\vconstraints\x18\x04 \x03(\tR\vconstraints\x12#\n" +
 	"\rdecision_hash\x18\x05 \x01(\fR\fdecisionHash\x12%\n" +
-	"\x0epolicy_version\x18\x06 \x01(\tR\rpolicyVersion*f\n" +
+	"\x0epolicy_version\x18\x06 \x01(\tR\rpolicyVersion\x127\n" +
+	"\tissued_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\bissuedAt\x12-\n" +
+	"\x12decision_signature\x18\b \x01(\fR\x11decisionSignature\x129\n" +
+	"\x19decision_signature_key_id\x18\t \x01(\tR\x16decisionSignatureKeyId\"P\n" +
+	"\x15VerifyDecisionRequest\x127\n" +
+	"\bdecision\x18\x01 \x01(\v2\x1b.policy.v1.DecisionResponseR\bdecision\"F\n" +
+	"\x16VerifyDecisionResponse\x12\x14\n" +
+	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason*f\n" +
 	"\tAuthLevel\x12\x1a\n" +
 	"\x16AUTH_LEVEL_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fAUTH_LEVEL_AAL1\x10\x01\x12\x13\n" +
@@ -777,9 +911,10 @@ const file_policy_v1_decision_proto_rawDesc = "" +
 	"\x0fAUTH_LEVEL_AAL3\x10\x03*+\n" +
 	"\x06Effect\x12\x0f\n" +
 	"\vEFFECT_DENY\x10\x00\x12\x10\n" +
-	"\fEFFECT_ALLOW\x10\x012Z\n" +
+	"\fEFFECT_ALLOW\x10\x012\xb1\x01\n" +
 	"\x15PolicyDecisionService\x12A\n" +
-	"\x06Decide\x12\x1a.policy.v1.DecisionRequest\x1a\x1b.policy.v1.DecisionResponseB\xa6\x01\n" +
+	"\x06Decide\x12\x1a.policy.v1.DecisionRequest\x1a\x1b.policy.v1.DecisionResponse\x12U\n" +
+	"\x0eVerifyDecision\x12 .policy.v1.VerifyDecisionRequest\x1a!.policy.v1.VerifyDecisionResponseB\xa6\x01\n" +
 	"\rcom.policy.v1B\rDecisionProtoP\x01ZAgithub.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1;policyv1\xa2\x02\x03PXX\xaa\x02\tPolicy.V1\xca\x02\tPolicy\\V1\xe2\x02\x15Policy\\V1\\GPBMetadata\xea\x02\n" +
 	"Policy::V1b\x06proto3"
 
@@ -796,21 +931,23 @@ func file_policy_v1_decision_proto_rawDescGZIP() []byte {
 }
 
 var file_policy_v1_decision_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_policy_v1_decision_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_policy_v1_decision_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_policy_v1_decision_proto_goTypes = []any{
-	(AuthLevel)(0),                // 0: policy.v1.AuthLevel
-	(Effect)(0),                   // 1: policy.v1.Effect
-	(*DecisionRequest)(nil),       // 2: policy.v1.DecisionRequest
-	(*Principal)(nil),             // 3: policy.v1.Principal
-	(*Action)(nil),                // 4: policy.v1.Action
-	(*Resource)(nil),              // 5: policy.v1.Resource
-	(*Context)(nil),               // 6: policy.v1.Context
-	(*DevicePosture)(nil),         // 7: policy.v1.DevicePosture
-	(*Approval)(nil),              // 8: policy.v1.Approval
-	(*DecisionResponse)(nil),      // 9: policy.v1.DecisionResponse
-	nil,                           // 10: policy.v1.Resource.AttributesEntry
-	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),   // 12: google.protobuf.Duration
+	(AuthLevel)(0),                 // 0: policy.v1.AuthLevel
+	(Effect)(0),                    // 1: policy.v1.Effect
+	(*DecisionRequest)(nil),        // 2: policy.v1.DecisionRequest
+	(*Principal)(nil),              // 3: policy.v1.Principal
+	(*Action)(nil),                 // 4: policy.v1.Action
+	(*Resource)(nil),               // 5: policy.v1.Resource
+	(*Context)(nil),                // 6: policy.v1.Context
+	(*DevicePosture)(nil),          // 7: policy.v1.DevicePosture
+	(*Approval)(nil),               // 8: policy.v1.Approval
+	(*DecisionResponse)(nil),       // 9: policy.v1.DecisionResponse
+	(*VerifyDecisionRequest)(nil),  // 10: policy.v1.VerifyDecisionRequest
+	(*VerifyDecisionResponse)(nil), // 11: policy.v1.VerifyDecisionResponse
+	nil,                            // 12: policy.v1.Resource.AttributesEntry
+	(*timestamppb.Timestamp)(nil),  // 13: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),    // 14: google.protobuf.Duration
 }
 var file_policy_v1_decision_proto_depIdxs = []int32{
 	3,  // 0: policy.v1.DecisionRequest.principal:type_name -> policy.v1.Principal
@@ -818,22 +955,26 @@ var file_policy_v1_decision_proto_depIdxs = []int32{
 	5,  // 2: policy.v1.DecisionRequest.resource:type_name -> policy.v1.Resource
 	6,  // 3: policy.v1.DecisionRequest.context:type_name -> policy.v1.Context
 	0,  // 4: policy.v1.Principal.aal:type_name -> policy.v1.AuthLevel
-	11, // 5: policy.v1.Principal.authenticated_at:type_name -> google.protobuf.Timestamp
-	10, // 6: policy.v1.Resource.attributes:type_name -> policy.v1.Resource.AttributesEntry
-	11, // 7: policy.v1.Context.requested_at:type_name -> google.protobuf.Timestamp
+	13, // 5: policy.v1.Principal.authenticated_at:type_name -> google.protobuf.Timestamp
+	12, // 6: policy.v1.Resource.attributes:type_name -> policy.v1.Resource.AttributesEntry
+	13, // 7: policy.v1.Context.requested_at:type_name -> google.protobuf.Timestamp
 	7,  // 8: policy.v1.Context.posture:type_name -> policy.v1.DevicePosture
 	8,  // 9: policy.v1.Context.approvals:type_name -> policy.v1.Approval
-	11, // 10: policy.v1.DevicePosture.evaluated_at:type_name -> google.protobuf.Timestamp
-	11, // 11: policy.v1.Approval.approved_at:type_name -> google.protobuf.Timestamp
+	13, // 10: policy.v1.DevicePosture.evaluated_at:type_name -> google.protobuf.Timestamp
+	13, // 11: policy.v1.Approval.approved_at:type_name -> google.protobuf.Timestamp
 	1,  // 12: policy.v1.DecisionResponse.effect:type_name -> policy.v1.Effect
-	12, // 13: policy.v1.DecisionResponse.max_ttl:type_name -> google.protobuf.Duration
-	2,  // 14: policy.v1.PolicyDecisionService.Decide:input_type -> policy.v1.DecisionRequest
-	9,  // 15: policy.v1.PolicyDecisionService.Decide:output_type -> policy.v1.DecisionResponse
-	15, // [15:16] is the sub-list for method output_type
-	14, // [14:15] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	14, // 13: policy.v1.DecisionResponse.max_ttl:type_name -> google.protobuf.Duration
+	13, // 14: policy.v1.DecisionResponse.issued_at:type_name -> google.protobuf.Timestamp
+	9,  // 15: policy.v1.VerifyDecisionRequest.decision:type_name -> policy.v1.DecisionResponse
+	2,  // 16: policy.v1.PolicyDecisionService.Decide:input_type -> policy.v1.DecisionRequest
+	10, // 17: policy.v1.PolicyDecisionService.VerifyDecision:input_type -> policy.v1.VerifyDecisionRequest
+	9,  // 18: policy.v1.PolicyDecisionService.Decide:output_type -> policy.v1.DecisionResponse
+	11, // 19: policy.v1.PolicyDecisionService.VerifyDecision:output_type -> policy.v1.VerifyDecisionResponse
+	18, // [18:20] is the sub-list for method output_type
+	16, // [16:18] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_policy_v1_decision_proto_init() }
@@ -847,7 +988,7 @@ func file_policy_v1_decision_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_policy_v1_decision_proto_rawDesc), len(file_policy_v1_decision_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   9,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

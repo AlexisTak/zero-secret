@@ -166,6 +166,11 @@ impl Pdp {
             constraints: vec![],
             decision_hash,
             policy_version: self.policy_version.clone(),
+            // Scellement decision-seal/v1 (H4) : pas ici — Pdp::decide reste pur, sans HSM
+            // (règle absolue #5). apps/policy-engine scelle après cet appel, avant de renvoyer.
+            issued_at: None,
+            decision_signature: vec![],
+            decision_signature_key_id: String::new(),
         }
     }
 }
@@ -178,6 +183,9 @@ fn deny(reasons: Vec<String>, decision_hash: Vec<u8>, policy_version: String) ->
         constraints: vec![],
         decision_hash,
         policy_version,
+        issued_at: None,
+        decision_signature: vec![],
+        decision_signature_key_id: String::new(),
     }
 }
 

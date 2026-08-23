@@ -16,7 +16,10 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 service PolicyDecisionService {
-  // Évalue une requête d'accès. Sans état, déterministe, sans appel réseau sortant.
+  // Évalue une requête d'accès. Sans état, déterministe, sans appel réseau sortant — cette
+  // propriété porte sur les ENTRÉES de la décision uniquement : le scellement de la réponse
+  // (decision-seal/v1, H4/ADR-019) est une étape postérieure et isolée, sans consultation externe
+  // pour DÉCIDER.
   //
   // DecisionRequest/DecisionResponse (et non DecideRequest/DecideResponse, la convention buf
   // par défaut) pour rester alignés avec le vocabulaire de docs/architecture.md, où ces noms
@@ -24,6 +27,12 @@ service PolicyDecisionService {
   // buf:lint:ignore RPC_REQUEST_STANDARD_NAME
   // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
   rpc Decide(DecisionRequest) returns (DecisionResponse);
+
+  // Vérifie la signature decision-seal/v1 d'une DecisionResponse déjà émise (H4/ADR-019) —
+  // consommé par credential-issuer (L2.4), qui ne peut pas vérifier lui-même (ADR-001 : frontière
+  // Rust/Go réseau, jamais FFI). Un refus cryptographique n'est jamais une erreur gRPC (P2) :
+  // valid: false + reason, même discipline que VerifyAssertion (H3).
+  rpc VerifyDecision(VerifyDecisionRequest) returns (VerifyDecisionResponse);
 }
 
 message DecisionRequest {
@@ -91,8 +100,17 @@ message DecisionResponse {
   repeated string reasons      = 2; // politiques ayant déterminé la décision
   google.protobuf.Duration max_ttl = 3; // plafond imposé PAR LA POLITIQUE, jamais par l'appelant
   repeated string constraints  = 4; // périmètre réduit, obligations (RFC 9396)
-  bytes decision_hash          = 5; // empreinte requête + politiques, scellée à l'audit
+  bytes decision_hash          = 5; // empreinte requête + politiques (decision-binding/v1) — lie
+                                     // la décision à SA requête et SON corpus, ne prouve pas à
+                                     // elle seule l'origine PDP (voir decision_signature)
   string policy_version        = 6;
+  // Champs decision-seal/v1 (H4/ADR-019) : signent l'ensemble effect/reasons/max_ttl/constraints/
+  // decision_hash/policy_version/issued_at — jamais decision_hash isolément (rejeu d'un effect
+  // différent sous un decision_hash valide sinon possible). Absents = décision non scellée,
+  // credential-issuer doit refuser (P2), jamais traiter une signature absente comme optionnelle.
+  google.protobuf.Timestamp issued_at = 7; // instant du scellement, pas de l'évaluation
+  bytes decision_signature            = 8; // raw r‖s, ECDSA P-256
+  string decision_signature_key_id    = 9;
 }
 
 enum Effect {
@@ -101,4 +119,13 @@ enum Effect {
   // buf:lint:ignore ENUM_ZERO_VALUE_SUFFIX
   EFFECT_DENY  = 0;
   EFFECT_ALLOW = 1;
+}
+
+message VerifyDecisionRequest {
+  DecisionResponse decision = 1;
+}
+
+message VerifyDecisionResponse {
+  bool valid   = 1;
+  string reason = 2; // non vide si et seulement si valid = false
 }

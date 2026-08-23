@@ -24,6 +24,7 @@ divergence silencieuse.
 | [016](ADR-016-service-verification-assertion.md) | Service de vérification d'assertion d'identité (H3, prérequis L2.3) | accepté | 2026-08-23 |
 | [017](ADR-017-parcours-jit-access-broker.md) | Parcours JIT (access-broker) : bibliothèque d'abord, portée réduite | accepté | 2026-08-23 |
 | [018](ADR-018-client-openbao-credential-issuer.md) | Client OpenBao (credential-issuer, H2, prérequis L2.4) | accepté | 2026-08-23 |
+| [019](ADR-019-signature-de-decision.md) | Signature de décision (decision-seal/v1, H4, prérequis L2.4) | accepté | 2026-08-23 |
 
 ## Règles
 

@@ -1854,6 +1854,7 @@ name = "policy-engine"
 version = "0.1.0"
 dependencies = [
  "prost-types",
+ "secrecy",
  "thiserror",
  "tokio",
  "tonic",
@@ -1861,6 +1862,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zs-audit",
+ "zs-crypto",
  "zs-policy",
 ]
 

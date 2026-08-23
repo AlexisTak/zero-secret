@@ -11,11 +11,14 @@ workspace = true
 [dependencies]
 zs-policy = { path = "../../crates/zs-policy" }
 zs-audit = { path = "../../crates/zs-audit" }
+zs-crypto = { path = "../../crates/zs-crypto" }
 thiserror = "2"
 tonic = "0.14"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
+prost-types = "0.14"
+secrecy = "0.10"
 
 [dev-dependencies]
 tonic-prost = "0.14"
