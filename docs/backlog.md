@@ -476,17 +476,28 @@ questions qu'elle pose.
 - Voir ADR-017 pour la conception complète et les conséquences négatives assumées.
 
 ### H2 — Intégration OpenBao (prérequis partagé L2.4, sur le modèle de H1)
-- [ ] `apps/credential-issuer` : client OpenBao (bail à durée bornée, révocation programmée),
-      interface unique vers OpenBao/PKI/HSM (`credential-issuer` seul autorisé à dialoguer avec
-      le HSM — `docs/architecture.md`)
-- [ ] Aucun secret durable en transit ni en repos côté `credential-issuer` : le bail est le seul
-      artefact retourné, jamais journalisé en clair (règle absolue #1)
-- [ ] Timeout explicite sur tout appel sortant vers OpenBao (convention Go du `CLAUDE.md` racine)
-- **Acceptation** : une indisponibilité d'OpenBao produit un refus explicite d'émission, jamais un
-  repli sur un credential généré localement ou un succès partiel (R2).
-- **Hors périmètre attendu, à signaler explicitement le moment venu** : OpenBao en mode dev
-  (`deploy/compose.dev.yml`, L0.6) n'a pas les mêmes garanties HA qu'un cluster de production —
-  cohérent avec la limite déjà assumée sur SoftHSM2 en H1.
+- [x] `apps/credential-issuer/internal/openbao` : client OpenBao générique — `IssueLease`/
+      `Revoke`, agnostique du moteur de secrets (quel moteur pour quel verbe reste une décision
+      de L2.4). `github.com/openbao/openbao/api/v2` (MPL-2.0), pas le client Vault (BUSL-1.1) —
+      cohérent avec ADR-002 (ADR-018)
+- [x] Aucun secret durable en transit ni en repos : `Lease.String()`/`GoString()` masquent les
+      données du bail, vérifié par test (`%v`/`%+v` ne fuitent jamais le secret injecté) — règle
+      absolue #1
+- [x] Timeout explicite sur tout appel sortant (`context.WithTimeout`, 5 s par défaut) — vérifié
+      par test avec un délai réellement mesuré, pas seulement déclaré
+- **Acceptation** : indisponibilité (5xx, connexion refusée, timeout, réponse sans bail
+  exploitable) → `ErrUnavailable` explicite, jamais un bail partiel — vérifié par test avec un
+  serveur `httptest` simulant chacun de ces cas.
+- **Authentification par jeton en variable d'environnement, provisoire et signalée** (ADR-018) :
+  même patron que H3 — mécanisme de production (AppRole, Kubernetes auth) non conçu ici.
+- **Retries désactivés explicitement** (`MaxRetries = 0`) plutôt que le défaut de la bibliothèque
+  cliente : un retry automatique masquerait une indisponibilité réelle derrière un délai
+  variable — politique de retry authentique à instruire séparément si nécessaire.
+- **Hors périmètre attendu, signalé** : test d'intégration réel contre un vrai OpenBao
+  (`deploy/compose.dev.yml`, L0.6) **non exécuté** — Podman/Docker bloqués sur ce poste, même
+  limite que SoftHSM2 (H1). `apps/credential-issuer/main.go` reste un stub — H2 livre la
+  bibliothèque, pas le binaire (cohérent avec H1, qui n'a câblé aucun `main.go` non plus).
+- Voir ADR-018 pour la conception complète.
 
 ### L2.4 — Émission de credential (`credential-issuer`, Go)
 - [ ] Ordre d'émission accepté uniquement d'un `access-broker` authentifié en mTLS et porteur
