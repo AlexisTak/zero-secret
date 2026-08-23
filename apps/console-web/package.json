@@ -1,0 +1,19 @@
+{
+  "name": "console-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interface console (login WebAuthn, demande d'accès) — aucune logique de sécurité côté client (docs/architecture.md).",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.public.json",
+    "start": "node dist/main.js",
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5"
+  }
+}

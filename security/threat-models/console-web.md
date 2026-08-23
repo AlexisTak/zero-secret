@@ -1,6 +1,6 @@
 # Modèle de menaces — console-web
 
-**Dernière révision** : 2026-08-22 — **Déclencheur** : lot L0.5, avant tout code console
+**Dernière révision** : 2026-08-23 — **Déclencheur** : L2.6, premier code réel (ADR-024)
 
 ## Périmètre
 
@@ -48,9 +48,11 @@ donnée biométrique.
 
 | Menace | Test | Statut |
 |---|---|---|
-| Décision côté client contournant le serveur | `tests/adversarial/` — vérifier qu'aucune route ne permet d'agir sans validation serveur | Non écrit |
-| XSS sur un champ texte libre (motif, justification) | `tests/adversarial/` — injection dans un champ affiché ailleurs | Non écrit |
-| Session non isolée entre utilisateurs | `tests/adversarial/` — fuite de session sur poste partagé | Non écrit |
+| Décision côté client contournant le serveur | Non applicable par construction : `console-web` ne décide jamais — `POST /access-request` relaie toujours vers `access-broker` en temps réel, aucun cache de décision côté serveur | Couvert par construction |
+| XSS sur un champ texte libre (motif, justification) | `apps/console-web/src/html.test.ts` — `html échappe une valeur interpolée hostile` | Écrit |
+| Session non isolée entre utilisateurs | `apps/console-web/src/session.test.ts` — identifiants distincts par session, comparaison en temps constant, purge à l'expiration | Écrit |
+| 401 en aval rejoué avec une session déjà invalidée | `apps/console-web/src/server.test.ts` — `401 d'access-broker détruit la session et efface le cookie` | Écrit |
+| CSRF sur les routes `POST` | `apps/console-web/src/server.test.ts` — `POST sans origine correspondante est refusé` | Écrit |
 
 ## Hypothèses de sécurité
 
@@ -60,3 +62,17 @@ donnée biométrique.
   l'origine) — ce composant en dépend sans le vérifier lui-même.
 - Le budget de dépendances est plafonné et suivi (règle absolue #10 du `CLAUDE.md` racine) — une
   dépendance front-end non justifiée élargirait la surface d'attaque sans bénéfice proportionné.
+
+## Addendum (L2.6, ADR-024) — premier code réel
+
+- **Frontière crypto TypeScript étroite** : `node:crypto` limité à `randomBytes`/`randomUUID`/
+  `timingSafeEqual` (liste blanche ADR-024) — `console-web` ne vérifie jamais une assertion,
+  elle la relaie. Aucun détecteur automatisé équivalent à `check-no-direct-crypto.sh` côté
+  TypeScript dans ce lot — repose sur la revue de code (dette signalée, ADR-024).
+- **Session en mémoire, mono-instance** — à contraindre à une seule réplique en déploiement
+  (aucun manifeste `deploy/` n'existe encore pour `console-web`, signalé, pas câblé ici).
+- **Bootstrap du premier facteur non résolu** hérité d'H5/ADR-023 : `console-web` transmet le
+  `subject_id` saisi tel quel à `identity-provider` sans l'authentifier au préalable — même
+  angle mort, pas aggravé ni résolu par ce lot.
+- **Écran quorum (`admin-api`) différé à L2.6b** — flux à plusieurs porteurs s'authentifiant
+  séparément, hors périmètre de ce lot (décision de portée explicite).

@@ -14,6 +14,7 @@ Cargo.lock.bak
 node_modules/
 .next/
 dist/
+apps/console-web/public/*.js
 
 # SoftHSM2 / secrets locaux dev — jamais de secret durable dans le dépôt
 *.env
