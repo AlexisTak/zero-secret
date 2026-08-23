@@ -195,8 +195,14 @@ mod tests {
         // de serde_json::Map (régression L2.2 : cedar-policy-core active preserve_order).
         let insertion_inverse = json!({ "z": 1, "a": 2, "m": 3 });
         let insertion_triee = json!({ "a": 2, "m": 3, "z": 1 });
-        assert_eq!(canonical_bytes(&insertion_inverse), canonical_bytes(&insertion_triee));
-        assert_eq!(canonical_bytes(&insertion_inverse), br#"{"a":2,"m":3,"z":1}"#);
+        assert_eq!(
+            canonical_bytes(&insertion_inverse),
+            canonical_bytes(&insertion_triee)
+        );
+        assert_eq!(
+            canonical_bytes(&insertion_inverse),
+            br#"{"a":2,"m":3,"z":1}"#
+        );
     }
 
     #[test]

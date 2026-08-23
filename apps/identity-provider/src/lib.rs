@@ -1,15 +1,15 @@
-//! `identity-provider` — vérification d'assertion `identity-assertion/v1` exposée en gRPC
-//! (`contracts/proto/identity/v1/assertion_verification.proto`, H3, ADR-016). Frontière Rust/Go
-//! réseau, jamais FFI (ADR-001) : c'est la seule façon dont `access-broker` (L2.3, Go) peut faire
-//! vérifier une assertion sans importer de bibliothèque crypto directement.
-//!
-//! Vérification **seulement** : l'émission (`AssertionSealer::seal`, L1.2c) n'est pas câblée ici
-//! — elle exige une session HSM, hors périmètre de H3. Aucune ligne de cryptographie nouvelle :
-//! ce module traduit `VerifyAssertionRequest`/`Response` vers/depuis
-//! `zs_crypto::identity_assertion::{verify, AcceptancePolicy}`, déjà existants et testés.
+//! `identity-provider` — deux entrées réseau. gRPC (ce fichier) : vérification d'assertion
+//! `identity-assertion/v1` (`contracts/proto/identity/v1/assertion_verification.proto`, H3,
+//! ADR-016) — frontière Rust/Go, jamais FFI (ADR-001), seule façon dont `access-broker` (L2.3,
+//! Go) fait vérifier une assertion sans importer de bibliothèque crypto directement. HTTP
+//! (`httpapi`, H5, ADR-023) : émission de challenge et vérification de cérémonie WebAuthn — la
+//! seule voie d'**émission** réelle d'assertion et d'événement d'audit de ce composant.
 //!
 //! gRPC en clair (pas de TLS) — jamais un déploiement de production sans mTLS. Prérequis distinct
 //! (SPIFFE/SPIRE, ADR-001), non traité ici, signalé explicitement.
+
+pub mod httpapi;
+pub mod store;
 
 use tonic::{Request, Response, Status, transport::Server};
 
@@ -45,9 +45,8 @@ impl AssertionVerificationService for AssertionVerifier {
         let now = rfc3339_now();
         let policy = AcceptancePolicy {
             accepted_suites: ACCEPTED_SUITES,
-            now: identity_assertion::Timestamp::new(now).expect(
-                "rfc3339_now produit toujours un format valide pour Timestamp::new",
-            ),
+            now: identity_assertion::Timestamp::new(now)
+                .expect("rfc3339_now produit toujours un format valide pour Timestamp::new"),
             expected_authority_domain: req.expected_authority_domain,
         };
 
@@ -112,11 +111,26 @@ pub async fn serve(
 /// qu'une dépendance de calendrier (`chrono`/`time`) : le format est fixe et étroit (pas de calcul
 /// calendaire général requis), une nouvelle dépendance n'était pas justifiée pour ça seul (règle
 /// absolue #10).
-fn rfc3339_now() -> String {
-    let now = std::time::SystemTime::now()
+pub(crate) fn rfc3339_now() -> String {
+    format_rfc3339(unix_now_seconds())
+}
+
+/// `(maintenant, maintenant + ttl_seconds)`, formatés RFC 3339 — évite de reformater puis
+/// reparser une chaîne pour calculer une expiration (H5, `httpapi::authentication_verify`) :
+/// l'arithmétique reste en secondes Unix, seul le format de sortie change.
+pub(crate) fn rfc3339_now_and_after(ttl_seconds: i64) -> (String, String) {
+    let now = unix_now_seconds();
+    (format_rfc3339(now), format_rfc3339(now + ttl_seconds))
+}
+
+fn unix_now_seconds() -> i64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .expect("horloge système antérieure à 1970");
-    let total_seconds = now.as_secs() as i64;
+        .expect("horloge système antérieure à 1970")
+        .as_secs() as i64
+}
+
+fn format_rfc3339(total_seconds: i64) -> String {
     let days = total_seconds.div_euclid(86_400);
     let seconds_of_day = total_seconds.rem_euclid(86_400);
 

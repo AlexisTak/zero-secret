@@ -112,3 +112,17 @@ cette contribution.
 - Si `aws-lc-rs` cesse d'être maintenu ou perd sa validation FIPS, réexaminer le backend
   complet de `authenticator-proof` et `identity-assertion` (ADR-007) ensemble — ils partagent
   la même dépendance.
+
+## Addendum (H5, ADR-023) — `accept_challenge`
+
+`Challenge` (`authenticator_proof.rs`) n'avait qu'un émetteur (`new_challenge`, CSPRNG) et
+aucun constructeur depuis des octets externes — cohérent tant qu'aucun appelant ne persistait
+un challenge au-delà de la mémoire du process qui l'avait émis. H5 (endpoints HTTP de
+cérémonie, `identity-provider`) introduit le premier serveur sans état vis-à-vis du challenge :
+il est émis, persisté en base (`identity.challenges`), puis relu potentiellement par une autre
+instance/après redémarrage avant vérification. `accept_challenge(suite, bytes: Vec<u8>)` a été
+ajoutée (validation humaine explicite, `referent-crypto` consulté) pour réhydrater un
+`Challenge` depuis ces octets — mêmes garanties de longueur (32 octets) et de suite que le
+reste du crate, `bytes` pris par valeur pour que l'effacement au drop (invariant 8) couvre le
+tampon lu en base sans copie intermédiaire non effacée. Aucune primitive cryptographique
+nouvelle, aucune entrée CBOM requise.

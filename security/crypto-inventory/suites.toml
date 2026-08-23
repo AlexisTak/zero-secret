@@ -29,8 +29,8 @@ signature_encoding = "raw r||s, hexadécimal minuscule"
 domain_separation = "zero-secret/identity-assertion/v1"
 signature_container = "N composantes, arité et ordre imposés par la suite (R8/ADR-008/ADR-012)"
 key_label = "zs-identity-assertion-v1"
-adrs = ["ADR-007", "ADR-008", "ADR-011", "ADR-012"]
-notes = "Scellement et vérification réels implémentés (crates/zs-crypto::identity_assertion, L1.2c)."
+adrs = ["ADR-007", "ADR-008", "ADR-011", "ADR-012", "ADR-023"]
+notes = "Scellement et vérification réels implémentés (crates/zs-crypto::identity_assertion, L1.2c). Premier appelant applicatif réel de seal() : apps/identity-provider/src/httpapi.rs (H5, ADR-023), endpoint POST /v1/webauthn/authentication/verify."
 
 [[suite]]
 id = "audit-seal/v1"
@@ -47,8 +47,8 @@ signature_encoding = "raw r||s, hexadécimal minuscule"
 domain_separation = "zero-secret/audit-seal/v1"
 signature_container = "objet {suite, components}, arité imposée par la suite — forme distincte d'identity-assertion (tableau au premier niveau), imposée par contracts/events/audit-event.schema.json, résorption visée en v2 (ADR-013)"
 key_label = "zs-audit-seal-v1"
-adrs = ["ADR-010", "ADR-011", "ADR-013"]
-notes = "Scellement et vérification réels implémentés (crates/zs-crypto::audit_seal, L1.4b) — opération HSM la plus fréquente du système (une par action métier, règle absolue #9)."
+adrs = ["ADR-010", "ADR-011", "ADR-013", "ADR-023"]
+notes = "Scellement et vérification réels implémentés (crates/zs-crypto::audit_seal, L1.4b) — opération HSM la plus fréquente du système (une par action métier, règle absolue #9). Premier appelant applicatif réel de seal() : apps/identity-provider/src/httpapi.rs (H5, ADR-023)."
 
 [[suite]]
 id = "decision-binding/v1"

@@ -11,7 +11,9 @@ use zs_crypto::decision_seal::{DecisionSealer, HsmSettings};
 use zs_policy::pdp::Pdp;
 
 fn env_path(var: &str, default: &str) -> PathBuf {
-    std::env::var(var).map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(default))
+    std::env::var(var)
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(default))
 }
 
 #[tokio::main]

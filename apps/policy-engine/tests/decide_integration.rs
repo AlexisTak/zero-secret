@@ -77,7 +77,9 @@ fn nominal_request() -> DecisionRequest {
             roles: vec!["dba".to_string()],
             authority_domain: "corp.eu-west".to_string(),
         }),
-        action: Some(Action { verb: "db.connect".to_string() }),
+        action: Some(Action {
+            verb: "db.connect".to_string(),
+        }),
         resource: Some(Resource {
             r#type: "Database".to_string(),
             id: "db-billing-prod".to_string(),
@@ -109,7 +111,9 @@ async fn spawn_server(addr: SocketAddr, key_label: &str) {
     let pdp = load_pdp();
     let sealer = open_sealer(key_label);
     tokio::spawn(async move {
-        policy_engine::serve(addr, pdp, sealer).await.expect("serveur policy-engine");
+        policy_engine::serve(addr, pdp, sealer)
+            .await
+            .expect("serveur policy-engine");
     });
     // Attente courte que le port soit lié — pas de sonde de disponibilité dédiée dans ce dépôt à
     // ce stade, borné pour éviter un test qui traîne indéfiniment en cas d'échec réel de bind.
@@ -131,17 +135,27 @@ async fn deux_instances_distinctes_du_service_produisent_la_meme_decision() {
         .await
         .expect("connexion instance B");
 
-    let response_a =
-        client_a.decide(nominal_request()).await.expect("appel gRPC instance A").into_inner();
-    let response_b =
-        client_b.decide(nominal_request()).await.expect("appel gRPC instance B").into_inner();
+    let response_a = client_a
+        .decide(nominal_request())
+        .await
+        .expect("appel gRPC instance A")
+        .into_inner();
+    let response_b = client_b
+        .decide(nominal_request())
+        .await
+        .expect("appel gRPC instance B")
+        .into_inner();
 
     assert_eq!(response_a.effect, Effect::Allow as i32);
     assert_eq!(response_a.effect, response_b.effect);
     assert_eq!(response_a.decision_hash, response_b.decision_hash);
     assert_eq!(response_a.policy_version, response_b.policy_version);
     assert_eq!(response_a.reasons, response_b.reasons);
-    assert!(response_a.reasons.contains(&"db-connect-production".to_string()));
+    assert!(
+        response_a
+            .reasons
+            .contains(&"db-connect-production".to_string())
+    );
 }
 
 #[tokio::test]
@@ -150,12 +164,17 @@ async fn requete_refusee_sur_le_reseau_reste_une_reponse_normale_pas_une_erreur_
     let addr: SocketAddr = "127.0.0.1:51603".parse().unwrap();
     spawn_server(addr, "zs-decision-seal-v1-test-b").await;
 
-    let mut client =
-        PolicyDecisionServiceClient::connect(format!("http://{addr}")).await.expect("connexion");
+    let mut client = PolicyDecisionServiceClient::connect(format!("http://{addr}"))
+        .await
+        .expect("connexion");
 
     let mut req = nominal_request();
     req.principal.as_mut().unwrap().aal = 2; // AAL2 : refus attendu, pas une erreur de transport.
 
-    let response = client.decide(req).await.expect("l'appel gRPC réussit").into_inner();
+    let response = client
+        .decide(req)
+        .await
+        .expect("l'appel gRPC réussit")
+        .into_inner();
     assert_eq!(response.effect, Effect::Deny as i32);
 }

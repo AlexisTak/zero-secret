@@ -12,10 +12,27 @@ workspace = true
 zs-webauthn = { path = "../../crates/zs-webauthn" }
 zs-audit = { path = "../../crates/zs-audit" }
 zs-crypto = { path = "../../crates/zs-crypto" }
+zs-hsm = { path = "../../crates/zs-hsm" }
 zs-identity = { path = "../../crates/zs-identity" }
 thiserror = "2"
 tonic = "0.14"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+secrecy = "0.10"
+# Premier serveur HTTP Rust du dépôt (ADR-023) — axum minimal, pas de framework plus lourd,
+# même esprit qu'ADR-022 côté Go (net/http standard, pas de chi/gin/echo).
+axum = "0.8"
+# Premier driver Postgres du dépôt (ADR-023) — sqlx, pas tokio-postgres : paramètres liés
+# systématiques, TLS via rustls (pas d'OpenSSL), vérification à la compilation disponible même
+# si non activée dans ce lot (requêtes non préparées, voir ADR-023). N'apparaît dans aucun motif
+# de tools/lib/check-no-direct-crypto.sh — rustls reste une dépendance transitive de sqlx,
+# jamais importé directement par ce crate.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "tls-rustls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+uuid = { version = "1", features = ["v7"] }
 
 [dev-dependencies]
 tonic-prost = "0.14"
@@ -26,3 +43,15 @@ serde_json = "1"
 # déterministe RFC 6979, L1.2c/L1.4b), jamais utilisé en production (seul zs-hsm signe réellement).
 p256 = { version = "0.13", features = ["ecdsa"] }
 sha2 = "0.10"
+# Fixture de test WebAuthn (tests/http_ceremony.rs, H5) — simule un authentificateur FIDO2
+# externe (aws-lc-rs, même patron que crates/zs-webauthn/Cargo.toml) et construit un
+# attestationObject CBOR/COSE (ciborium/coset, mêmes bibliothèques que le code de production
+# qui le décode, jamais une seconde implémentation CBOR). N'entre jamais dans le chemin de
+# confiance de ce crate — uniquement le fixture qui joue le rôle du navigateur/authentificateur.
+aws-lc-rs = { version = "1", features = ["prebuilt-nasm"] }
+ciborium = "0.2"
+coset = "0.4"
+# Appelle le routeur axum en process (tower::ServiceExt::oneshot), sans ouvrir de socket réel —
+# évite d'ajouter un client HTTP (reqwest) juste pour les tests (règle absolue #10).
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

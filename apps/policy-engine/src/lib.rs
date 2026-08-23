@@ -43,9 +43,16 @@ pub struct PolicyEngine {
 impl PolicyEngine {
     /// `policy-engine` vérifie ses propres décisions : la clé de vérification est dérivée de la
     /// clé de signature du scelleur, pas fournie séparément (H4/ADR-019).
-    pub fn new(pdp: Pdp, sealer: DecisionSealer) -> Result<Self, zs_crypto::decision_seal::VerifyError> {
+    pub fn new(
+        pdp: Pdp,
+        sealer: DecisionSealer,
+    ) -> Result<Self, zs_crypto::decision_seal::VerifyError> {
         let verifying_key = sealer.accepted_verifying_key()?;
-        Ok(Self { pdp, sealer, verifying_key })
+        Ok(Self {
+            pdp,
+            sealer,
+            verifying_key,
+        })
     }
 }
 
@@ -63,10 +70,9 @@ impl PolicyDecisionService for PolicyEngine {
 
         let issued_at_str = rfc3339_now();
         let fields = decision_fields(&response, &issued_at_str);
-        let (signature, key_id) = self
-            .sealer
-            .seal(&fields)
-            .map_err(|e| Status::internal(format!("scellement de la décision indisponible : {e}")))?;
+        let (signature, key_id) = self.sealer.seal(&fields).map_err(|e| {
+            Status::internal(format!("scellement de la décision indisponible : {e}"))
+        })?;
 
         response.issued_at = Some(prost_types::Timestamp {
             seconds: request_time_from_rfc3339(&issued_at_str),
@@ -109,8 +115,14 @@ impl PolicyDecisionService for PolicyEngine {
             &decision.decision_signature_key_id,
             &decision.decision_signature,
         ) {
-            Ok(()) => VerifyDecisionResponse { valid: true, reason: String::new() },
-            Err(e) => VerifyDecisionResponse { valid: false, reason: e.to_string() },
+            Ok(()) => VerifyDecisionResponse {
+                valid: true,
+                reason: String::new(),
+            },
+            Err(e) => VerifyDecisionResponse {
+                valid: false,
+                reason: e.to_string(),
+            },
         };
         Ok(Response::new(response))
     }
@@ -125,7 +137,11 @@ fn decision_fields(response: &DecisionResponse, issued_at_str: &str) -> Decision
         policy_version: response.policy_version.clone(),
         effect_allow: response.effect == zs_policy::policy::v1::Effect::Allow as i32,
         reasons: response.reasons.clone(),
-        max_ttl_seconds: response.max_ttl.as_ref().map(|d| d.seconds.max(0) as u64).unwrap_or(0),
+        max_ttl_seconds: response
+            .max_ttl
+            .as_ref()
+            .map(|d| d.seconds.max(0) as u64)
+            .unwrap_or(0),
         constraints: response.constraints.clone(),
         issued_at: zs_crypto::identity_assertion::Timestamp::new(issued_at_str.to_string())
             .expect("rfc3339_now/rfc3339_from_seconds produisent toujours un format valide"),
@@ -137,9 +153,16 @@ fn decision_fields(response: &DecisionResponse, issued_at_str: &str) -> Decision
 /// # Panics
 /// Si la dérivation de la clé de vérification depuis le scelleur échoue — ne devrait jamais
 /// arriver en pratique (`DecisionSealer::open` a déjà réussi à résoudre la même clé publique).
-pub async fn serve(addr: SocketAddr, pdp: Pdp, sealer: DecisionSealer) -> Result<(), tonic::transport::Error> {
+pub async fn serve(
+    addr: SocketAddr,
+    pdp: Pdp,
+    sealer: DecisionSealer,
+) -> Result<(), tonic::transport::Error> {
     let service = PolicyEngine::new(pdp, sealer).expect("dérivation de la clé de vérification");
-    Server::builder().add_service(PolicyDecisionServiceServer::new(service)).serve(addr).await
+    Server::builder()
+        .add_service(PolicyDecisionServiceServer::new(service))
+        .serve(addr)
+        .await
 }
 
 /// Horodatage RFC 3339 UTC strict de l'instant courant — même algorithme que
@@ -172,9 +195,18 @@ fn request_time_from_rfc3339(s: &str) -> i64 {
     let year: i64 = std::str::from_utf8(&bytes[0..4]).unwrap().parse().unwrap();
     let month: i64 = std::str::from_utf8(&bytes[5..7]).unwrap().parse().unwrap();
     let day: i64 = std::str::from_utf8(&bytes[8..10]).unwrap().parse().unwrap();
-    let hour: i64 = std::str::from_utf8(&bytes[11..13]).unwrap().parse().unwrap();
-    let minute: i64 = std::str::from_utf8(&bytes[14..16]).unwrap().parse().unwrap();
-    let second: i64 = std::str::from_utf8(&bytes[17..19]).unwrap().parse().unwrap();
+    let hour: i64 = std::str::from_utf8(&bytes[11..13])
+        .unwrap()
+        .parse()
+        .unwrap();
+    let minute: i64 = std::str::from_utf8(&bytes[14..16])
+        .unwrap()
+        .parse()
+        .unwrap();
+    let second: i64 = std::str::from_utf8(&bytes[17..19])
+        .unwrap()
+        .parse()
+        .unwrap();
     days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second
 }
 

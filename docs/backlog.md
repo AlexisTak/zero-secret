@@ -626,11 +626,39 @@ questions qu'elle pose.
   toujours pas d'événement scellé côté Go (même limite que L2.3/L2.4/L2.5).
 - Voir ADR-022 pour la conception complète.
 
+### H5 — Cérémonie WebAuthn HTTP (`identity-provider`, prérequis à L2.6)
+- [x] `contracts/openapi/identity-provider.yaml` (source de vérité documentée, sans générateur
+      Rust — voir ADR-023) : `POST /v1/webauthn/{registration,authentication}/{challenge,verify}`.
+- [x] `apps/identity-provider/src/store.rs` : premier driver Postgres du dépôt (`sqlx`), deux
+      pools/rôles distincts (`identity_app`, `audit_writer`) — jamais le même pool pour les deux
+      schémas.
+- [x] `apps/identity-provider/src/httpapi.rs` : implémentation réelle de `ChallengeStore`/
+      `SignCounterStore` (sémantique async, pas les traits synchrones de `zs-webauthn` — voir
+      ADR-023), premier appelant applicatif de `AssertionSealer::seal` **et**
+      `AuditSealer::seal` (deux clés HSM, deux scellements par authentification réussie, règle
+      absolue #9 respectée dans le même lot — décision explicite, pas de dette).
+- [x] `crates/zs-crypto::authenticator_proof::accept_challenge` — ajout validé (`referent-crypto`
+      + validation humaine explicite) pour réhydrater un `Challenge` depuis des octets persistés,
+      trou d'API découvert en cours d'implémentation (aucun serveur sans état n'existait avant
+      H5). Voir addendum ADR-006.
+- [x] `deploy/migrations/005_audit_events_sealed_bytes.sql` — colonne `sealed_bytes` sur
+      `audit.events`, nécessaire pour dériver `prev_hash` sans réimplémenter JCS hors zs-crypto.
+- [x] `apps/identity-provider/tests/http_ceremony.rs` — bout en bout réel (SoftHSM2 + Postgres),
+      `#[ignore]` par défaut, même discipline que `crates/zs-hsm/tests/pkcs11_integration.rs` :
+      enregistrement puis authentification nominal, rejeu de challenge refusé, signature
+      invalide refusée.
+- **Décision de portée** (mode plan + `AskUserQuestion`) : bootstrap du tout premier facteur non
+  résolu — `subject_id` accepté tel quel à l'enregistrement, aucun mécanisme d'invitation/admin
+  instruit. Angle mort documenté (ADR-023, modèle de menaces), pas caché.
+- Voir ADR-023 pour la conception complète, y compris le patron `spawn_blocking` autour de
+  chaque appel HSM (défaut identifié mais non corrigé dans `policy-engine`, hors périmètre).
+
 ### L2.6 — Console web (`console-web`, TypeScript)
 - **Toujours hors périmètre, prêt à être ouvert** : `docs/architecture.md` l'exige sans logique
   de sécurité côté client. Les deux API dont il dépend (`access-broker`/`admin-api`) ont
-  désormais une entrée HTTP réelle (voir ci-dessus, ADR-022) — le blocage initial (« ne pas
-  ouvrir avant que ces deux API existent réellement ») est levé.
+  désormais une entrée HTTP réelle (ADR-022) et `identity-provider` peut désormais émettre une
+  assertion réelle par cérémonie WebAuthn HTTP (H5, ADR-023) — les deux blocages initiaux sont
+  levés.
 
 ---
 

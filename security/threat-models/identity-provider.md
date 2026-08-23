@@ -127,3 +127,31 @@ contraire (ex. un commentaire minimisant ce risque) doit être corrigée.
   d'audit immédiate) n'est pas encore spécifié — tranché pour la partie HSM (refus, voir
   ci-dessus, ADR-011) ; reste ouvert pour la partie transport vers `audit-collector` lui-même,
   à trancher avant L1.4b.
+
+## Addendum (H5, ADR-023) — émission réelle, entrée HTTP
+
+`identity-provider` cesse d'être un composant purement vérificateur : `apps/identity-provider/
+src/httpapi.rs` scelle réellement des assertions `identity-assertion/v1` (`AssertionSealer::seal`)
+et des événements `audit-seal/v1` (`AuditSealer::seal`) via `zs-hsm` — la « capacité même d'émettre
+une assertion signée », déjà listée en actif ci-dessus, est désormais un chemin de code réel, pas
+seulement une primitive de bibliothèque.
+
+- **Nouvelle entrée non fiable** : 4 endpoints HTTP (`/v1/webauthn/{registration,authentication}/
+  {challenge,verify}`), non authentifiés au niveau transport (pas de TLS dans ce lot, dette déjà
+  assumée ailleurs — ADR-022). `Content-Length`/JSON malformé/champs `format: byte` mal encodés
+  sont refusés par construction (parse strict, bornes de taille héritées de `zs-webauthn`).
+- **Angle mort non résolu, signalé** : `RegistrationChallengeRequest.subject_id` est accepté tel
+  quel, sans authentification préalable — le bootstrap du tout premier facteur d'un sujet n'est
+  pas instruit dans ce lot (aucun mécanisme d'invitation/admin n'existe). Un attaquant qui connaît
+  ou devine un `subject_id` peut initier un enregistrement à son nom ; seule la possession réelle
+  d'un authentificateur limite l'impact (l'attaquant n'obtient qu'un credential *supplémentaire*
+  sous ce `subject_id`, pas un accès à un credential existant). À trancher avant un déploiement
+  réel — voir critère de réexamen de l'ADR-023.
+- **Double scellement HSM par requête réussie** (assertion + événement d'audit) : la
+  disponibilité HSM devient un mode de panne encore plus central pour ce composant qu'avant H5 —
+  cohérent avec l'hypothèse déjà actée ci-dessus (refus complet, jamais de repli), mais la
+  fréquence d'exposition à ce mode de panne augmente avec le trafic d'authentification réel.
+- **Persistance nouvelle** : `identity.challenges`/`identity.authenticators` (déjà prévues,
+  migration 003/004) sont désormais réellement écrites ; `audit.events.sealed_bytes` (migration
+  005, H5) stocke les octets canoniques scellés pour permettre la dérivation du `prev_hash`
+  suivant sans réimplémenter la canonicalisation JCS hors de `zs-crypto`.

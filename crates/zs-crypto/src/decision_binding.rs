@@ -90,7 +90,9 @@ pub fn bind_policy_corpus(
             return Err(CorpusBindingError::InvalidPath(f.relative_path.to_string()));
         }
         if f.contents.starts_with('\u{FEFF}') {
-            return Err(CorpusBindingError::InvalidEncoding(f.relative_path.to_string()));
+            return Err(CorpusBindingError::InvalidEncoding(
+                f.relative_path.to_string(),
+            ));
         }
     }
 
@@ -158,12 +160,24 @@ mod tests {
 
     #[test]
     fn empreinte_de_corpus_independante_de_lordre_dentree() {
-        let f1 = CorpusFile { relative_path: "a.cedar", contents: "1" };
-        let f2 = CorpusFile { relative_path: "b.cedar", contents: "2" };
+        let f1 = CorpusFile {
+            relative_path: "a.cedar",
+            contents: "1",
+        };
+        let f2 = CorpusFile {
+            relative_path: "b.cedar",
+            contents: "2",
+        };
         let dans_lordre = bind_policy_corpus("{}", "4.12.0", &[f1, f2]).unwrap();
 
-        let f1b = CorpusFile { relative_path: "a.cedar", contents: "1" };
-        let f2b = CorpusFile { relative_path: "b.cedar", contents: "2" };
+        let f1b = CorpusFile {
+            relative_path: "a.cedar",
+            contents: "1",
+        };
+        let f2b = CorpusFile {
+            relative_path: "b.cedar",
+            contents: "2",
+        };
         let inverse = bind_policy_corpus("{}", "4.12.0", &[f2b, f1b]).unwrap();
 
         assert_eq!(dans_lordre, inverse);
@@ -174,12 +188,24 @@ mod tests {
         // ["ab", "c"] concaténé naïvement égalerait ["a", "bc"] : la longueur préfixée doit
         // empêcher cette collision de frontière.
         let a = [
-            CorpusFile { relative_path: "x.cedar", contents: "ab" },
-            CorpusFile { relative_path: "y.cedar", contents: "c" },
+            CorpusFile {
+                relative_path: "x.cedar",
+                contents: "ab",
+            },
+            CorpusFile {
+                relative_path: "y.cedar",
+                contents: "c",
+            },
         ];
         let b = [
-            CorpusFile { relative_path: "x.cedar", contents: "a" },
-            CorpusFile { relative_path: "y.cedar", contents: "bc" },
+            CorpusFile {
+                relative_path: "x.cedar",
+                contents: "a",
+            },
+            CorpusFile {
+                relative_path: "y.cedar",
+                contents: "bc",
+            },
         ];
         assert_ne!(
             bind_policy_corpus("{}", "4.12.0", &a).unwrap(),
@@ -189,7 +215,10 @@ mod tests {
 
     #[test]
     fn empreinte_de_corpus_change_avec_la_version_du_moteur_cedar() {
-        let files = [CorpusFile { relative_path: "a.cedar", contents: "1" }];
+        let files = [CorpusFile {
+            relative_path: "a.cedar",
+            contents: "1",
+        }];
         let v1 = bind_policy_corpus("{}", "4.12.0", &files).unwrap();
         let v2 = bind_policy_corpus("{}", "4.13.0", &files).unwrap();
         assert_ne!(v1, v2);
@@ -197,7 +226,10 @@ mod tests {
 
     #[test]
     fn empreinte_de_corpus_change_avec_le_schema() {
-        let files = [CorpusFile { relative_path: "a.cedar", contents: "1" }];
+        let files = [CorpusFile {
+            relative_path: "a.cedar",
+            contents: "1",
+        }];
         let a = bind_policy_corpus("{\"x\":1}", "4.12.0", &files).unwrap();
         let b = bind_policy_corpus("{\"x\":2}", "4.12.0", &files).unwrap();
         assert_ne!(a, b);
@@ -205,7 +237,10 @@ mod tests {
 
     #[test]
     fn fichier_avec_bom_est_refuse() {
-        let files = [CorpusFile { relative_path: "a.cedar", contents: "\u{FEFF}permit(...)" }];
+        let files = [CorpusFile {
+            relative_path: "a.cedar",
+            contents: "\u{FEFF}permit(...)",
+        }];
         assert_eq!(
             bind_policy_corpus("{}", "4.12.0", &files),
             Err(CorpusBindingError::InvalidEncoding("a.cedar".to_string()))
@@ -214,10 +249,15 @@ mod tests {
 
     #[test]
     fn chemin_non_normalise_est_refuse() {
-        let files = [CorpusFile { relative_path: "access\\db_connect.cedar", contents: "x" }];
+        let files = [CorpusFile {
+            relative_path: "access\\db_connect.cedar",
+            contents: "x",
+        }];
         assert_eq!(
             bind_policy_corpus("{}", "4.12.0", &files),
-            Err(CorpusBindingError::InvalidPath("access\\db_connect.cedar".to_string()))
+            Err(CorpusBindingError::InvalidPath(
+                "access\\db_connect.cedar".to_string()
+            ))
         );
     }
 }
