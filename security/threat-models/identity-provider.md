@@ -110,12 +110,20 @@ contraire (ex. un commentaire minimisant ce risque) doit être corrigée.
 
 ## Hypothèses de sécurité
 
-- Le HSM (via `zs-hsm`/`credential-issuer`) protège les clés utilisées pour signer les
-  assertions d'identité ; `identity-provider` ne vérifie pas lui-même l'intégrité du HSM.
+- Le HSM (via `crates/zs-hsm`, appelé exclusivement par `crates/zs-crypto` — ADR-010/011, corrige
+  une mention antérieure de `credential-issuer`) protège les clés utilisées pour signer les
+  assertions d'identité et les événements d'audit ; `identity-provider` ne vérifie pas lui-même
+  l'intégrité du HSM. Depuis H1 (ADR-011), l'indisponibilité du HSM (jeton absent, session
+  perdue, pool saturé) est un **mode de panne par conception** : refus complet de l'action
+  métier, jamais un repli logiciel ni une action qui réussirait sans signature — l'indisponibilité
+  HSM devient donc une indisponibilité du système, décision assumée explicitement, pas découverte
+  en incident.
 - L'horloge système est synchronisée (NTP) — la validité temporelle des challenges et des
   assertions en dépend directement.
 - Le canal navigateur ↔ `identity-provider` est en TLS ; ce composant ne compense pas
   l'absence de TLS en amont.
 - `audit-collector` est disponible et accepte les événements dans un délai borné ; en cas
   d'indisponibilité prolongée, le comportement (bloquer l'action ou l'autoriser sans preuve
-  d'audit immédiate) n'est pas encore spécifié — à trancher avant L1.4.
+  d'audit immédiate) n'est pas encore spécifié — tranché pour la partie HSM (refus, voir
+  ci-dessus, ADR-011) ; reste ouvert pour la partie transport vers `audit-collector` lui-même,
+  à trancher avant L1.4b.

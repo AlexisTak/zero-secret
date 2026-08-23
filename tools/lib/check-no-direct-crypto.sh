@@ -7,9 +7,12 @@ set -euo pipefail
 # ADR-006) : la première version ne couvrait que les crates déjà nommées dans zs-crypto/CLAUDE.md
 # — un contributeur pouvait ajouter webauthn-rs (donc OpenSSL, donc de la vérification de
 # signature) dans zs-webauthn sans que ce hook bronche. ciborium/coset restent hors motif : ce
-# sont des décodeurs de structure, pas de la crypto (ADR-006).
-RUST_CRATE_PATTERN='^(ring|rustls|aws-lc-rs|aws-lc-sys|p256|ed25519-[A-Za-z0-9_-]+|openssl|openssl-sys|webauthn-rs(-core)?|rsa|ml-dsa|ml-kem|x509-parser|elliptic-curve|signature|der|spki|curve25519-dalek)$'
-RUST_USE_PATTERN='^\s*use\s+(ring|rustls|aws_lc_rs|aws_lc_sys|p256|ed25519_[A-Za-z0-9_]+|openssl|webauthn_rs(_core)?|rsa|ml_dsa|ml_kem|x509_parser|elliptic_curve|signature|der|spki|curve25519_dalek)\b'
+# sont des décodeurs de structure, pas de la crypto (ADR-006). Étendu à nouveau (referent-crypto,
+# H1, ADR-011) : cryptoki/cryptoki-sys (FFI PKCS#11) ne doivent être importables que depuis
+# zs-hsm, déjà exempté ci-dessous — sans ce motif, n'importe quel crate aurait pu ouvrir une
+# session HSM directement, contournant zs-crypto.
+RUST_CRATE_PATTERN='^(ring|rustls|aws-lc-rs|aws-lc-sys|p256|ed25519-[A-Za-z0-9_-]+|openssl|openssl-sys|webauthn-rs(-core)?|rsa|ml-dsa|ml-kem|x509-parser|elliptic-curve|signature|der|spki|curve25519-dalek|cryptoki(-sys)?)$'
+RUST_USE_PATTERN='^\s*use\s+(ring|rustls|aws_lc_rs|aws_lc_sys|p256|ed25519_[A-Za-z0-9_]+|openssl|webauthn_rs(_core)?|rsa|ml_dsa|ml_kem|x509_parser|elliptic_curve|signature|der|spki|curve25519_dalek|cryptoki(_sys)?)\b'
 GO_IMPORT_PATTERN='"(crypto/[A-Za-z0-9_/]+|golang\.org/x/crypto[A-Za-z0-9_/]*)"'
 
 _is_exempt_dir() {

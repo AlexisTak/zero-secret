@@ -1,0 +1,4 @@
+# Fixture de violation : ne déclare pas "rogue-suite/v1".
+[[suite]]
+id = "authenticator-proof/v1"
+role = "verification"
