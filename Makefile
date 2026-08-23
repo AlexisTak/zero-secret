@@ -35,6 +35,7 @@ generate: ## Régénère types et clients depuis contracts/ — À LANCER APRÈS
 	cd contracts && buf generate
 	@echo "Go régénéré dans pkg/gen (committé). Rust régénéré à la compilation par"
 	@echo "crates/zs-policy/build.rs (ADR-004) — lancer 'cargo build -p zs-policy' pour vérifier."
+	bash tools/generate-openapi.sh
 	@echo "Fichiers générés — ne jamais les éditer à la main."
 
 check: ## fmt + lint + tests d'architecture (rapide)

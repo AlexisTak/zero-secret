@@ -15,7 +15,10 @@ check_generated_up_to_date() {
 	local work
 	work=$(mktemp -d)
 
-	cp -r "$root"/. "$work"/
+	# Copie limitée aux fichiers suivis par git : `cp -r` du dossier entier traînait des
+	# artefacts de build non suivis (target/ Rust, notamment) — plusieurs Go depuis largement
+	# assez pour rendre la copie complète impraticable (plusieurs minutes, parfois davantage).
+	(cd "$root" && git ls-files -z --cached --others --exclude-standard) | (cd "$work" && xargs -0 -I{} bash -c 'mkdir -p "$(dirname "{}")" && cp "'"$root"'/{}" "{}"')
 	if ! (cd "$work" && eval "$generate_cmd") >/dev/null 2>&1; then
 		echo "check-generated-up-to-date : échec de la commande de génération dans la copie de travail." >&2
 		rm -rf "$work"
