@@ -17,6 +17,7 @@ divergence silencieuse.
 | [009](ADR-009-recuperation-quorum-sans-nouvelle-suite.md) | Récupération à quorum : réutilisation d'authenticator-proof, sans nouvelle suite | accepté | 2026-08-22 |
 | [010](ADR-010-audit-seal-hsm-partage-et-chainage.md) | Découpage de L1.4, prérequis HSM partagé (H1) et modèle de chaînage | accepté | 2026-08-22 |
 | [011](ADR-011-integration-pkcs11-et-pool-de-sessions.md) | Intégration PKCS#11 (H1), pool de sessions et CBOM | accepté | 2026-08-23 |
+| [012](ADR-012-format-assertion-identite-scellee.md) | Format de l'assertion d'identité scellée (identity-assertion/v1) | accepté | 2026-08-23 |
 
 ## Règles
 
