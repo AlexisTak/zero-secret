@@ -11,4 +11,18 @@ workspace = true
 [dependencies]
 zs-webauthn = { path = "../../crates/zs-webauthn" }
 zs-audit = { path = "../../crates/zs-audit" }
+zs-crypto = { path = "../../crates/zs-crypto" }
+zs-identity = { path = "../../crates/zs-identity" }
 thiserror = "2"
+tonic = "0.14"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+tonic-prost = "0.14"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+serde_json = "1"
+# p256/sha2 (dev-dependencies, mod tests uniquement) : fabriquent une assertion de test signée
+# pour vérifier le service de bout en bout — même patron que crates/zs-crypto (MockSigner
+# déterministe RFC 6979, L1.2c/L1.4b), jamais utilisé en production (seul zs-hsm signe réellement).
+p256 = { version = "0.13", features = ["ecdsa"] }
+sha2 = "0.10"

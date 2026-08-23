@@ -404,6 +404,37 @@ questions qu'elle pose.
   politique non encore spécifiées) ; le PDP tourne sans authentification en développement local
   uniquement.
 
+### H3 — Service de vérification d'assertion d'identité (prérequis L2.3)
+- [x] `contracts/proto/identity/v1/assertion_verification.proto` : `AssertionVerificationService.
+      VerifyAssertion` — un refus cryptographique n'est jamais une erreur gRPC (P2), `valid: bool`
+      + `reason` catégorisée, mêmes catégories que `identity_assertion::VerifyError`
+- [x] `crates/zs-identity` (types générés uniquement, miroir de `zs-policy`) ; `apps/
+      identity-provider` prend le patron `lib.rs`/`main.rs` de `policy-engine` (L2.2) — deuxième
+      serveur réseau réel du dépôt. Aucune ligne de cryptographie nouvelle : traduction gRPC
+      autour de `zs_crypto::identity_assertion::verify`, déjà existant (L1.2c)
+- [x] Clé de vérification par variables d'environnement (`ZS_IDP_VERIFYING_KEY_HEX`/
+      `ZS_IDP_VERIFYING_KEY_ID`), échec dur au démarrage si absente/malformée — **provisoire,
+      signalé** : distribution/rotation réelle de la clé publique non conçue ici (ADR-016)
+- **Acceptation** : test d'intégration réel (`apps/identity-provider/tests/
+      verify_assertion_integration.rs`) — assertion scellée par un signeur de test déterministe,
+      vérifiée via un vrai client `tonic` contre une vraie instance du service. 4 cas : nominal,
+      signature altérée, assertion expirée, domaine d'autorité inattendu — tous vérifiés avec la
+      raison de refus exacte, pas seulement `valid = false`.
+- **`AcceptancePolicy.now` construit depuis l'horloge système**, pas reçu en entrée — différence
+  assumée avec le PDP (L2.2) : une vérification en ligne EST l'appel réseau, sa fraîcheur dépend
+  nécessairement de l'instant de l'appel. Formatage RFC 3339 par calcul manuel
+  (`civil_from_days`, Howard Hinnant) plutôt qu'une dépendance de calendrier — format fixe et
+  étroit, nouvelle dépendance non justifiée pour ça seul (règle absolue #10).
+- **gRPC en clair, signalé** : aucune intégration SPIFFE/SPIRE dans le dépôt — mTLS reste un
+  prérequis distinct, à traiter avant l'ouverture réelle de L2.3 côté `access-broker` ou dans un
+  H-lot dédié. Décision validée explicitement par l'utilisateur pour ce lot.
+- **Hors périmètre H3, signalé** : émission d'assertions (`AssertionSealer::seal`, L1.2c) non
+  câblée dans un serveur — nécessite une session HSM, hors périmètre (vérification seule ne
+  l'exige pas). La question « comment `access-broker` sait, avant l'appel au PDP, qu'une politique
+  exige une approbation » (critère d'acceptation de L2.3) n'est pas tranchée ici.
+- Voir ADR-016 pour la conception complète (contrat, clé par configuration, patron
+  `lib.rs`/`main.rs`, gRPC en clair).
+
 ### L2.3 — Parcours JIT (`access-broker`, Go)
 - [ ] Ouverture de demande : ressource, motif, référence de ticket (`Context.ticket_ref`,
       `Context.justification`, bornée à 512 caractères côté contrat)

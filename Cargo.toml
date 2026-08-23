@@ -6,6 +6,7 @@ members = [
     "crates/zs-crypto",
     "crates/zs-webauthn",
     "crates/zs-policy",
+    "crates/zs-identity",
     "crates/zs-audit",
     "crates/zs-hsm",
 ]

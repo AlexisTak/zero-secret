@@ -1,0 +1,17 @@
+[package]
+name = "zs-identity"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+description = "Types générés du contrat identity.v1 (vérification d'assertion, H3)."
+
+[lints]
+workspace = true
+
+[dependencies]
+prost = "0.14"
+tonic = "0.14"
+tonic-prost = "0.14"
+
+[build-dependencies]
+tonic-prost-build = "0.14"
