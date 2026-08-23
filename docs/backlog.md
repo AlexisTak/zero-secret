@@ -572,19 +572,33 @@ questions qu'elle pose.
 - Voir ADR-020 pour la conception complète.
 
 ### L2.5 — Administration (`admin-api`, Go)
-- [ ] Chargement et versionnement des politiques (`policy_version` du contrat) — chemin de
-      modification à chaud vers `policy-engine`
-- [ ] Quorum sur les opérations critiques (modification de politique, revue d'approbateur) — sur
-      le modèle déjà livré en L1.3 pour la récupération d'authentificateur (ADR-009 : réutilisation
-      d'`authenticator-proof`, pas de nouvelle suite crypto)
-- **Acceptation** : une modification de politique par un seul administrateur est refusée quand
-  elle touche une politique marquée critique — même critère de preuve que L1.3
-  (« un seul porteur ne peut jamais déclencher »).
-- **Décision structurante à prendre avant l'implémentation** (mode plan requis, angle mort L0.5) :
-  granularité des rôles d'administration (qui peut modifier quoi — une politique, un
-  approbateur, un authentificateur d'un tiers ?) et mécanisme précis du chargement à chaud
-  (`policy-engine` relit-il un fichier versionné, ou reçoit-il un ordre explicite avec preuve de
-  quorum ?). Non tranché par L0.5, ne doit pas être improvisé en cours d'implémentation.
+- [x] Quorum sur les opérations critiques : `apps/admin-api/internal/quorum` — sur le modèle
+      déjà livré en L1.3 pour la récupération d'authentificateur (ADR-009 : réutilisation
+      d'`identity-assertion/v1` via H3, pas de nouvelle suite crypto). Plancher
+      `MinimumThreshold = 2` imposé par le module, non contournable (même garde-fou
+      qu'`zs_webauthn::recovery::verify_quorum`)
+- [ ] Chargement et versionnement des politiques (`policy_version` du contrat), chemin de
+      modification à chaud vers `policy-engine` — **non fait, portée réduite assumée** (voir
+      ci-dessous)
+- **Acceptation** : un seul porteur ne peut jamais atteindre le quorum, même avec plusieurs
+  assertions valides du même `subject_id` (rejeu ou double soumission) — vérifié par test
+  (`TestUnSeulPorteurNePeutJamaisDeclencherMemeAvecPlusieursAssertions`), qui compte les
+  porteurs **distincts**, pas le nombre brut d'assertions.
+- **Décision de portée** (mode plan, angle mort L0.5) : `security/threat-models/admin-api.md`
+  documente déjà que la granularité des rôles d'administration et le chemin de modification à
+  chaud des politiques sont « non tranchés, à clarifier avant L2 » — les trancher sans
+  instruction supplémentaire aurait inventé une politique d'autorisation non voulue (même
+  discipline que H2/H3/L2.3 : pas de mécanisme non instruit improvisé). L2.5 livre uniquement ce
+  qui a un critère d'acceptation concret et déjà spécifié — le quorum — et hérite les deux
+  questions ouvertes du modèle de menaces telles quelles, pas résolues ici.
+- **`VerifyQuorum` agnostique de l'opération et du rôle** : ne sait pas quelle opération critique
+  il protège ni qui a le droit de l'initier — l'appelant fournit le domaine d'autorité attendu et
+  les assertions, le module ne fait que compter des porteurs distincts vérifiés. Conception
+  délibérément étroite pour rester réutilisable quel que soit le futur système de rôles.
+- **`apps/admin-api/internal/quorum`, bibliothèque d'abord** — même patron que L2.3/L2.4, aucun
+  contrat n'existe, `main.go` reste un stub. Pas de test d'intégration réel signé (même limite
+  structurelle que L2.3/L2.4 : `check-no-direct-crypto.sh` sans exemption de test côté Go).
+- Voir ADR-021 pour la conception complète.
 
 ### L2.6 — Console web (`console-web`, TypeScript)
 - **Explicitement hors périmètre de ce lot, différé** : `docs/architecture.md` l'exige sans
