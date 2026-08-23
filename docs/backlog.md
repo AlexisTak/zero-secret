@@ -297,6 +297,139 @@ de l'analyseur d'attestation sans incident.
 
 ---
 
+## L2 — Autorisation dynamique et émission JIT (à partir de la fin de L1)
+
+**Critère de passage du lot** : un parcours complet (requête → décision → credential éphémère →
+expiration) traverse les trois plans, chaque étape produit son événement d'audit signé, et une
+décision peut être rejouée hors ligne à partir du seul journal — critère explicite du contrat
+`decision.proto` (« une décision doit pouvoir être rejouée hors ligne, à l'identique, par un
+tiers, à partir du seul enregistrement d'audit »).
+
+**Prérequis documentaire non soldé** — quatre angles morts remontés par L0.5 et jamais tranchés
+depuis : authentification de l'approbateur (`access-broker`), distinction contexte
+vérifié/déclaré dans `DecisionRequest.Context` (`access-broker`), ordre audit/émission
+(`credential-issuer`), granularité des rôles d'administration et chemin de modification de
+politique à chaud (`admin-api`). Chacun est un choix structurant au sens de la méthode de travail
+du `CLAUDE.md` racine (mode plan + validation avant implémentation) — ils sont rattachés à la
+tâche qu'ils bloquent ci-dessous, pas pré-tranchés ici : rédiger la section n'est pas trancher les
+questions qu'elle pose.
+
+### L2.1 — Schéma d'entités Cedar et corpus de politiques
+- [ ] `contracts/cedar/` : schéma d'entités (types `Principal`, `Resource`, `Action`) aligné sur
+      `decision.proto` (`Principal`, `Resource`, `Action` déjà spécifiés côté transport) —
+      typage statique, cohérent avec ADR-003 (menace de confusion de requête)
+- [ ] Premier corpus `policies/access/` : au moins une politique nominale + ses cas d'attaque
+      (`policies/CLAUDE.md` : hors conditions, principal voisin, escalade par combinaison,
+      requête ambiguë, ressource proche, dépassement de TTL — six cas minimum par règle)
+- [ ] Règle Sigma correspondante dans `policies/detection/` pour chaque politique sensible
+      ajoutée (contrepartie en détection exigée par `policies/CLAUDE.md`)
+- **Acceptation** : `cedar test` et le harnais de rejeu passent ; chaque politique a son cas de
+  refus et sa règle de détection. Une politique sans cas de refus n'est pas terminée.
+- **Décision préalable** : schéma Cedar d'abord, jamais une politique écrite contre un schéma
+  encore instable (`policies/CLAUDE.md` — « schéma d'abord »).
+
+### L2.2 — PDP (`policy-engine`, Rust)
+- [ ] `Decide(DecisionRequest) → DecisionResponse` (`decision.proto`) : évaluation Cedar contre le
+      corpus L2.1, `effect` par défaut `EFFECT_DENY` sur tout chemin d'erreur ou politique
+      absente (R2)
+- [ ] **Aucun appel réseau pendant l'évaluation** (invariant du contrat, règle absolue #5 du
+      `CLAUDE.md` racine) — le contexte arrive intégralement en entrée, y compris `DevicePosture`
+      et `approvals`, aucun enrichissement en cours d'évaluation
+- [ ] `decision_hash` : empreinte de la requête + version exacte des politiques évaluées,
+      suffisante pour un rejeu hors ligne bit-exact — voir L2.3 pour son scellement dans
+      l'événement `policy.decided`
+- **Acceptation** : rejeu hors ligne d'une décision archivée (requête + `policy_version` +
+  politiques à cette version) produit exactement le même `effect`/`decision_hash`. Sans état,
+  déterministe — vérifié en exécutant deux fois la même requête sur deux instances distinctes.
+- **Frontière posée** : `policy-engine` ne dépend d'aucun autre composant `apps/` (règle absolue
+  #7 et règle de dépendance dédiée de `docs/architecture.md`) — vérifiable par le même patron de
+  test d'architecture que `zs-crypto-deps`/`webauthn-no-hsm`.
+
+### L2.3 — Parcours JIT (`access-broker`, Go)
+- [ ] Ouverture de demande : ressource, motif, référence de ticket (`Context.ticket_ref`,
+      `Context.justification`, bornée à 512 caractères côté contrat)
+- [ ] Sollicitation d'approbation quand la politique l'exige, avant l'appel au PDP
+      (`Context.approvals`, `Approval.signature` vérifiée via `zs-crypto`, jamais directement)
+- [ ] Appel `PolicyDecisionService.Decide` en mTLS, contexte complet fourni en entrée (pas
+      d'enrichissement côté PDP)
+- [ ] Déclenchement de l'ordre d'émission vers `credential-issuer`, décision signée transmise
+      telle quelle
+- **Acceptation** : une demande sans approbation requise et non fournie est refusée avant même
+  l'appel au PDP — le refus n'attend pas une décision motivée qu'aucune politique n'aurait pu
+  produire de toute façon.
+- **Décision structurante à prendre avant l'implémentation** (mode plan requis, angle mort L0.5) :
+  comment l'approbateur prouve son identité (assertion `identity-assertion/v1` réutilisée, ou
+  mécanisme distinct ?) — conditionne le format d'`Approval.signature` et doit être actée par ADR
+  avant tout code d'approbation.
+- **Décision structurante à prendre avant l'implémentation** (angle mort L0.5) : distinction entre
+  contexte **vérifié** (ex. `DevicePosture` mesurée par un agent de confiance) et contexte
+  **déclaré** (ex. `justification` en texte libre) dans `DecisionRequest.Context` — sans elle, une
+  politique ne peut pas distinguer une posture prouvée d'une posture affirmée, ce qui rouvre la
+  confusion de requête qu'ADR-003 cherche à exclure. À trancher par ADR, pas par convention de
+  nommage informelle.
+- **Événements d'audit** : `authentication.attempted` et consorts sont couverts par L1 —
+  `policy.decided` est nouveau ici, porte le champ `decision` du contrat
+  (`request_id`, `decision_hash`, `policy_version`, `reasons`, `granted_ttl_seconds` — déjà
+  spécifié dans `contracts/events/audit-event.schema.json`, non consommé avant ce lot, cf.
+  « hors périmètre » de L1.4b).
+
+### H2 — Intégration OpenBao (prérequis partagé L2.4, sur le modèle de H1)
+- [ ] `apps/credential-issuer` : client OpenBao (bail à durée bornée, révocation programmée),
+      interface unique vers OpenBao/PKI/HSM (`credential-issuer` seul autorisé à dialoguer avec
+      le HSM — `docs/architecture.md`)
+- [ ] Aucun secret durable en transit ni en repos côté `credential-issuer` : le bail est le seul
+      artefact retourné, jamais journalisé en clair (règle absolue #1)
+- [ ] Timeout explicite sur tout appel sortant vers OpenBao (convention Go du `CLAUDE.md` racine)
+- **Acceptation** : une indisponibilité d'OpenBao produit un refus explicite d'émission, jamais un
+  repli sur un credential généré localement ou un succès partiel (R2).
+- **Hors périmètre attendu, à signaler explicitement le moment venu** : OpenBao en mode dev
+  (`deploy/compose.dev.yml`, L0.6) n'a pas les mêmes garanties HA qu'un cluster de production —
+  cohérent avec la limite déjà assumée sur SoftHSM2 en H1.
+
+### L2.4 — Émission de credential (`credential-issuer`, Go)
+- [ ] Ordre d'émission accepté uniquement d'un `access-broker` authentifié en mTLS et porteur
+      d'une décision signée par le PDP (`docs/architecture.md` — règle de dépendance déjà posée,
+      à implémenter ici)
+- [ ] Credential à durée de vie bornée par `max_ttl` **imposé par la politique**, jamais par
+      l'appelant (`DecisionResponse.max_ttl`, invariant du contrat)
+- [ ] Révocation effective en < 5 s (objectif de service `docs/architecture.md`)
+- [ ] Événement `credential.issued` produit, portant le même `decision` que `policy.decided`
+      (`request_id`/`decision_hash` partagés — permet de relier les deux événements sans
+      dénormaliser la décision)
+- **Acceptation** : un ordre d'émission sans décision signée valide est refusé avant tout appel à
+  OpenBao — vérifié par test, pas par relecture.
+- **Décision structurante à prendre avant l'implémentation** (mode plan requis, angle mort L0.5) :
+  ordre entre audit et émission — l'événement `credential.issued` doit-il être scellé et persisté
+  *avant* l'appel à OpenBao (garantit qu'aucun credential n'existe sans trace, mais un crash entre
+  les deux laisse un événement pour une émission qui n'a pas eu lieu) ou *après* (garantit que
+  l'événement correspond à un credential réel, mais une panne après émission peut laisser un
+  credential sans trace) ? Les deux échouent dans des directions opposées ; ADR-010 a déjà tranché
+  ce dilemme pour l'audit du parcours L1 (signature par événement, pas de traitement par lots) —
+  ce même raisonnement doit être repris ici, pas réinventé.
+
+### L2.5 — Administration (`admin-api`, Go)
+- [ ] Chargement et versionnement des politiques (`policy_version` du contrat) — chemin de
+      modification à chaud vers `policy-engine`
+- [ ] Quorum sur les opérations critiques (modification de politique, revue d'approbateur) — sur
+      le modèle déjà livré en L1.3 pour la récupération d'authentificateur (ADR-009 : réutilisation
+      d'`authenticator-proof`, pas de nouvelle suite crypto)
+- **Acceptation** : une modification de politique par un seul administrateur est refusée quand
+  elle touche une politique marquée critique — même critère de preuve que L1.3
+  (« un seul porteur ne peut jamais déclencher »).
+- **Décision structurante à prendre avant l'implémentation** (mode plan requis, angle mort L0.5) :
+  granularité des rôles d'administration (qui peut modifier quoi — une politique, un
+  approbateur, un authentificateur d'un tiers ?) et mécanisme précis du chargement à chaud
+  (`policy-engine` relit-il un fichier versionné, ou reçoit-il un ordre explicite avec preuve de
+  quorum ?). Non tranché par L0.5, ne doit pas être improvisé en cours d'implémentation.
+
+### L2.6 — Console web (`console-web`, TypeScript)
+- **Explicitement hors périmètre de ce lot, différé** : `docs/architecture.md` l'exige sans
+  logique de sécurité côté client — dépend d'API stables sur `admin-api`/`access-broker`
+  (L2.3/L2.5), donc en aval, pas en parallèle. Ne pas ouvrir avant que ces deux API existent
+  réellement, pour éviter une interface construite contre un contrat qui bouge encore.
+
+---
+
 ## Règles de session
 
 1. Une tâche à la fois. Annoncer laquelle en ouverture de session.
