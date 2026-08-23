@@ -21,6 +21,7 @@
 //! service en process (client `tonic` réel, pas un double) — pas une dépendance croisée `apps/`.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use tonic::{Request, Response, Status, transport::Server};
 
@@ -36,7 +37,11 @@ use zs_policy::policy::v1::{
 
 pub struct PolicyEngine {
     pdp: Pdp,
-    sealer: DecisionSealer,
+    // Arc, pas DecisionSealer directement : decide() doit passer l'appel HSM (bloquant, ADR-011)
+    // par spawn_blocking, ce qui exige un handle 'static déplaçable dans la tâche bloquante —
+    // un &self emprunté à la durée de la requête ne suffit pas (correctif signalé pendant H5,
+    // ADR-023 : identity-provider suit déjà cette discipline, policy-engine ne l'avait pas).
+    sealer: Arc<DecisionSealer>,
     verifying_key: AcceptedVerifyingKey,
 }
 
@@ -50,7 +55,7 @@ impl PolicyEngine {
         let verifying_key = sealer.accepted_verifying_key()?;
         Ok(Self {
             pdp,
-            sealer,
+            sealer: Arc::new(sealer),
             verifying_key,
         })
     }
@@ -70,9 +75,17 @@ impl PolicyDecisionService for PolicyEngine {
 
         let issued_at_str = rfc3339_now();
         let fields = decision_fields(&response, &issued_at_str);
-        let (signature, key_id) = self.sealer.seal(&fields).map_err(|e| {
-            Status::internal(format!("scellement de la décision indisponible : {e}"))
-        })?;
+
+        // zs-hsm expose une API bloquante (ADR-011) : jamais d'appel direct depuis un handler
+        // async partageant le runtime avec le reste du service (même discipline que
+        // apps/identity-provider/src/httpapi.rs, H5/ADR-023).
+        let sealer = Arc::clone(&self.sealer);
+        let (signature, key_id) = tokio::task::spawn_blocking(move || sealer.seal(&fields))
+            .await
+            .map_err(|e| Status::internal(format!("tâche de scellement interrompue : {e}")))?
+            .map_err(|e| {
+                Status::unavailable(format!("scellement de la décision indisponible : {e}"))
+            })?;
 
         response.issued_at = Some(prost_types::Timestamp {
             seconds: request_time_from_rfc3339(&issued_at_str),
