@@ -1,0 +1,1810 @@
+[
+  {
+    "name": "nominal-aal3-ticket-approbation-posture-fraiche",
+    "//": "Cas nominal : AAL3, meme domaine d'autorite, ticket ITSM, une approbation, posture evaluee il y a 1800 s. Seul cas du corpus qui doit etre autorise.",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-6b2f9c\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-prod\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787499000
+        },
+        "ticket_ref": "INC-482913",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": [
+          {
+            "approver_id": "sub-a1f2e8",
+            "approved_at": 1787500200
+          }
+        ]
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "allow",
+    "reason": [
+      "db-connect-production"
+    ],
+    "num_errors": 0
+  },
+  {
+    "name": "refus-a-principal-legitime-en-aal2",
+    "//": "(a) Principal legitime hors condition : meme personne, meme ticket, meme approbation, mais authentifiee en AAL2. Un facteur plus faible ne doit jamais ouvrir la production.",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-4d81ae\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-prod\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787499000
+        },
+        "ticket_ref": "INC-482913",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": [
+          {
+            "approver_id": "sub-a1f2e8",
+            "approved_at": 1787500200
+          }
+        ]
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [
+      "guardrail-production-requires-aal3"
+    ],
+    "num_errors": 0
+  },
+  {
+    "name": "refus-a-aal-non-renseigne",
+    "//": "(a bis) AAL absent (AUTH_LEVEL_UNSPECIFIED du proto, mappe en chaine vide). Un champ non renseigne ne doit jamais etre interprete comme un niveau valide.",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-0e5a33\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-prod\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787499000
+        },
+        "ticket_ref": "INC-482913",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": [
+          {
+            "approver_id": "sub-a1f2e8",
+            "approved_at": 1787500200
+          }
+        ]
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [
+      "guardrail-production-requires-aal3"
+    ],
+    "num_errors": 0
+  },
+  {
+    "name": "refus-b-principal-voisin-autre-domaine-autorite",
+    "//": "(b) Principal voisin : AAL3, ticket et approbation valides, mais rattache au domaine d'autorite corp.eu-west-2. Le cloisonnement multi-zone prime.",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-c73b40\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-prod\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787499000
+        },
+        "ticket_ref": "INC-482913",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": [
+          {
+            "approver_id": "sub-a1f2e8",
+            "approved_at": 1787500200
+          }
+        ]
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [
+      "guardrail-authority-domain-isolation"
+    ],
+    "num_errors": 0
+  },
+  {
+    "name": "refus-c-escalade-aal3-seul-sans-ticket-ni-approbation",
+    "//": "(c) Escalade par combinaison, moitie 1 : AAL3 seul. Le niveau d'assurance le plus eleve ne se substitue pas au double controle.",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-6b2f9c\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-prod\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787499000
+        },
+        "ticket_ref": "",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": []
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [
+      "guardrail-production-requires-ticket-and-approval"
+    ],
+    "num_errors": 0
+  },
+  {
+    "name": "refus-c-escalade-ticket-et-approbation-sans-aal3",
+    "//": "(c) Escalade par combinaison, moitie 2 : ticket et approbation complets, mais AAL1. Le double controle ne se substitue pas au niveau d'assurance.",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-91c07d\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-prod\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787499000
+        },
+        "ticket_ref": "INC-482913",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": [
+          {
+            "approver_id": "sub-a1f2e8",
+            "approved_at": 1787500200
+          }
+        ]
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [
+      "guardrail-production-requires-aal3"
+    ],
+    "num_errors": 0
+  },
+  {
+    "name": "refus-c-escalade-aal3-et-ticket-sans-approbation",
+    "//": "(c) Escalade par combinaison, moitie 3 : AAL3 + ticket, approbation absente. Aucune conjonction partielle des conditions n'accorde l'acces.",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-6b2f9c\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-prod\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787499000
+        },
+        "ticket_ref": "INC-482913",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": []
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [
+      "guardrail-production-requires-ticket-and-approval"
+    ],
+    "num_errors": 0
+  },
+  {
+    "name": "refus-d-requete-partielle-ticket-vide",
+    "//": "(d) Requete partiellement remplie : tout est conforme sauf ticket_ref, chaine vide. Une chaine vide vaut absence de ticket, pas ticket inconnu.",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-6b2f9c\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-prod\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787499000
+        },
+        "ticket_ref": "",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": [
+          {
+            "approver_id": "sub-a1f2e8",
+            "approved_at": 1787500200
+          }
+        ]
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [
+      "guardrail-production-requires-ticket-and-approval"
+    ],
+    "num_errors": 0
+  },
+  {
+    "name": "refus-e-ressource-hors-perimetre-staging",
+    "//": "(e) Ressource proche mais hors perimetre : meme base, environnement staging. La politique ne couvre que production ; hors couverture vaut refus par defaut (aucun forbid ne se declenche, donc aucune raison remontee).",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-6b2f9c\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-staging\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787499000
+        },
+        "ticket_ref": "INC-482913",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": [
+          {
+            "approver_id": "sub-a1f2e8",
+            "approved_at": 1787500200
+          }
+        ]
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [],
+    "num_errors": 0
+  },
+  {
+    "name": "refus-e-ressource-domaine-autorite-voisin",
+    "//": "(e bis) Ressource proche par le nom (prefixe db-billing-prod) mais rattachee au domaine d'autorite corp.eu-west-2.",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-6b2f9c\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-prod-eu-west-2\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787499000
+        },
+        "ticket_ref": "INC-482913",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": [
+          {
+            "approver_id": "sub-a1f2e8",
+            "approved_at": 1787500200
+          }
+        ]
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [
+      "guardrail-authority-domain-isolation"
+    ],
+    "num_errors": 0
+  },
+  {
+    "name": "refus-f-posture-perimee-au-dela-de-3600s",
+    "//": "(f) Depassement de la duree de vie maximale de la posture : evaluee 4800 s avant la requete. Une posture perimee n'est pas une posture valide (DevicePosture, decision.proto). Tous les garde-fous passent : seul le permit refuse.",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-6b2f9c\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-prod\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787496000
+        },
+        "ticket_ref": "INC-482913",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": [
+          {
+            "approver_id": "sub-a1f2e8",
+            "approved_at": 1787500200
+          }
+        ]
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [],
+    "num_errors": 0
+  },
+  {
+    "name": "refus-f-posture-datee-dans-le-futur",
+    "//": "(f bis) Posture datee apres la requete : horloge incoherente ou valeur forgee pour contourner la fenetre de fraicheur. Refus.",
+    "request": {
+      "principal": "ZeroSecret::Principal::\"sub-6b2f9c\"",
+      "action": "ZeroSecret::Action::\"db.connect\"",
+      "resource": "ZeroSecret::Database::\"db-billing-prod\"",
+      "context": {
+        "requested_at": 1787500800,
+        "source_network": "10.42.0.0/16",
+        "posture": {
+          "managed": true,
+          "disk_encrypted": true,
+          "agent_version": "2.4.1",
+          "evaluated_at": 1787501400
+        },
+        "ticket_ref": "INC-482913",
+        "justification": "Correctif de donnees sur incident de facturation",
+        "approvals": [
+          {
+            "approver_id": "sub-a1f2e8",
+            "approved_at": 1787500200
+          }
+        ]
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-6b2f9c"
+        },
+        "attrs": {
+          "subject_id": "sub-6b2f9c",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-4d81ae"
+        },
+        "attrs": {
+          "subject_id": "sub-4d81ae",
+          "aal": "AAL2",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-91c07d"
+        },
+        "attrs": {
+          "subject_id": "sub-91c07d",
+          "aal": "AAL1",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-0e5a33"
+        },
+        "attrs": {
+          "subject_id": "sub-0e5a33",
+          "aal": "",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Principal",
+          "id": "sub-c73b40"
+        },
+        "attrs": {
+          "subject_id": "sub-c73b40",
+          "aal": "AAL3",
+          "auth_method": "webauthn/device-bound",
+          "authenticated_at": 1787500680,
+          "roles": [
+            "dba"
+          ],
+          "authority_domain": "corp.eu-west-2"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "production"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-staging"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west",
+          "environment": "staging"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "ZeroSecret::Database",
+          "id": "db-billing-prod-eu-west-2"
+        },
+        "attrs": {
+          "authority_domain": "corp.eu-west-2",
+          "environment": "production"
+        },
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [],
+    "num_errors": 0
+  }
+]

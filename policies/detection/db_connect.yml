@@ -1,0 +1,146 @@
+# Contrepartie en détection de policies/access/db_connect.cedar et db_connect_guardrails.cedar.
+#
+# Question à laquelle ce fichier répond : que verrait-on dans le SIEM si cette politique était
+# contournée ou abusée ?
+#
+# Source : journal d'audit zero-secret, schéma contracts/events/audit-event.schema.json.
+# Les noms de champs suivent ce schéma (notation pointée pour les objets imbriqués).
+#
+# ADR : ADR-003 (Cedar pour les décisions d'accès), ADR-013 (format d'événement scellé).
+# Date de réexamen : 2027-02-23.
+#
+# Les seuils (5 refus / 15 min, 3600 s de TTL) sont des points de départ à calibrer sur le
+# volume réel avant mise en production. Ils sont documentés ici plutôt que dans l'outil SIEM
+# pour rester versionnés avec la politique qu'ils surveillent.
+---
+title: Refus de db.connect en production
+id: 09c3607a-6e4a-4b0d-93aa-30287618f04a
+name: zs_db_connect_denied_production
+status: experimental
+description: >-
+  Brique de base — un refus isolé est normal (refus par défaut assumé du PDP) et ne doit pas
+  alerter seul. Cette règle n'existe que pour être agrégée par les corrélations ci-dessous.
+references:
+  - policies/access/db_connect.cedar
+  - docs/adr/ADR-003-moteur-de-politiques.md
+author: Biscuits IA
+date: 2026-08-23
+logsource:
+  product: zero-secret
+  service: audit
+detection:
+  selection:
+    event_type:
+      - policy.decided
+      - access.denied
+    outcome: denied
+    target.type: Database
+  condition: selection
+falsepositives:
+  - Erreur de saisie de référence de ticket par un opérateur légitime.
+level: informational
+---
+title: Sondage des conditions de la politique db.connect
+id: 81d63d1d-fc6e-4902-8c88-cb655b2919d5
+status: experimental
+description: >-
+  Un même sujet enchaîne les refus sur des bases de données. Signature attendue d'un
+  contournement par essais successifs : l'attaquant fait varier un paramètre à la fois
+  (niveau AAL revendiqué, référence de ticket, horodatage de posture) jusqu'à trouver la
+  combinaison acceptée. C'est exactement le scénario que couvrent les cas `escalade-*` de
+  policies/tests/db_connect/cases.json — ici vu depuis le SIEM.
+references:
+  - policies/tests/db_connect/cases.json
+author: Biscuits IA
+date: 2026-08-23
+correlation:
+  type: event_count
+  rules:
+    - zs_db_connect_denied_production
+  group-by:
+    - actor.subject_id
+    - authority_domain
+  timespan: 15m
+  condition:
+    gte: 5
+falsepositives:
+  - Automate mal configuré rejouant une demande d'accès en boucle.
+level: medium
+---
+title: Franchissement de domaine d'autorité tenté sur db.connect
+id: e5358904-b580-4e37-ac87-925e39f0db28
+status: experimental
+description: >-
+  Refus imputé au garde-fou de cloisonnement multi-zone. Contrairement aux autres refus, il
+  n'a pas d'explication opérationnelle bénigne : un sujet d'un domaine d'autorité ne demande
+  pas par accident une base d'un autre domaine. Une seule occurrence justifie une revue.
+references:
+  - policies/access/db_connect_guardrails.cedar
+author: Biscuits IA
+date: 2026-08-23
+logsource:
+  product: zero-secret
+  service: audit
+detection:
+  selection:
+    event_type: policy.decided
+    outcome: denied
+    decision.reasons|contains: guardrail-authority-domain-isolation
+  condition: selection
+falsepositives:
+  - Migration d'une ressource entre domaines d'autorité sans mise à jour de l'inventaire.
+level: high
+---
+title: Credential de base de données émis sans AAL3
+id: 59581300-2958-4a79-a951-778e578bbbce
+status: experimental
+description: >-
+  Un credential a été émis pour une base de données alors que le niveau d'assurance
+  enregistré n'est pas AAL3. Aucune décision `allow` du corpus actuel ne peut produire cela :
+  l'événement signale soit un contournement du PDP par `credential-issuer`, soit un
+  assouplissement non revu de policies/access/, soit une falsification du journal — à
+  recouper avec audit.chain_verified.
+references:
+  - policies/access/db_connect_guardrails.cedar
+  - contracts/proto/policy/v1/decision.proto
+author: Biscuits IA
+date: 2026-08-23
+logsource:
+  product: zero-secret
+  service: audit
+detection:
+  selection:
+    event_type: credential.issued
+    target.type: Database
+  filter_aal3:
+    actor.aal: AAL3
+  condition: selection and not filter_aal3
+falsepositives:
+  - Aucun connu. Toute occurrence est traitée comme un incident jusqu'à preuve du contraire.
+level: critical
+---
+title: Credential de base de données émis au-delà du plafond de durée de vie
+id: 1358a728-551b-4cd7-9ff0-fd7fea6a58f5
+status: experimental
+description: >-
+  `granted_ttl_seconds` dépasse le plafond porté par la politique. Le plafond est imposé par
+  le PDP (`max_ttl` de DecisionResponse), jamais par l'appelant : un dépassement signifie que
+  le plafond a été contourné en aval de la décision. Le seuil doit rester synchronisé avec les
+  métadonnées de la politique `db-connect-production` (défini en L2.2) — une divergence rend
+  cette règle aveugle.
+references:
+  - contracts/proto/policy/v1/decision.proto
+author: Biscuits IA
+date: 2026-08-23
+logsource:
+  product: zero-secret
+  service: audit
+detection:
+  selection:
+    event_type: credential.issued
+    target.type: Database
+    decision.granted_ttl_seconds|gt: 3600
+  condition: selection
+falsepositives:
+  - Relèvement légitime du plafond dans la politique sans mise à jour de ce seuil.
+level: high
