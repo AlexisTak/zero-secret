@@ -532,25 +532,44 @@ questions qu'elle pose.
 - Voir ADR-019 pour la conception complète.
 
 ### L2.4 — Émission de credential (`credential-issuer`, Go)
-- [ ] Ordre d'émission accepté uniquement d'un `access-broker` authentifié en mTLS et porteur
-      d'une décision signée par le PDP (`docs/architecture.md` — règle de dépendance déjà posée,
-      à implémenter ici)
-- [ ] Credential à durée de vie bornée par `max_ttl` **imposé par la politique**, jamais par
-      l'appelant (`DecisionResponse.max_ttl`, invariant du contrat)
-- [ ] Révocation effective en < 5 s (objectif de service `docs/architecture.md`)
-- [ ] Événement `credential.issued` produit, portant le même `decision` que `policy.decided`
-      (`request_id`/`decision_hash` partagés — permet de relier les deux événements sans
-      dénormaliser la décision)
-- **Acceptation** : un ordre d'émission sans décision signée valide est refusé avant tout appel à
-  OpenBao — vérifié par test, pas par relecture.
-- **Décision structurante à prendre avant l'implémentation** (mode plan requis, angle mort L0.5) :
-  ordre entre audit et émission — l'événement `credential.issued` doit-il être scellé et persisté
-  *avant* l'appel à OpenBao (garantit qu'aucun credential n'existe sans trace, mais un crash entre
-  les deux laisse un événement pour une émission qui n'a pas eu lieu) ou *après* (garantit que
-  l'événement correspond à un credential réel, mais une panne après émission peut laisser un
-  credential sans trace) ? Les deux échouent dans des directions opposées ; ADR-010 a déjà tranché
-  ce dilemme pour l'audit du parcours L1 (signature par événement, pas de traitement par lots) —
-  ce même raisonnement doit être repris ici, pas réinventé.
+- [x] `apps/credential-issuer/internal/issuer` (bibliothèque testable, pas de serveur gRPC/HTTP
+      dans ce lot — aucun contrat `access-broker → credential-issuer` n'existe, même coupe que
+      L2.3). Ordre d'émission vérifié via `PolicyDecisionService.VerifyDecision` (H4) avant tout
+      appel à OpenBao — refus explicite si invalide, absente, ou `effect != ALLOW`
+- [x] `max_ttl` **imposé par la décision vérifiée**, jamais par l'appelant : le TTL transmis à
+      OpenBao vient exclusivement de `DecisionResponse.max_ttl` (déjà signé) — `EmissionOrder`
+      n'a aucun champ pour une durée alternative, vérifié par test
+- [x] `Revoke` : wrapper direct du client OpenBao (H2), timeout déjà imposé (5 s) — pas de mesure
+      réelle du délai possible sans OpenBao réel (même limite que H2)
+- [x] `IssuedCredentialEvent` **construit**, portant `decision_hash`/`policy_version`/`reasons`
+      partagés avec `policy.decided` comme demandé — **pas scellé** (voir hors périmètre)
+- **Acceptation** : un ordre d'émission sans décision valide est refusé avant tout appel à
+  OpenBao — vérifié par test (`TestDecisionInvalideEstRefuseeAvantAppelOpenBao`,
+  `TestEffectDenyEstRefuseSansAppelOpenBao`, `TestVerbeNonSupporteEstRefuse`), le double
+  `LeaseIssuer` n'étant jamais appelé dans ces cas.
+- **Ordre audit/émission tranché par réapplication de R7** (ADR-008/012), pas réinventé (mode
+  plan, angle mort L0.5) : `event_id` (UUIDv7) généré **avant** l'appel à OpenBao ;
+  `credential.issued` construit seulement **après** un succès réel — un événement ne doit jamais
+  affirmer l'existence d'un credential non réellement émis. Fenêtre de répudiation résiduelle
+  assumée (crash entre succès OpenBao et écriture de l'événement), déjà anticipée par
+  `security/threat-models/credential-issuer.md`.
+- **Le risque Tampering du modèle de menaces est confirmé fermé par H4** : le message signé
+  `decision-seal/v1` couvre `max_ttl`/`effect`/`reasons`/`constraints` directement, pas seulement
+  `decision_hash` — l'angle mort documenté en L0.5 n'en est plus un.
+- **Mapping verbe → moteur OpenBao minimal et explicite** : seul `db.connect` instrué (seule
+  politique réelle, L2.1) → `database/creds/{resource.id}`. Tout autre verbe refusé
+  explicitement (`moteur_non_supporte`), cohérent avec le risque EoP du modèle de menaces.
+- **Port `ConsumedDecisionStore`, sans implémentation — prévention de rejeu NON assurée** : le
+  modèle de menaces liste explicitement ce scénario ; sans stockage persistant (scope-cut DB
+  cohérent avec L1.1/L1.2/L1.4), un ordre rejoué serait aujourd'hui honoré une seconde fois — gap
+  réel, signalé, pas silencieux.
+- **Nouvelle dépendance `github.com/google/uuid`** (BSD-3-Clause) : génération d'UUIDv7 pour
+  `event_id` — aucune génération UUIDv7 n'existait encore nulle part dans ce dépôt (Rust comme
+  Go, seulement des validateurs/littéraux de test). Pas une opération cryptographique au sens de
+  la règle absolue #4 (identifiant unique, pas une primitive de sécurité).
+- **Hors périmètre, signalé** : `credential.issued` non scellé (exigerait un service Rust d'audit
+  symétrique à H3/H4, inexistant, comme `policy.decided` en L2.3) ; aucun serveur réseau ; mTLS.
+- Voir ADR-020 pour la conception complète.
 
 ### L2.5 — Administration (`admin-api`, Go)
 - [ ] Chargement et versionnement des politiques (`policy_version` du contrat) — chemin de

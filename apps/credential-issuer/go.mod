@@ -3,6 +3,12 @@ module github.com/Biscuits-ia/biscuits-shield/apps/credential-issuer
 go 1.23
 
 require (
+	github.com/Biscuits-ia/biscuits-shield/pkg/gen v0.0.0
+	github.com/google/uuid v1.6.0
+	github.com/openbao/openbao/api/v2 v2.6.0
+)
+
+require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
@@ -15,9 +21,16 @@ require (
 	github.com/hashicorp/go-sockaddr v1.0.7 // indirect
 	github.com/hashicorp/hcl v1.0.1-vault-7 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
-	github.com/openbao/openbao/api/v2 v2.6.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
+	google.golang.org/grpc v1.83.1 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 )
+
+// pkg/gen n'est jamais publié (module interne au monorepo) — résolu localement, même patron
+// qu'apps/access-broker (L2.3).
+replace github.com/Biscuits-ia/biscuits-shield/pkg/gen => ../../pkg/gen
