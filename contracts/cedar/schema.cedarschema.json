@@ -1,0 +1,70 @@
+{
+  "ZeroSecret": {
+    "entityTypes": {
+      "Principal": {
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "subject_id": { "type": "String", "required": true },
+            "aal": { "type": "String", "required": true },
+            "auth_method": { "type": "String", "required": true },
+            "authenticated_at": { "type": "Long", "required": true },
+            "roles": {
+              "type": "Set",
+              "required": true,
+              "element": { "type": "String" }
+            },
+            "authority_domain": { "type": "String", "required": true }
+          }
+        }
+      },
+      "Database": {
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "authority_domain": { "type": "String", "required": true },
+            "environment": { "type": "String", "required": true }
+          }
+        }
+      }
+    },
+    "actions": {
+      "db.connect": {
+        "appliesTo": {
+          "principalTypes": ["Principal"],
+          "resourceTypes": ["Database"],
+          "context": {
+            "type": "Record",
+            "attributes": {
+              "requested_at": { "type": "Long", "required": true },
+              "source_network": { "type": "String", "required": true },
+              "posture": {
+                "type": "Record",
+                "required": true,
+                "attributes": {
+                  "managed": { "type": "Boolean", "required": true },
+                  "disk_encrypted": { "type": "Boolean", "required": true },
+                  "agent_version": { "type": "String", "required": true },
+                  "evaluated_at": { "type": "Long", "required": true }
+                }
+              },
+              "ticket_ref": { "type": "String", "required": true },
+              "justification": { "type": "String", "required": true },
+              "approvals": {
+                "type": "Set",
+                "required": true,
+                "element": {
+                  "type": "Record",
+                  "attributes": {
+                    "approver_id": { "type": "String", "required": true },
+                    "approved_at": { "type": "Long", "required": true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

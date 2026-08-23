@@ -50,7 +50,11 @@ test-arch: ## Règles de dépendance, interdiction crypto directe, fichiers gén
 test: ## Unitaires + propriété + politiques
 	cargo nextest run --all-features
 	$(call go-each,go test ./... -race)
-	cedar test --policies policies/access --tests policies/tests || true
+	# `cedar test` n'existe pas : le CLI expose `validate` et `run-tests`, et n'accepte qu'un
+	# fichier de politiques (pas un dossier). tools/cedar-test.sh fait les deux (L2.1).
+	# `|| true` conservé tel quel : rendre l'étape bloquante suppose de provisionner le CLI
+	# Cedar dans le Jenkinsfile — changement de CI, validation humaine explicite requise.
+	bash tools/cedar-test.sh || true
 	opa test policies/platform policies/tests -v || true
 
 test-crypto: ## Vecteurs Wycheproof, conformité WebAuthn, intégration PKCS#11 (H1, ADR-011)

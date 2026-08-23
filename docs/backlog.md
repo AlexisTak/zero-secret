@@ -315,18 +315,42 @@ tâche qu'ils bloquent ci-dessous, pas pré-tranchés ici : rédiger la section 
 questions qu'elle pose.
 
 ### L2.1 — Schéma d'entités Cedar et corpus de politiques
-- [ ] `contracts/cedar/` : schéma d'entités (types `Principal`, `Resource`, `Action`) aligné sur
-      `decision.proto` (`Principal`, `Resource`, `Action` déjà spécifiés côté transport) —
-      typage statique, cohérent avec ADR-003 (menace de confusion de requête)
-- [ ] Premier corpus `policies/access/` : au moins une politique nominale + ses cas d'attaque
-      (`policies/CLAUDE.md` : hors conditions, principal voisin, escalade par combinaison,
-      requête ambiguë, ressource proche, dépassement de TTL — six cas minimum par règle)
-- [ ] Règle Sigma correspondante dans `policies/detection/` pour chaque politique sensible
-      ajoutée (contrepartie en détection exigée par `policies/CLAUDE.md`)
-- **Acceptation** : `cedar test` et le harnais de rejeu passent ; chaque politique a son cas de
-  refus et sa règle de détection. Une politique sans cas de refus n'est pas terminée.
-- **Décision préalable** : schéma Cedar d'abord, jamais une politique écrite contre un schéma
-  encore instable (`policies/CLAUDE.md` — « schéma d'abord »).
+- [x] `contracts/cedar/schema.cedarschema.json` : namespace `ZeroSecret`, entités `Principal` et
+      `Database` (un type Cedar dédié par type de ressource métier, jamais un `map` générique —
+      ADR-014), action `db.connect` — mappé champ à champ sur `decision.proto`
+      (`contracts/cedar/README.md` porte la table de correspondance), `Approval.signature` exclue
+      du contexte Cedar (déjà vérifiée avant l'appel au PDP)
+- [x] Premier corpus `policies/access/` : `db_connect.cedar` (politique nominale, AAL3 + ticket +
+      approbation + posture fraîche + même domaine d'autorité) et `db_connect_guardrails.cedar`
+      (trois `forbid` volontairement redondants, garde-fou anti-élargissement — ADR-014). 12 cas
+      dans `policies/tests/db_connect/cases.json` : 1 nominal + les six catégories obligatoires de
+      `policies/CLAUDE.md` (le sixième, « dépassement de TTL », instancié en fraîcheur de posture
+      — ADR-014, `context.posture.evaluated_at` vs `context.requested_at`), avec variantes (AAL
+      non renseigné, ressource de domaine voisin, posture datée dans le futur)
+- [x] `policies/detection/db_connect.yml` : cinq règles Sigma (refus isolé, sondage par essais
+      successifs corrélé, franchissement de domaine d'autorité, émission sans AAL3, dépassement du
+      plafond de TTL) — corrige au passage `policies/README.md` (`sigma/` → `detection/`)
+- **Acceptation** : `bash tools/cedar-test.sh` (`cedar validate --validation-mode strict
+  --deny-warnings` puis `cedar run-tests`) — **12/12 cas passés, 0 avertissement**, exécuté
+  réellement via `cargo install cedar-policy-cli --locked` sur ce poste (pas différé, contrairement
+  à SoftHSM2/`cargo fuzz`). Test de mutation complémentaire : les cinq conditions du `permit` ont
+  chacune été supprimées individuellement dans une copie du corpus, les cinq suppressions
+  détectées par le corpus de test — démontre que chaque condition est réellement nécessaire, pas
+  seulement présente.
+- **`Makefile`** : la cible `cedar test --policies <dossier>` était doublement invalide (sous-
+  commande inexistante côté CLI moderne, `--policies` n'accepte qu'un fichier) — remplacée par
+  `bash tools/cedar-test.sh`. `|| true` conservé tel quel : le rendre bloquant suppose de
+  provisionner le CLI Cedar dans le `Jenkinsfile`, hors périmètre de cette tâche (modifier une
+  étape de CI exige une validation humaine explicite séparée).
+- **Décisions structurantes** : voir ADR-014 (type d'entité dédié par ressource, réinterprétation
+  du sixième cas d'attaque, garde-fous `forbid` redondants).
+- **Surface non couverte, signalée** (ADR-014) : rejeu d'un ticket/d'une approbation déjà
+  consommés, approbateur identique au demandeur, collusion de deux approbateurs, `source_network`
+  déclaré mais inexploité, `posture.managed`/`disk_encrypted` déclarés mais non exigés — portée
+  volontairement limitée à `db.connect`, à traiter par les politiques suivantes de L2.1+.
+- **Hors périmètre, signalé** : `crates/zs-policy` non modifié (l'évaluation Cedar réelle par le
+  PDP est L2.2, pas cette tâche) ; `Jenkinsfile` ne provisionne pas le CLI Cedar (vérifié — la CI
+  ne peut donc pas encore exécuter `tools/cedar-test.sh` de façon bloquante).
 
 ### L2.2 — PDP (`policy-engine`, Rust)
 - [ ] `Decide(DecisionRequest) → DecisionResponse` (`decision.proto`) : évaluation Cedar contre le

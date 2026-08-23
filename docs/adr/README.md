@@ -19,6 +19,7 @@ divergence silencieuse.
 | [011](ADR-011-integration-pkcs11-et-pool-de-sessions.md) | Intégration PKCS#11 (H1), pool de sessions et CBOM | accepté | 2026-08-23 |
 | [012](ADR-012-format-assertion-identite-scellee.md) | Format de l'assertion d'identité scellée (identity-assertion/v1) | accepté | 2026-08-23 |
 | [013](ADR-013-format-evenement-audit-scelle.md) | Format de l'événement d'audit scellé (audit-seal/v1) | accepté | 2026-08-23 |
+| [014](ADR-014-schema-cedar-et-corpus-db-connect.md) | Schéma d'entités Cedar et premier corpus de politiques (db.connect) | accepté | 2026-08-23 |
 
 ## Règles
 
