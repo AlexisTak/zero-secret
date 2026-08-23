@@ -21,3 +21,10 @@ path = "fuzz_targets/identity_assertion_verify.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "audit_seal_verify"
+path = "fuzz_targets/audit_seal_verify.rs"
+test = false
+doc = false
+bench = false

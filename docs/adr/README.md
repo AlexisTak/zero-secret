@@ -18,6 +18,7 @@ divergence silencieuse.
 | [010](ADR-010-audit-seal-hsm-partage-et-chainage.md) | Découpage de L1.4, prérequis HSM partagé (H1) et modèle de chaînage | accepté | 2026-08-22 |
 | [011](ADR-011-integration-pkcs11-et-pool-de-sessions.md) | Intégration PKCS#11 (H1), pool de sessions et CBOM | accepté | 2026-08-23 |
 | [012](ADR-012-format-assertion-identite-scellee.md) | Format de l'assertion d'identité scellée (identity-assertion/v1) | accepté | 2026-08-23 |
+| [013](ADR-013-format-evenement-audit-scelle.md) | Format de l'événement d'audit scellé (audit-seal/v1) | accepté | 2026-08-23 |
 
 ## Règles
 

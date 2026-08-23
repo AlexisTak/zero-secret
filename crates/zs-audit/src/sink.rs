@@ -119,6 +119,7 @@ mod tests {
             EventType::AuthenticationFailed,
             EventType::RecoveryInitiated,
             EventType::QuorumOperation,
+            EventType::AuditChainVerified,
         ];
 
         for event_type in event_types {

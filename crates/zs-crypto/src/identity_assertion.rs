@@ -12,9 +12,14 @@
 //! ADR-008/012) : l'arité et l'ordre des composantes sont imposés par la suite, jamais par le
 //! message — un document `v2` à une seule composante est refusé, pas validé partiellement.
 //! Séparation de domaine par préfixe (`zero-secret/identity-assertion/v1`) : `audit-seal/v1`
-//! réutilisera la même primitive P-256/SHA-256 avec une clé distincte (ADR-011), la séparation
+//! réutilise la même primitive P-256/SHA-256 avec une clé distincte (ADR-011), la séparation
 //! élimine toute confusion de contexte par construction plutôt que par convention de nommage.
+//!
+//! Types partagés (`Timestamp`, `EventId`, encodage, canonicalisation) extraits dans
+//! `crate::common` (ADR-013) — `audit_seal` les réutilise, jamais un second validateur dupliqué.
 
+use crate::common::{self, FieldError, bounded_ascii_string};
+pub use crate::common::{EventId, Timestamp};
 use aws_lc_rs::signature::{ECDSA_P256_SHA256_FIXED, UnparsedPublicKey};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -36,7 +41,7 @@ pub enum AssuranceLevel {
 }
 
 impl AssuranceLevel {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             AssuranceLevel::Aal1 => "AAL1",
             AssuranceLevel::Aal2 => "AAL2",
@@ -45,104 +50,9 @@ impl AssuranceLevel {
     }
 }
 
-/// Chaîne validée à la construction : ASCII imprimable hors `"`/`\`, longueur bornée. Rend la
-/// conformité JCS de l'échappement structurellement vraie plutôt que dépendante d'un détail de
-/// `serde_json` sur tout l'espace Unicode (mise en garde `referent-crypto`).
-macro_rules! bounded_ascii_string {
-    ($name:ident, $max_len:expr, $field:expr) => {
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct $name(String);
-
-        impl $name {
-            pub fn new(value: impl Into<String>) -> Result<Self, SealError> {
-                let value = value.into();
-                if value.is_empty() || value.len() > $max_len {
-                    return Err(SealError::InvalidClaims($field));
-                }
-                if !value
-                    .bytes()
-                    .all(|b| (0x20..=0x7E).contains(&b) && b != b'"' && b != b'\\')
-                {
-                    return Err(SealError::InvalidClaims($field));
-                }
-                Ok(Self(value))
-            }
-
-            fn as_str(&self) -> &str {
-                &self.0
-            }
-        }
-    };
-}
-
 bounded_ascii_string!(SubjectId, 256, "subject_id");
 bounded_ascii_string!(AuthMethod, 64, "auth_method");
 bounded_ascii_string!(Audience, 256, "audience");
-
-/// RFC 3339 UTC strict : `AAAA-MM-JJThh:mm:ssZ` exactement — `Z` obligatoire, aucune fraction de
-/// seconde. Validation structurelle (longueur, positions, plages numériques), pas un calendrier
-/// complet (ex. jours par mois non vérifiés) — suffisant pour garantir une forme canonique
-/// unique d'un même instant, pas pour valider une date arbitraire.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Timestamp(String);
-
-impl Timestamp {
-    pub fn new(value: impl Into<String>) -> Result<Self, SealError> {
-        let value = value.into();
-        let bytes = value.as_bytes();
-        let valid = bytes.len() == 20
-            && bytes[4] == b'-'
-            && bytes[7] == b'-'
-            && bytes[10] == b'T'
-            && bytes[13] == b':'
-            && bytes[16] == b':'
-            && bytes[19] == b'Z'
-            && bytes
-                .iter()
-                .enumerate()
-                .all(|(i, &b)| matches!(i, 4 | 7 | 10 | 13 | 16 | 19) || b.is_ascii_digit());
-        if !valid {
-            return Err(SealError::InvalidClaims("timestamp"));
-        }
-        Ok(Self(value))
-    }
-
-    fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// UUIDv7 validé structurellement : forme `8-4-4-4-12` hexadécimale, nibble de version (position
-/// 14) égal à `7`. `audit_event_id` sert aussi d'identifiant unique anti-rejeu de l'assertion —
-/// pas de second UUID (recommandation `referent-crypto`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AuditEventId(String);
-
-impl AuditEventId {
-    pub fn new(value: impl Into<String>) -> Result<Self, SealError> {
-        let value = value.into();
-        let bytes = value.as_bytes();
-        let dashes_ok = bytes.len() == 36
-            && bytes[8] == b'-'
-            && bytes[13] == b'-'
-            && bytes[18] == b'-'
-            && bytes[23] == b'-';
-        let hex_ok = dashes_ok
-            && bytes
-                .iter()
-                .enumerate()
-                .all(|(i, &b)| matches!(i, 8 | 13 | 18 | 23) || b.is_ascii_hexdigit());
-        let version_ok = dashes_ok && bytes[14] == b'7';
-        if !(hex_ok && version_ok) {
-            return Err(SealError::InvalidClaims("audit_event_id"));
-        }
-        Ok(Self(value))
-    }
-
-    fn as_str(&self) -> &str {
-        &self.0
-    }
-}
 
 /// Contenu métier d'une assertion à sceller. `issued_at`/`expires_at`/`audit_event_id` sont
 /// fournis par l'appelant — ce module ne lit aucune horloge ni ne génère d'identifiant
@@ -155,7 +65,7 @@ pub struct AssertionClaims {
     pub audience: Audience,
     pub issued_at: Timestamp,
     pub expires_at: Timestamp,
-    pub audit_event_id: AuditEventId,
+    pub audit_event_id: EventId,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -166,6 +76,12 @@ pub enum SealError {
     SealingUnavailable,
 }
 
+impl From<FieldError> for SealError {
+    fn from(e: FieldError) -> Self {
+        SealError::InvalidClaims(e.0)
+    }
+}
+
 /// Configuration HSM propre à `zs-crypto` — recopiée vers `zs_hsm::HsmConfig` en interne,
 /// aucun type `zs-hsm` ne traverse la frontière publique (ADR-011).
 pub struct HsmSettings {
@@ -174,8 +90,8 @@ pub struct HsmSettings {
     pub pin: secrecy::SecretString,
     pub pool_size: usize,
     pub acquire_timeout: std::time::Duration,
-    /// Étiquette de la clé HSM dédiée à `identity-assertion` — distincte de celle d'`audit-seal`
-    /// (ADR-011, deux clés séparées dès H1).
+    /// Étiquette de la clé HSM dédiée à `identity-assertion` — `zs-identity-assertion-v1` par
+    /// convention (ADR-013), distincte de celle d'`audit-seal` (ADR-011, deux clés séparées).
     pub key_label: String,
 }
 
@@ -201,7 +117,7 @@ impl AssertionSealer {
         })
         .map_err(opaque)?;
         let public_key = pool.public_key(&key).map_err(opaque)?;
-        let key_id = key_id_from_public_key(&public_key.0);
+        let key_id = common::key_id_from_public_key(&public_key.0);
         Ok(Self { pool, key, key_id })
     }
 
@@ -212,7 +128,7 @@ impl AssertionSealer {
     pub fn seal(&self, claims: AssertionClaims) -> Result<SealedAssertion, SealError> {
         let unsigned = unsigned_document(&claims);
         let message = signed_message(&unsigned);
-        let digest = sha256(&message);
+        let digest = common::sha256(&message);
 
         let signature = self
             .pool
@@ -225,12 +141,12 @@ impl AssertionSealer {
             Value::Array(vec![json!({
                 "component": REQUIRED_COMPONENTS_V1[0],
                 "key_id": self.key_id,
-                "value": hex_encode(&signature.0),
+                "value": common::hex_encode(&signature.0),
             })]),
         );
 
         Ok(SealedAssertion {
-            bytes: canonical_bytes(&Value::Object(document)),
+            bytes: common::canonical_bytes(&Value::Object(document)),
         })
     }
 }
@@ -258,7 +174,7 @@ impl SealedAssertion {
     /// l'événement d'audit suivant (R7 : `audit_event_id` généré avant, assertion scellée le
     /// portant, événement scellé portant `SHA-256(assertion)`).
     pub fn digest(&self) -> [u8; 32] {
-        sha256(&self.bytes)
+        common::sha256(&self.bytes)
     }
 
     pub fn suite(&self) -> &'static str {
@@ -434,7 +350,7 @@ pub fn verify(
                 .collect(),
         ),
     );
-    if canonical_bytes(&Value::Object(full)) != bytes {
+    if common::canonical_bytes(&Value::Object(full)) != bytes {
         return Err(VerifyError::NonCanonical);
     }
 
@@ -451,7 +367,8 @@ pub fn verify(
             .iter()
             .find(|k| k.key_id == component.key_id)
             .ok_or(VerifyError::UnknownKeyId)?;
-        let sig_bytes = hex_decode(&component.value).ok_or(VerifyError::InvalidSignature)?;
+        let sig_bytes =
+            common::hex_decode(&component.value).ok_or(VerifyError::InvalidSignature)?;
         let verifying_key = UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, &key.raw);
         all_valid &= verifying_key.verify(&message, &sig_bytes).is_ok();
     }
@@ -529,42 +446,8 @@ fn signed_message(unsigned: &Map<String, Value>) -> Vec<u8> {
     let mut message = Vec::with_capacity(DOMAIN_PREFIX.len() + 1 + 256);
     message.extend_from_slice(DOMAIN_PREFIX.as_bytes());
     message.push(0x00);
-    message.extend_from_slice(&canonical_bytes(&Value::Object(unsigned.clone())));
+    message.extend_from_slice(&common::canonical_bytes(&Value::Object(unsigned.clone())));
     message
-}
-
-/// RFC 8785 (JCS) simplifié : `serde_json::Map` est adossée à une `BTreeMap` par défaut (feature
-/// `preserve_order` absente de ce workspace), donc les clés sont déjà triées à la sérialisation ;
-/// `serde_json::to_vec` ne produit aucun espace superflu — suffisant pour un document ne
-/// contenant que chaînes, entiers et tableaux (même raisonnement que `zs-audit::canonical`).
-fn canonical_bytes(value: &Value) -> Vec<u8> {
-    serde_json::to_vec(value).expect("un serde_json::Value construit ici est toujours sérialisable")
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
-        .collect()
-}
-
-fn key_id_from_public_key(sec1_uncompressed: &[u8]) -> String {
-    hex_encode(&sha256(sec1_uncompressed)[..8])
-}
-
-fn sha256(data: &[u8]) -> [u8; 32] {
-    use aws_lc_rs::digest;
-    let d = digest::digest(&digest::SHA256, data);
-    let mut out = [0u8; 32];
-    out.copy_from_slice(d.as_ref());
-    out
 }
 
 #[cfg(test)]
@@ -595,12 +478,12 @@ mod tests {
         }
 
         fn key_id(&self) -> String {
-            key_id_from_public_key(&self.public_key_sec1())
+            common::key_id_from_public_key(&self.public_key_sec1())
         }
 
         fn sign_document(&self, unsigned: &Map<String, Value>) -> Vec<u8> {
             let message = signed_message(unsigned);
-            let digest = sha256(&message);
+            let digest = common::sha256(&message);
             let sig: P256Signature = self.signing_key.sign_prehash(&digest).unwrap();
             sig.to_bytes().to_vec()
         }
@@ -615,7 +498,7 @@ mod tests {
             audience: Audience::new("policy-engine").unwrap(),
             issued_at: Timestamp::new("2026-08-23T10:00:00Z").unwrap(),
             expires_at: Timestamp::new("2026-08-23T10:02:00Z").unwrap(),
-            audit_event_id: AuditEventId::new("0198e6c1-0000-7000-8000-000000000000").unwrap(),
+            audit_event_id: EventId::new("0198e6c1-0000-7000-8000-000000000000").unwrap(),
         }
     }
 
@@ -628,11 +511,11 @@ mod tests {
             Value::Array(vec![json!({
                 "component": "ecdsa-p256",
                 "key_id": signer.key_id(),
-                "value": hex_encode(&sig),
+                "value": common::hex_encode(&sig),
             })]),
         );
         SealedAssertion {
-            bytes: canonical_bytes(&Value::Object(document)),
+            bytes: common::canonical_bytes(&Value::Object(document)),
         }
     }
 
@@ -662,7 +545,7 @@ mod tests {
     fn digest_correspond_au_sha256_des_octets_scelles() {
         let signer = MockSigner::new();
         let sealed = seal_with_mock(&signer, sample_claims("subject-1"));
-        assert_eq!(sealed.digest(), sha256(sealed.as_bytes()));
+        assert_eq!(sealed.digest(), common::sha256(sealed.as_bytes()));
     }
 
     // --- refus obligatoires ------------------------------------------------------------------
@@ -739,11 +622,11 @@ mod tests {
         document.insert(
             "signatures".to_string(),
             Value::Array(vec![
-                json!({"component": "ecdsa-p256", "key_id": signer.key_id(), "value": hex_encode(&sig)}),
+                json!({"component": "ecdsa-p256", "key_id": signer.key_id(), "value": common::hex_encode(&sig)}),
                 json!({"component": "ml-dsa-65", "key_id": "bogus", "value": "00"}),
             ]),
         );
-        let bytes = canonical_bytes(&Value::Object(document));
+        let bytes = common::canonical_bytes(&Value::Object(document));
         let key =
             accept_verifying_key(SUITE_V1, &signer.key_id(), &signer.public_key_sec1()).unwrap();
 
@@ -759,7 +642,7 @@ mod tests {
         let unsigned = unsigned_document(&sample_claims("subject-1"));
         let mut document = unsigned;
         document.insert("signatures".to_string(), Value::Array(vec![]));
-        let bytes = canonical_bytes(&Value::Object(document));
+        let bytes = common::canonical_bytes(&Value::Object(document));
         let key =
             accept_verifying_key(SUITE_V1, &signer.key_id(), &signer.public_key_sec1()).unwrap();
 
@@ -885,7 +768,7 @@ mod tests {
     fn subject_id_non_ascii_est_refuse() {
         assert_eq!(
             SubjectId::new("sujet-é").unwrap_err(),
-            SealError::InvalidClaims("subject_id")
+            FieldError("subject_id")
         );
     }
 
@@ -897,7 +780,7 @@ mod tests {
     #[test]
     fn audit_event_id_version_4_est_refuse() {
         // Version 4 (nibble '4' au lieu de '7') — UUIDv7 exigé pour l'ordre lexicographique.
-        assert!(AuditEventId::new("0198e6c1-0000-4000-8000-000000000000").is_err());
+        assert!(EventId::new("0198e6c1-0000-4000-8000-000000000000").is_err());
     }
 
     #[test]

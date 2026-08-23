@@ -215,34 +215,48 @@ de l'analyseur d'attestation sans incident.
 
 ### L1.4 — Audit du parcours
 - [x] Événements : enregistrement, révocation, tentative, succès, échec, récupération —
-      `crates/zs-audit/src/record.rs::EventType` (+ `quorum.operation`, couvrant L1.3). Contenu
-      métier seulement (`AuditRecord`, non sérialisable — même raison que `AuthenticationClaims`
-      en L1.2b) : la construction et le comptage sont faits, le scellement réel non.
-- [ ] Chaînage et signature vérifiés par test — **chaînage fait** (`crates/zs-audit/src/chain.rs`,
-      `verify_chain`, testé sur octets scellés opaques). **Signature différée à L1.4b** (ADR-010) :
-      `audit-seal/v1` est une suite d'émission soumise à l'invariant HSM de `zs-crypto`. Le
-      prérequis partagé H1 (intégration PKCS#11 réelle, ADR-011) est **fait** — `crates/zs-hsm`
-      n'est plus un stub — mais `zs_crypto::audit_seal::seal` reste à écrire.
-- **Acceptation** : aucune action du parcours ne réussit sans produire son événement — **démontré
-  au niveau de la complétude de flux** (`crates/zs-audit/src/sink.rs::echec_du_puits_nest_jamais_avale_silencieusement`
-  : un puits qui échoue fait échouer l'enregistrement, jamais un succès silencieux) et **par
-  comptage** (`chaque_type_devenement_du_parcours_est_compte`, les 7 types du parcours L1.1-L1.3
-  comptés via un puits de test). **Pas encore démontré au niveau du scellement cryptographique
-  réel**, qui n'existe pas avant L1.4b — cocher partiellement est un choix assumé (ADR-010),
-  comme pour L1.2 (ADR-008).
-- **Découpage L1.4a/H1/L1.4b** : voir ADR-010 (justification complète, y compris le choix d'une
-  signature par événement plutôt qu'un ancrage Merkle périodique).
-- **Correctif de contrat** : `authority_domain` rendu obligatoire dans
-  `contracts/events/audit-event.schema.json` (ADR-010) — gratuit avant tout événement produit,
-  cassant après.
+      `crates/zs-audit/src/record.rs::EventType` (+ `quorum.operation` couvrant L1.3,
+      + `audit.chain_verified` ajouté en L1.4b, ADR-013 — 8 types). Contenu métier seulement
+      (`AuditRecord`, non sérialisable — même raison qu'`AuthenticationClaims` en L1.2b) : la
+      construction, le comptage et le scellement réel sont tous faits (L1.4a + L1.4b).
+- [x] Chaînage et signature vérifiés par test — **chaînage fait** (`crates/zs-audit/src/chain.rs`,
+      `verify_chain`, testé sur octets scellés opaques). **Signature faite** (L1.4b, ADR-013) :
+      `crates/zs-crypto::audit_seal::{seal,verify}`, même primitive P-256/SHA-256
+      qu'`identity_assertion` (L1.2c), clé HSM distincte (`zs-audit-seal-v1`). Forme du conteneur
+      de signature différente d'`identity_assertion` (objet `{suite, components}` vs tableau),
+      imposée par le contrat existant — divergence assumée et datée pour résorption en v2.
+- **Acceptation** : aucune action du parcours ne réussit sans produire son événement — démontré
+  au niveau de la complétude de flux
+  (`crates/zs-audit/src/sink.rs::echec_du_puits_nest_jamais_avale_silencieusement`) et par
+  comptage (`chaque_type_devenement_du_parcours_est_compte`, 8 types désormais avec
+  `audit.chain_verified`). **Scellement réel démontré** (L1.4b) : vecteurs de chaînage figés,
+  3 événements scellés et chaînés, vérifiés bout en bout par
+  `crates/zs-audit/tests/chain_vectors.rs` (`audit_seal::verify` + `chain::verify_chain`).
+- **Découpage L1.4a/H1/L1.4b** : voir ADR-010 (justification, choix d'une signature par
+  événement) et ADR-013 (format complet, une fois H1/L1.2c livrés).
+- **Correctifs de contrat** : `authority_domain` rendu obligatoire (ADR-010) ; `signature` passée
+  d'un objet mono-composante à `{suite, components: [...]}` (ADR-013, même raisonnement R8
+  qu'ADR-012 pour `identity-assertion`) — gratuits avant tout événement produit, cassants après.
+- **`canonical.rs` supprimé** (ADR-013) : la canonicalisation de l'événement complet vit
+  désormais dans `zs_crypto::audit_seal` (qui doit reconstruire un document typé pour son
+  contrôle de canonicité) — deux implémentations JCS auraient divergé sans que rien ne le
+  détecte. Ses deux tests de non-régression migrés dans `crates/zs-crypto/src/common.rs`.
+- **Correctif hérité corrigé** : un champ optionnel absent (`target`, `context`) est omis, jamais
+  scellé en `null` — le contrat le refuse (`additionalProperties: false`, non requis ≠ nullable),
+  vérifié par test et par la conformité au contrat elle-même (`jsonschema`, dev-dependency).
 - **Ports de stockage** (`AuditSink`, `AuditChainStore`, `crates/zs-audit/src/sink.rs`) : traits
   documentés (contrat d'atomicité explicite pour `AuditChainStore::append`), sans implémentation
   — cohérent avec le scope-cut DB de L1.1/L1.2.
 - **Limite assumée du chaînage** : une troncature en queue de chaîne d'un domaine reste
   indétectable par `verify_chain` seul (prouvé par test,
   `troncature_en_queue_de_chaine_nest_pas_detectee`) — seul un ancrage périodique publié à
-  l'extérieur (`event_type: "audit.chain_verified"`, déjà réservé au contrat) la détecterait ;
-  hors périmètre L1.4a.
+  l'extérieur (`event_type: "audit.chain_verified"`, désormais scellable, sans sémantique de
+  charge utile propre — à instruire par un ADR dédié à `audit-collector`) la détecterait.
+- **Hors périmètre L1.4b, signalé** (ADR-013) : le champ `decision` du contrat (`policy.decided`,
+  `credential.issued`, backlog L2+) n'est pas supporté — aucun `EventType` de ce lot ne le
+  requiert. Mesure de latence `sign_digest` réelle non faite (pas de SoftHSM2 sur ce poste
+  Windows, même limite qu'H1/L1.2c) ; fuzzing de `audit_seal::verify`
+  (`crates/zs-crypto/fuzz/fuzz_targets/audit_seal_verify.rs`) compile mais non exécuté ici.
 
 ### H1 — Intégration HSM (prérequis partagé L1.2c/L1.4b)
 - [x] `crates/zs-hsm` : intégration PKCS#11 réelle (`cryptoki` 0.12, ADR-011) — pool de sessions
