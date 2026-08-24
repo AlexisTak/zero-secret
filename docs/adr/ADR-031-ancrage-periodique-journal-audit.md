@@ -552,10 +552,12 @@ du périmètre de cet ADR. Cet ADR ne peut passer à « accepté » que sur les 
 lui-même ; le choix du prestataire reste une action de suivi distincte, à consigner ici une fois
 faite (règle absolue n°10 : licence/gouvernance du prestataire à documenter à ce moment-là).
 
-**Q3 — Composant séparé `apps/audit-anchor` ou goroutine d'`audit-collector` ?**
-Recommandation : composant séparé, seule forme qui préserve la propriété « l'ancreur n'est pas
-l'écrivain ». Le repli (goroutine + pool lecture seule) est acceptable à titre transitoire mais
-doit être daté, pas ouvert.
+**Q3 — Composant séparé `apps/audit-anchor` ou goroutine d'`audit-collector` ? TRANCHÉE
+(2026-08-24) : composant séparé.** `apps/audit-anchor` (Go, nouveau binaire), rôle PostgreSQL
+`audit_reader` strictement en lecture seule, jamais d'`INSERT`. Retenu explicitement pour
+préserver la propriété « l'ancreur n'est pas l'écrivain » — un `audit-collector` compromis
+tronque et n'ancre pas si les deux processus sont confondus. Pas de repli goroutine : implémenté
+directement comme composant séparé dès la première livraison, pas de dette transitoire à dater.
 
 **Q4 — Valeurs de `N` et `T`.** `N = 1000` / `T = 1 h` sont des propositions. La question réelle
 à trancher est l'objectif de service : combien d'événements peut-on accepter de perdre sans
