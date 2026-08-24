@@ -1,7 +1,8 @@
 # ADR-031 — Ancrage périodique du journal d'audit (`audit.chain_verified`)
 
-**Statut** : proposé — ne pas passer à « accepté » avant arbitrage des questions ouvertes en fin
-de document.
+**Statut** : proposé — Q1-Q10 toutes tranchées (2026-08-24). Une action de suivi reste ouverte
+hors du périmètre de ce document : choix du prestataire d'horodatage RFC 3161 et de son budget
+(Q2, différé au porteur du projet, même pattern que la Q2 d'ADR-030 pour les fournisseurs HSM).
 **Date** : 2026-08-24
 **Auteurs** : instruction `referent-crypto`, à relire par le porteur du projet.
 **Lève** : la réserve posée par ADR-013 §« `audit.chain_verified` : type scellable, pas de
@@ -601,10 +602,11 @@ qu'une politique de purge est envisagée, elle doit être instruite par un ADR d
 spécifiquement cette interaction avant toute implémentation, pas après : une purge légitime
 resterait sinon indiscernable d'une troncature pour la procédure de vérification §3.
 
-**Q10 — Premier ancrage.** Faut-il ancrer rétroactivement les chaînes existantes dès la mise en
-service (un premier ancrage par domaine, `previous_anchor` omis, couvrant tout l'historique déjà
-écrit) ? Recommandation : oui, immédiatement — cela borne définitivement la fenêtre non protégée
-à ce qui existe aujourd'hui.
+**Q10 — Premier ancrage. TRANCHÉE (2026-08-24) : ancrage rétroactif immédiat.** Un premier
+ancrage par domaine d'autorité, `previous_anchor` omis, couvrant tout l'historique déjà écrit à
+la mise en service. Borne définitivement la fenêtre non protégée à ce qui existe aujourd'hui —
+tout report aurait continué à agrandir la portion d'historique définitivement tronçonnable sans
+détection.
 
 Sources normatives citées : [ANSSI — FAQ cryptographie post-quantique](https://cyber.gouv.fr/cryptographie-post-quantique-faq),
 [ANSSI — services de confiance eIDAS](https://cyber.gouv.fr/reglementation/reglementation-identite-confiance-numerique/securite-echanges-voie-electronique/reglement-eidas/services-de-confiance/),
