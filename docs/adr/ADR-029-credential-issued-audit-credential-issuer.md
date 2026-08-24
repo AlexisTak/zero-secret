@@ -90,3 +90,56 @@ demandeur lui-même (au-delà de la décision signée) — rendrait alors `subje
 insuffisant. Réexaminer la dérogation de consultation crypto : si `referent-crypto` était
 disponible peu après ce lot, une confirmation a posteriori serait bienvenue mais non bloquante
 (changement déjà en production à ce moment).
+
+## Revue a posteriori (2026-08-24)
+
+`referent-crypto` de nouveau disponible ; consultation rétroactive menée sur
+`EventType::CredentialIssued` tel que réellement mergé (`f8ca7f1`), lecture directe du code sur
+`main`, pas seulement du résumé du lot.
+
+**Verdict : sain, aucun défaut bloquant.** Points vérifiés indépendamment :
+
+- Couplage `decision` ↔ `event_type` correct des deux côtés (`validate_decision_coupling` en
+  première instruction dans `seal()`, même contrôle indépendant dans `verify()`, égalité
+  stricte — pas une implication).
+- Aucune confusion de type possible : `event_type` est couvert par `signed_message`, un relabel
+  invalide la signature, structurellement, pas par construction déclarative.
+- `DecisionInfo` réutilisé sans modification — aucune nouvelle surface pour le bug `null`
+  corrigé sous ADR-027.
+- Vecteur figé `tests/vectors/audit-seal-v1/chain.json` confirmé inchangé (un seul commit dans
+  son historique, aucune régression de scellement pour les événements déjà émis).
+- Compatibilité ascendante : extension additive du domaine de `event_type`, un vérificateur
+  antérieur refuse `credential.issued` en `MalformedDocument` (refus explicite, jamais une
+  acceptation silencieuse).
+- Rétrospectivement, la dérogation de consultation était justifiée — panne serveur (529), pas
+  un contournement, et l'argument d'identité structurelle avec `PolicyDecided` se vérifie sur le
+  code réel.
+
+**Quatre défauts mineurs relevés, corrigés dans la foulée** (commit dédié sur
+`crates/zs-crypto`, aucun changement de comportement ni d'octet scellé) :
+
+- Documentation de module, docstring de `DecisionInfo` et commentaire de `verify()` affirmaient
+  encore que `credential.issued` était hors périmètre — corrigé.
+- Parité de test incomplète avec `PolicyDecided` : il manquait le test symétrique côté
+  **vérification** (`decision_absente_sur_credential_issued_est_refusee_a_la_verification`),
+  qui prouve que `verify()` applique le couplage indépendamment de ce qu'un émetteur compromis
+  aurait dû refuser — ajouté.
+
+**Deux observations hors périmètre `zs-crypto`, transmises pour suivi séparé** :
+
+- Le rejeu d'une émission portant deux fois le même `decision_hash` n'est détectable par aucun
+  contrôle de la chaîne d'audit elle-même — l'unicité repose entièrement sur
+  `ConsumedDecisionStore` côté `credential-issuer` (déjà en place, H4/L2.4). À documenter dans
+  `security/threat-models/credential-issuer.md` si ce n'est pas déjà couvert par l'entrée
+  Repudiation existante.
+- `EventType` n'est pas `#[non_exhaustive]` — ajouter un variant est formellement cassant pour
+  un futur consommateur externe qui matcherait exhaustivement. Sans effet aujourd'hui (les deux
+  seuls consommateurs internes sont à jour), signalé comme motif qui se répétera au prochain
+  type d'événement.
+
+**Point de fond, non résolu par cette revue** : `audit-seal/v1` reste `anssi_2027_compliant =
+false`. Ce lot porte à trois le nombre de producteurs Go câblés dessus, dont deux (`policy.decided`,
+`credential.issued`) portant systématiquement `decision`. Aucune stratégie de recouvrement pour
+la chaîne d'audit historique au passage `audit-seal/v2` (hybride `ECDSA P-256 + ML-DSA-65`)
+n'est instruite à ce jour — instruction ouverte séparément (voir `docs/adr/README.md`, ADR
+`audit-seal/v2` en cours d'instruction).
