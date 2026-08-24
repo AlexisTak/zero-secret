@@ -154,10 +154,11 @@ modification de `crates/zs-hsm` et une variante de plus dans l'énumération `Si
 dont le commentaire de `mechanism.rs` anticipe déjà l'ajout (`MlDsa65`), en exigeant ADR +
 validation humaine — c'est ce document.
 
-**Recommandation : (a), ML-DSA pur.** Moins de surface d'interprétation, meilleur alignement avec
-la doctrine « pas de construction maison » ; le coût est un transfert de ~8 Kio par signature vers
-le HSM, mesurable et probablement négligeable devant le coût de la signature ML-DSA elle-même. À
-confirmer par mesure (Q4).
+**Tranché (Q4, 2026-08-24) : (a), ML-DSA pur.** Moins de surface d'interprétation, meilleur
+alignement avec la doctrine « pas de construction maison » ; le coût est un transfert de ~8 Kio
+par signature vers le HSM, mesurable et probablement négligeable devant le coût de la signature
+ML-DSA elle-même — à confirmer par mesure (§5), sans remettre en cause le mécanisme lui-même
+sauf si la mesure s'avère rédhibitoire.
 
 ### 4. Impact taille — mesuré
 
@@ -352,8 +353,8 @@ Trois suites d'émission visent la même hybridation : `audit-seal/v2`, `identit
 ## Options laissées ouvertes
 
 - **O1** — jeton PKCS#11 PQC de développement : **tranché, Kryoptic** (Q1, 2026-08-24).
-- **O2** — `CKM_ML_DSA` (recommandé) vs `CKM_HASH_ML_DSA_SHA256` : à trancher après vérification
-  de la sémantique PKCS#11 v3.2 et mesure de latence.
+- **O2** — `CKM_ML_DSA` vs `CKM_HASH_ML_DSA_SHA256` : **tranché, `CKM_ML_DSA` pur** (Q4,
+  2026-08-24).
 - **O3** — valeur de `MAX_BYTES_V2` : 32768 (recommandé, anticipe `decision-seal/v2`) vs 16384
   (ajusté au besoin actuel, exige une seconde révision plus tard).
 - **O4** — date de bascule `T` : à la mise en service de v2 en dev, ou à une date calendaire ?
@@ -470,10 +471,13 @@ production, justifiée par la même propriété d'indépendance d'implémentatio
 test et vérification réelle. À couvrir par l'ADR de dépendance requis par la règle absolue #10 au
 moment de l'implémentation.
 
-**Q4 — `CKM_ML_DSA` vs `CKM_HASH_ML_DSA_SHA256`.** Choix figé dans la suite, non réversible après
-la première émission. La recommandation est ML-DSA pur ; elle mérite d'être confrontée à la
-mesure de latence et à la sémantique exacte des paramètres PKCS#11 v3.2 sur le HSM retenu.
-ML-DSA pur par défaut, sous réserve d'infirmation par la mesure — à valider.
+**Q4 — `CKM_ML_DSA` vs `CKM_HASH_ML_DSA_SHA256`. TRANCHÉE (2026-08-24) : `CKM_ML_DSA` pur.**
+Choix figé dans la suite, non réversible après la première émission. Retenu pour sa conformité
+sans ambiguïté à FIPS 204 §5.2 (moins de surface d'interprétation qu'un pré-hachage dont la
+sémantique exacte des paramètres PKCS#11 v3.2 n'a pas encore été vérifiée sur le HSM cible). Le
+coût (~8 Kio transférés au HSM par signature au lieu de 32 octets) reste à confirmer par mesure
+de latence réelle (§5) avant l'implémentation — cette décision porte sur le mécanisme, pas sur
+sa performance, qui n'invaliderait le choix que si elle s'avérait rédhibitoire.
 
 **Q5 — Acceptation du coût volumétrique.** ×6,8 sur le journal d'audit et bascule TOAST
 systématique en Postgres. Quelle hypothèse de charge (événements/jour) et quelle durée de
