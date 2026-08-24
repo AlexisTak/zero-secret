@@ -33,6 +33,7 @@ divergence silencieuse.
 | [025](ADR-025-entree-reseau-credential-issuer.md) | Entrée réseau réelle pour credential-issuer + câblage access-broker (L2.4 suite) | accepté | 2026-08-24 |
 | [026](ADR-026-pont-audit-rust-go.md) | Pont d'audit Rust↔Go : audit-sealer (Rust) + audit-collector (Go), socket Unix | accepté | 2026-08-24 |
 | [027](ADR-027-champ-decision-audit-seal.md) | Champ decision dans audit-seal/v1 (policy.decided), access-broker câblé sur audit-collector | accepté | 2026-08-24 |
+| [028](ADR-028-quorum-operation-audit-admin-api.md) | admin-api câblé sur audit-collector : un quorum.operation par porteur distinct | accepté | 2026-08-24 |
 
 ## Règles
 

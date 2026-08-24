@@ -763,6 +763,19 @@ questions qu'elle pose.
 - Voir ADR-027 pour la conception complète, y compris la discussion sur la fenêtre de temps qui
   justifie l'amendement du contrat maintenant plutôt que différé.
 
+### `admin-api` câblé sur `audit-collector` (`quorum.operation`)
+- [x] `internal/httpapi/handler.go` — un `quorum.operation` par porteur distinct vérifié
+      (`quorum.Result.DistinctSubjects`), jamais un événement agrégé (voir ADR-028 : le contrat
+      n'a qu'un seul champ `actor` par événement, pas de notion de groupe de porteurs).
+      `outcome` reflète le résultat global du quorum, pas la validité individuelle du porteur.
+- [x] Émis seulement pour les porteurs réellement vérifiés — jamais pour un refus avant
+      vérification (seuil sous le plancher, corps malformé).
+- [x] Best-effort, même patron que `policy.decided` (ADR-027) : panne ou refus métier
+      d'`audit-collector` journalisés, ne bloquent jamais la réponse HTTP.
+- Aucun changement crypto requis : `EventType::QuorumOperation` ne porte pas de champ
+  `decision` (`requires_decision()` ne le couvre pas).
+- Voir ADR-028 pour la conception complète.
+
 ---
 
 ## Règles de session

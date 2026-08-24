@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
 	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
 
 	"github.com/Biscuits-ia/biscuits-shield/apps/admin-api/internal/httpapi"
@@ -31,6 +32,7 @@ func envOr(key, fallback string) string {
 
 func main() {
 	identityAddr := envOr("ZS_ADMIN_API_IDENTITY_PROVIDER_ADDR", "127.0.0.1:50062")
+	auditCollectorAddr := envOr("ZS_ADMIN_API_AUDIT_COLLECTOR_ADDR", "127.0.0.1:50065")
 	httpAddr := envOr("ZS_ADMIN_API_HTTP_ADDR", "127.0.0.1:8082")
 
 	identityConn, err := grpc.NewClient(identityAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -40,11 +42,19 @@ func main() {
 	}
 	defer identityConn.Close()
 
-	identityClient := identityv1.NewAssertionVerificationServiceClient(identityConn)
-	verifier := quorum.New(identityClient)
-	api := httpapi.New(verifier)
+	auditConn, err := grpc.NewClient(auditCollectorAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "admin-api: connexion à %s : %v\n", auditCollectorAddr, err)
+		os.Exit(1)
+	}
+	defer auditConn.Close()
 
-	log.Printf("admin-api: en écoute sur %s (gRPC en clair vers %s — mTLS hors périmètre)", httpAddr, identityAddr)
+	identityClient := identityv1.NewAssertionVerificationServiceClient(identityConn)
+	auditClient := auditv1.NewAuditCollectionServiceClient(auditConn)
+	verifier := quorum.New(identityClient)
+	api := httpapi.New(verifier, auditClient)
+
+	log.Printf("admin-api: en écoute sur %s (gRPC en clair vers %s, %s — mTLS hors périmètre)", httpAddr, identityAddr, auditCollectorAddr)
 	if err := http.ListenAndServe(httpAddr, httpapi.Handler(api)); err != nil {
 		fmt.Fprintf(os.Stderr, "admin-api: erreur serveur HTTP : %v\n", err)
 		os.Exit(1)

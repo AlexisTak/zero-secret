@@ -10,6 +10,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
 	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
 
 	"github.com/Biscuits-ia/biscuits-shield/apps/admin-api/internal/quorum"
@@ -27,12 +28,23 @@ func (f *fakeIdentityClient) VerifyAssertion(ctx context.Context, in *identityv1
 	return &identityv1.VerifyAssertionResponse{Valid: false, Reason: "assertion_de_test_inconnue"}, nil
 }
 
+type fakeAuditClient struct {
+	auditv1.AuditCollectionServiceClient
+	reqs []*auditv1.RawEvent
+}
+
+func (f *fakeAuditClient) Record(ctx context.Context, in *auditv1.RawEvent, opts ...grpc.CallOption) (*auditv1.RecordResult, error) {
+	f.reqs = append(f.reqs, in)
+	return &auditv1.RecordResult{Accepted: true, EventId: "evt-1"}, nil
+}
+
 func TestDeuxPorteursDistinctsAtteignentLeQuorumViaHTTP(t *testing.T) {
 	identity := &fakeIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
 		"assertion-a": {Valid: true, SubjectId: "sub-1"},
 		"assertion-b": {Valid: true, SubjectId: "sub-2"},
 	}}
-	srv := httptest.NewServer(Handler(New(quorum.New(identity))))
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(quorum.New(identity), audit)))
 	defer srv.Close()
 
 	body, _ := json.Marshal(QuorumRequest{
@@ -59,13 +71,31 @@ func TestDeuxPorteursDistinctsAtteignentLeQuorumViaHTTP(t *testing.T) {
 	if len(result.DistinctSubjects) != 2 {
 		t.Fatalf("attendu 2 porteurs distincts, reçu %d", len(result.DistinctSubjects))
 	}
+	if len(audit.reqs) != 2 {
+		t.Fatalf("attendu un quorum.operation par porteur distinct (2), reçu %d", len(audit.reqs))
+	}
+	for _, req := range audit.reqs {
+		if req.EventType != "quorum.operation" {
+			t.Fatalf("event_type inattendu : %s", req.EventType)
+		}
+		if req.Outcome != "success" {
+			t.Fatalf("outcome inattendu : %s", req.Outcome)
+		}
+		if req.Target == nil || req.Target.Id != "op-1" {
+			t.Fatalf("target.id inattendu : %v", req.Target)
+		}
+		if req.Actor == nil || (req.Actor.SubjectId != "sub-1" && req.Actor.SubjectId != "sub-2") {
+			t.Fatalf("actor.subject_id inattendu : %v", req.Actor)
+		}
+	}
 }
 
 func TestUnSeulPorteurEstRefuseViaHTTP(t *testing.T) {
 	identity := &fakeIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
 		"assertion-a": {Valid: true, SubjectId: "sub-1"},
 	}}
-	srv := httptest.NewServer(Handler(New(quorum.New(identity))))
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(quorum.New(identity), audit)))
 	defer srv.Close()
 
 	body, _ := json.Marshal(QuorumRequest{
@@ -87,11 +117,18 @@ func TestUnSeulPorteurEstRefuseViaHTTP(t *testing.T) {
 	if result.Reached {
 		t.Fatal("un seul porteur ne doit jamais atteindre le quorum")
 	}
+	if len(audit.reqs) != 1 {
+		t.Fatalf("attendu un quorum.operation pour le porteur vérifié (même quorum non atteint), reçu %d", len(audit.reqs))
+	}
+	if audit.reqs[0].Outcome != "denied" {
+		t.Fatalf("outcome inattendu : %s (le quorum global n'est pas atteint)", audit.reqs[0].Outcome)
+	}
 }
 
 func TestSeuilInferieurAuPlancherEstRefuse400ParHTTPPasUnCrash(t *testing.T) {
 	identity := &fakeIdentityClient{}
-	srv := httptest.NewServer(Handler(New(quorum.New(identity))))
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(quorum.New(identity), audit)))
 	defer srv.Close()
 
 	body, _ := json.Marshal(QuorumRequest{
@@ -122,11 +159,19 @@ func TestSeuilInferieurAuPlancherEstRefuse400ParHTTPPasUnCrash(t *testing.T) {
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("attendu 200 après récupération, reçu %d", resp2.StatusCode)
 	}
+	// Le seuil sous le plancher refuse avant tout appel à identity-provider (VerifyQuorum
+	// panique avant de vérifier quoi que ce soit) — aucune identité établie, rien à auditer pour
+	// ce premier appel. L'identité de test n'a pas de réponse configurée pour "assertion-a" donc
+	// le second appel (seuil valide) ne vérifie personne non plus.
+	if len(audit.reqs) != 0 {
+		t.Fatalf("aucun quorum.operation attendu ici (aucun porteur vérifié), reçu %d", len(audit.reqs))
+	}
 }
 
 func TestCorpsMalformeEstRefuse400(t *testing.T) {
 	identity := &fakeIdentityClient{}
-	srv := httptest.NewServer(Handler(New(quorum.New(identity))))
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(quorum.New(identity), audit)))
 	defer srv.Close()
 
 	resp, err := http.Post(srv.URL+"/v1/critical-operations/op-1/quorum", "application/json", bytes.NewReader([]byte("{not json")))
