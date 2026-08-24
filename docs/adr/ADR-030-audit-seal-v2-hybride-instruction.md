@@ -510,13 +510,21 @@ particulier minimal, aurait improvisé précisément ce qu'ADR-013 a refusé d'i
 bascule `audit-seal/v2` devient un cas d'usage de cet ancrage une fois instruit, pas
 l'inverse — **la section (b) de §6 (« marquer la frontière dans la chaîne elle-même ») et le
 point 7 de la Décision proposée restent en l'état pour mémoire, mais leur mise en œuvre est
-suspendue jusqu'à l'ADR d'ancrage.** Instruction lancée séparément (voir référence ci-dessous
-une fois produite) — retarde d'autant l'acceptation de ce document.
+suspendue jusqu'à l'ADR d'ancrage.** **Instruit : voir [ADR-031](ADR-031-ancrage-periodique-journal-audit.md).**
+Confirme la clôture proposée par ADR-031 §5 : l'événement charnière devient un ancrage
+`anchor.reason = "suite_transition"`, et la date de bascule `T` (Q9 ci-dessous) se définit comme
+la séquence de cet ancrage plutôt qu'une date calendaire. ADR-031 doit être accepté avant que
+ce document le soit (ordre imposé par ADR-031 §5, sa Q7).
 
-**Q7 — Découpage en deux ADR.** Validation de la séparation « ADR socle ML-DSA-65 dans
-`zs-crypto`/`zs-hsm` » + « ADR-030 `audit-seal/v2` », ou ADR unique quitte à ce qu'il porte le
-socle réutilisé par les deux suites suivantes ? Ce choix conditionne la numérotation et le
-contenu à écrire.
+**Q7 — Découpage en deux ADR. TRANCHÉE (2026-08-24) : ADR socle séparé.** Un ADR dédié au
+mécanisme ML-DSA-65 partagé (`SigningMechanism::MlDsa65` dans `zs-hsm`, `accept_verifying_key`
+par composante, corpus de vecteurs Wycheproof/ACVP FIPS 204, outillage de dev PKCS#11 PQC) sera
+instruit séparément — ce document en devient la première application, pas le lieu où le socle
+est défini. Motivation retenue : sans ce découpage, `identity-assertion/v2` et
+`decision-seal/v2` devraient soit re-instruire le même socle depuis zéro, soit le référencer à
+l'intérieur d'un ADR nommé `audit-seal/v2`, ce qui aurait mal porté son nom. Instruction à
+lancer séparément — voir référence ci-dessous une fois produite ; `audit-seal/v2` ne peut pas
+être accepté avant que ce socle existe.
 
 **Q8 — Revirement assumé vis-à-vis d'ADR-013.** ADR-013 §Conséquences datait explicitement la
 résorption de la divergence de forme « au passage v2 ». L'alternative 8 propose de ne pas le
