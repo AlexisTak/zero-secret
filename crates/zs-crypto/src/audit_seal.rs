@@ -19,9 +19,9 @@
 //! (déjà déclaré dans `contracts/events/audit-event.schema.json`, `zs-crypto` n'en implémentait
 //! qu'un sous-ensemble). Couplage bidirectionnel obligatoire avec `EventType` :
 //! `PolicyDecided` exige `decision`, tout autre type l'interdit
-//! (`EventType::requires_decision`, vérifié en émission ET en vérification). `credential.issued`
-//! (même forme de `decision`) reste hors périmètre — aucun producteur ne l'émet encore, pas
-//! d'anticipation.
+//! (`EventType::requires_decision`, vérifié en émission ET en vérification). Étendu à
+//! `CredentialIssued` (ADR-029, même forme de `decision`, `DecisionInfo` réutilisé sans
+//! modification) — câblé depuis `apps/credential-issuer`.
 //!
 //! `decision.decision_signature`/`decision_signature_key_id` sont transportés tels quels, JAMAIS
 //! vérifiés par ce module : `audit-seal/v1` atteste que le domaine d'autorité a *détenu* ce
@@ -219,7 +219,8 @@ pub struct Context {
 }
 
 /// Preuve rejouable hors ligne d'une décision du PDP — requis si et seulement si
-/// `event_type == PolicyDecided` (`EventType::requires_decision`, ADR-027).
+/// `EventType::requires_decision(event_type)` est vrai (`PolicyDecided` ou `CredentialIssued`,
+/// ADR-027/ADR-029).
 ///
 /// `decision_signature`/`decision_signature_key_id` sont recopiés de `decision-seal/v1`
 /// (`policyv1.DecisionResponse`) mais **non vérifiés ici** : `audit-seal/v1` atteste que le
@@ -545,8 +546,8 @@ pub fn verify(
     ActorKind::from_contract_str(&doc.actor.kind).ok_or(VerifyError::MalformedDocument)?;
     Outcome::from_contract_str(&doc.outcome).ok_or(VerifyError::MalformedDocument)?;
     // Couplage bidirectionnel (ADR-027) : un vérificateur hors ligne ne doit jamais obtenir un
-    // `policy.decided` sans `decision`, ni un autre type avec un `decision` orphelin — quelle
-    // que soit la configuration de l'émetteur qui a produit ce document.
+    // `policy.decided`/`credential.issued` sans `decision`, ni un autre type avec un `decision`
+    // orphelin — quelle que soit la configuration de l'émetteur qui a produit ce document.
     if event_type.requires_decision() != doc.decision.is_some() {
         return Err(VerifyError::MalformedDocument);
     }
@@ -723,8 +724,9 @@ fn decision_value(decision: &DecisionInfo) -> Value {
 /// Couplage bidirectionnel `event_type` ↔ `decision` (ADR-027) — JSON Schema seul ne peut pas
 /// l'exprimer (`additionalProperties`/`required` ne dépendent pas d'un autre champ du message).
 /// Appelé en émission (`AuditSealer::seal`) et en vérification (`verify`), même contrôle des deux
-/// côtés : un consommateur hors ligne ne doit jamais pouvoir obtenir un événement `policy.decided`
-/// dépourvu de liaison, quelle que soit la configuration de l'émetteur qui l'a produit.
+/// côtés : un consommateur hors ligne ne doit jamais pouvoir obtenir un événement
+/// `policy.decided`/`credential.issued` dépourvu de liaison, quelle que soit la configuration de
+/// l'émetteur qui l'a produit.
 fn validate_decision_coupling(
     event_type: EventType,
     decision: &Option<DecisionInfo>,
@@ -1125,6 +1127,24 @@ mod tests {
         assert_eq!(
             validate_decision_coupling(EventType::CredentialIssued, &None),
             Err(SealError::InvalidFields("decision"))
+        );
+    }
+
+    #[test]
+    fn decision_absente_sur_credential_issued_est_refusee_a_la_verification() {
+        // Même contournement volontaire que decision_absente_sur_policy_decided_..._verification :
+        // preuve que verify() applique le couplage indépendamment de ce que l'émetteur aurait dû
+        // refuser, pas seulement pour PolicyDecided.
+        let signer = MockSigner::new(0x11);
+        let mut fields = sample_fields(0, [0u8; 32]);
+        fields.event_type = EventType::CredentialIssued;
+        let sealed = seal_with_mock(&signer, fields);
+        let key =
+            accept_verifying_key(SUITE_V1, &signer.key_id(), &signer.public_key_sec1()).unwrap();
+
+        assert_eq!(
+            verify(&[key], sealed.as_bytes(), &default_policy()),
+            Err(VerifyError::MalformedDocument)
         );
     }
 
