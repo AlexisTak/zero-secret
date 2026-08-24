@@ -11,12 +11,14 @@ ignore = []
 
 [licenses]
 version = 2
-# Nos propres crates (apps/, crates/) n'ont pas de champ license : dépôt propriétaire, réservé,
-# publish = false partout (voir Cargo.toml racine). Ce n'est pas un oubli, cargo-deny ne doit
-# pas les vérifier comme s'ils étaient destinés à crates.io.
+# Nos propres crates (apps/, crates/) n'ont pas de champ license : publish = false partout
+# (voir Cargo.toml racine, LICENSE à la racine du dépôt fait foi — AGPL-3.0). Ce n'est pas un
+# oubli, cargo-deny ne doit pas les vérifier comme s'ils étaient destinés à crates.io.
 private = { ignore = true }
 allow = [
     "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception", # ar_archive_writer, outillage de build transitif via
+    # aws-lc-sys — variante standard d'Apache-2.0 utilisée dans l'écosystème LLVM, OSI-reconnue.
     "MIT",
     "BSD-2-Clause",
     "BSD-3-Clause",
@@ -24,6 +26,11 @@ allow = [
     "Unicode-3.0",
     "Zlib",
     "MPL-2.0", # OpenBao et dépendances associées — voir ADR-002
+    "CDLA-Permissive-2.0", # webpki-roots (paquet de certificats racine Mozilla, dépendance
+    # transitive de sqlx/rustls, H5/ADR-023) — licence de données (Linux Foundation), pas une
+    # licence logicielle au sens strict de l'OSI, mais permissive et sans copyleft ; standard
+    # pour ce type de paquet dans l'écosystème Rust TLS. Découverte en réactivant `cargo deny`
+    # (2026-08-24), pas une nouvelle dépendance introduite ici.
 ]
 confidence-threshold = 0.8
 
