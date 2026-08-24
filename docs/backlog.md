@@ -66,12 +66,18 @@ artefact signé et attesté.
 - [x] Exécuteurs éphémères : agents Docker jetables (plugin Docker Pipeline), un conteneur par
       stage. Secret durable : **dérogation documentée** (ADR-005) — clé cosign dans le Jenkins
       Credentials Store, rotation à 90 jours, périmètre limité au stage de signature sur `main`
-- [ ] Branche principale protégée — **bloqué** : dépôt privé + plan GitHub Free renvoie 403
-      sur `branches/main/protection` et sur `rulesets` (« Upgrade to GitHub Pro or make this
-      repository public »). Nécessite un changement de plan GitHub (facturation — décision
-      humaine) ou de rendre le dépôt public. À refaire dès que l'un des deux est tranché.
-      Sans lien avec la bascule Jenkins — c'est un réglage GitHub, indépendant de la plateforme
-      qui exécute la CI.
+- [x] Branche principale protégée (2026-08-24) — débloqué : dépôt passé public (décision
+      explicite de l'utilisateur, voir L0.1), `branches/main/protection` accessible.
+      `required_pull_request_reviews` (`required_approving_review_count: 0` — CODEOWNERS n'a
+      qu'un seul propriétaire, une revue obligatoire l'aurait bloqué lui-même, GitHub interdit
+      l'auto-approbation), `allow_force_pushes: false`, `allow_deletions: false`,
+      `enforce_admins: true`. Pas de `required_status_checks` : Jenkins ne poste aucun status
+      check GitHub à ce jour (`commits/main/status` vide) — à ajouter dès que ce lien existe.
+      **Vérifié réellement, pas déclaré** : un push direct sur `main` a d'abord été accepté avec
+      `enforce_admins: false` (« Bypassed rule violations », le propriétaire du dépôt contourne
+      la règle par défaut) — durci ensuite, un second push direct a été rejeté
+      (`GH006: Protected branch update failed`, commit jamais poussé). Sans lien avec la bascule
+      Jenkins — c'est un réglage GitHub, indépendant de la plateforme qui exécute la CI.
 - **Acceptation** : un secret introduit volontairement dans une branche est bloqué avant fusion.
   Vérifié localement (`gitleaks detect` sur un commit de test, secret détecté, commit annulé) ;
   le stage `détection de secrets` du `Jenkinsfile` reproduit ça sur chaque build.
