@@ -526,10 +526,17 @@ l'intérieur d'un ADR nommé `audit-seal/v2`, ce qui aurait mal porté son nom. 
 lancer séparément — voir référence ci-dessous une fois produite ; `audit-seal/v2` ne peut pas
 être accepté avant que ce socle existe.
 
-**Q8 — Revirement assumé vis-à-vis d'ADR-013.** ADR-013 §Conséquences datait explicitement la
-résorption de la divergence de forme « au passage v2 ». L'alternative 8 propose de ne pas le
-faire et d'aligner `identity-assertion` à la place. C'est une décision qui contredit un ADR
-accepté : elle doit être validée consciemment, et ADR-030 devra le mentionner en toutes lettres.
+**Q8 — Revirement assumé vis-à-vis d'ADR-013. TRANCHÉE (2026-08-24) : revirement validé.**
+ADR-013 §Conséquences datait explicitement la résorption de la divergence de forme « au passage
+v2 ». Ce document ne la résorbe **pas** : le conteneur `{suite, components}` d'`audit-seal` est
+jugé structurellement supérieur (il nomme la suite dans le document même, contrairement au
+tableau `signatures: [...]` d'`identity-assertion` — voir alternative 8) et la convergence
+souhaitable ira dans l'autre sens, portée par un futur ADR `identity-assertion/v2` dédié, pas
+mêlée ici au changement de suite ML-DSA. **Ceci contredit consciemment ADR-013 §Conséquences** —
+mentionné en toutes lettres, pas silencieusement contourné. ADR-013 lui-même n'est pas modifié
+(un ADR accepté n'est jamais réécrit, `docs/adr/README.md` §Règles) : ce revirement est acté ici,
+dans le document qui le décide, et devra être répercuté dans le futur ADR
+`identity-assertion/v2` qui héritera de la charge de la convergence.
 
 **Q9 — Définition de la date de bascule `T`** (option O4) : séquence de l'événement charnière
 (recommandé, vérifiable hors ligne) ou date calendaire ?
