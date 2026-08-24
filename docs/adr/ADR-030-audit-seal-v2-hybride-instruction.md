@@ -123,7 +123,7 @@ Candidats écartés :
 | Bibliothèque | Pourquoi écartée |
 |---|---|
 | `fips204` (pure Rust) | ajout d'une dépendance là où `aws-lc-rs` couvre déjà le besoin ; règle absolue #10 |
-| `ml-dsa` (RustCrypto) | même raison ; utile éventuellement comme **signeur de test indépendant** (miroir du rôle de `p256` aujourd'hui) — à trancher (Q3) |
+| `ml-dsa` (RustCrypto) | écarté en production ; **retenu comme signeur de test indépendant** (miroir du rôle de `p256` aujourd'hui), voir Q3 tranchée |
 | `libcrux-ml-dsa` | vérification formelle attrayante, mais dépendance supplémentaire, écosystème plus étroit ; à réévaluer si `aws-lc-rs` régressait |
 
 **Conclusion : aucune nouvelle dépendance Rust n'est nécessaire pour la composante ML-DSA en
@@ -463,11 +463,12 @@ Réponses à consigner dans ce document (ou en annexe référencée) dès reçue
 aucun fournisseur ne s'engage avant 2027 reste à formuler une fois les réponses connues — pas
 avant, pour ne pas planifier un repli sur une hypothèse non vérifiée.
 
-**Q3 — Signeur ML-DSA de test indépendant.** `audit_seal.rs` utilise aujourd'hui `p256` comme
-implémentation ECDSA indépendante d'`aws-lc-rs` en test (ADR-011/012/013). Reproduit-on ce
-principe avec `ml-dsa` (RustCrypto) — une dépendance de dev de plus, mais la même propriété
-d'indépendance d'implémentation — ou accepte-t-on de tester ML-DSA avec la bibliothèque qui le
-vérifie ?
+**Q3 — Signeur ML-DSA de test indépendant. TRANCHÉE (2026-08-24) : `ml-dsa` (RustCrypto).**
+Reproduit le principe déjà en place avec `p256` (implémentation ECDSA indépendante d'`aws-lc-rs`
+en test, ADR-011/012/013) : nouvelle dépendance de développement uniquement, jamais en
+production, justifiée par la même propriété d'indépendance d'implémentation entre signature de
+test et vérification réelle. À couvrir par l'ADR de dépendance requis par la règle absolue #10 au
+moment de l'implémentation.
 
 **Q4 — `CKM_ML_DSA` vs `CKM_HASH_ML_DSA_SHA256`.** Choix figé dans la suite, non réversible après
 la première émission. La recommandation est ML-DSA pur ; elle mérite d'être confrontée à la
