@@ -70,9 +70,11 @@ func (f *fakeCredentialClient) Emit(ctx context.Context, in *credentialv1.Emissi
 
 type fakeAuditClient struct {
 	auditv1.AuditCollectionServiceClient
-	called  bool
-	lastReq *auditv1.RawEvent
-	err     error
+	called   bool
+	lastReq  *auditv1.RawEvent
+	err      error
+	rejected bool // simule un RecordResult{Accepted:false}, err nil (refus métier, pas une panne)
+	reason   string
 }
 
 func (f *fakeAuditClient) Record(ctx context.Context, in *auditv1.RawEvent, opts ...grpc.CallOption) (*auditv1.RecordResult, error) {
@@ -80,6 +82,9 @@ func (f *fakeAuditClient) Record(ctx context.Context, in *auditv1.RawEvent, opts
 	f.lastReq = in
 	if f.err != nil {
 		return nil, f.err
+	}
+	if f.rejected {
+		return &auditv1.RecordResult{Accepted: false, Reason: f.reason}, nil
 	}
 	return &auditv1.RecordResult{Accepted: true, EventId: "evt-1", Sequence: 0}, nil
 }
@@ -363,5 +368,38 @@ func TestCorpsMalformeEstRefuse400(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("attendu 400, reçu %d", resp.StatusCode)
+	}
+}
+
+func TestRefusMetierDauditCollectorNinvalidePasLaReponseHTTP(t *testing.T) {
+	// Un RecordResult{Accepted:false} (err nil) est un refus métier, pas une panne réseau — la
+	// régression corrigée dans apps/audit-collector/internal/collector/collector.go (decision
+	// jamais transmise) produisait exactement ce cas, invisible tant que rien ne l'inspectait.
+	identity := &fakeIdentityClient{valid: true, subjectID: "sub-demandeur"}
+	credential := &fakeCredentialClient{response: &credentialv1.EmissionResult{Allowed: true, LeaseId: "lease-1"}}
+	policy := &fakePolicyClient{response: &policyv1.DecisionResponse{
+		Effect:       policyv1.Effect_EFFECT_ALLOW,
+		Reasons:      []string{"db-connect-production"},
+		DecisionHash: []byte{0x01, 0x02},
+	}}
+	audit := &fakeAuditClient{rejected: true, reason: "decision_absente_pour_policy.decided"}
+	srv := httptest.NewServer(Handler(New(identity, credential, audit, broker.New(policy, identity))))
+	defer srv.Close()
+
+	body, _ := json.Marshal(validBody())
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/access-requests", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Identity-Assertion", base64.StdEncoding.EncodeToString([]byte("assertion-du-demandeur")))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("un refus métier d'audit-collector ne doit jamais invalider la réponse HTTP : attendu 200, reçu %d", resp.StatusCode)
+	}
+	if !audit.called {
+		t.Fatal("audit-collector aurait dû être appelé")
 	}
 }

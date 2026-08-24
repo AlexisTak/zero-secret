@@ -173,7 +173,7 @@ func (h *API) recordPolicyDecided(ctx context.Context, requestID string, body Ac
 		decisionSignatureKeyID = &keyID
 	}
 
-	_, err := h.auditClient.Record(ctx, &auditv1.RawEvent{
+	result, err := h.auditClient.Record(ctx, &auditv1.RawEvent{
 		AuthorityDomain: body.ExpectedAuthorityDomain,
 		EventType:       "policy.decided",
 		Actor: &auditv1.Actor{
@@ -204,6 +204,14 @@ func (h *API) recordPolicyDecided(ctx context.Context, requestID string, body Ac
 	})
 	if err != nil {
 		log.Printf("access-broker: échec de l'envoi de policy.decided à audit-collector (requête %s) : %v", requestID, err)
+		return
+	}
+	if !result.Accepted {
+		// Refus métier côté audit-sealer/audit-collector (event_type/decision incohérents,
+		// conflit de séquence...) — même best-effort que l'échec de transport ci-dessus, mais
+		// une erreur nil à ce stade ne veut pas dire "audité", elle veut dire "pas de panne
+		// réseau". Journalisé pour rester détectable, jamais silencieux.
+		log.Printf("access-broker: policy.decided refusé par audit-collector (requête %s) : %s", requestID, result.Reason)
 	}
 }
 
