@@ -22,6 +22,7 @@
     "authority_domain": { "type": "string" },
     "event_type": {
       "type": "string",
+      "description": "Réservé, sans producteur actuel dans le code (lots ultérieurs, cf. crates/zs-audit/src/record.rs) : access.requested, access.approved, access.denied, credential.expired, credential.revoked, policy.modified. Toutes les autres valeurs sont produites et couvertes par un test.",
       "enum": [
         "authenticator.registered",
         "authenticator.revoked",

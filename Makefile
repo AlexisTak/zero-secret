@@ -56,11 +56,21 @@ test: ## Unitaires + propriété + politiques
 	# `|| true` conservé tel quel : rendre l'étape bloquante suppose de provisionner le CLI
 	# Cedar dans .github/workflows/ci.yml — changement de CI, validation humaine explicite requise.
 	bash tools/cedar-test.sh || true
-	opa test policies/platform policies/tests -v || true
+	# policies/platform n'existe pas encore : Rego plateforme non commencé (audit.md §5.2).
+	# Message explicite plutôt qu'un `|| true` qui masquerait aussi une vraie régression Rego
+	# le jour où le dossier existera.
+	@if [ -d policies/platform ]; then \
+		opa test policies/platform policies/tests -v; \
+	else \
+		echo "policies/platform absent — Rego plateforme non implémenté, voir audit.md §5.2"; \
+	fi
 
 test-crypto: ## Vecteurs Wycheproof, conformité WebAuthn, intégration PKCS#11 (H1, ADR-011)
-	cargo test -p zs-crypto --features conformance -- --include-ignored
-	cargo test -p zs-webauthn --features conformance -- --include-ignored
+	# `--features conformance` retiré (audit.md §3.2) : aucun des deux crates ne déclare cette
+	# feature, la cible échouait immédiatement. Vecteurs Wycheproof/WebAuthn officiels toujours
+	# absents du dépôt — à sourcer séparément (audit.md §3.2).
+	cargo test -p zs-crypto -- --include-ignored
+	cargo test -p zs-webauthn -- --include-ignored
 	@echo "Vérifier SoftHSM2 : $$ZS_HSM_MODULE"
 	cargo test -p zs-hsm -- --include-ignored
 
@@ -93,8 +103,9 @@ down: ## Arrête l'environnement local
 test-e2e: ## Tests de bout en bout contre l'environnement local (make up requis)
 	@bash tests/e2e/audit_writer_refuses_delete.sh
 
-replay: ## Rejeu des décisions depuis le journal d'audit
-	cargo run -p zs-replay -- --from $(FROM) --to $(TO)
+replay: ## Rejeu des décisions depuis le journal d'audit — NON IMPLÉMENTÉ (audit.md §5.4)
+	@echo "make replay : crate zs-replay non implémenté — voir audit.md §5.4. Rejeu indisponible." >&2
+	@exit 1
 
 clean:
 	cargo clean && go clean -cache

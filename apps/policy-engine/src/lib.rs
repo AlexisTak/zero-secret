@@ -74,7 +74,8 @@ impl PolicyDecisionService for PolicyEngine {
         let mut response = self.pdp.decide(request.get_ref());
 
         let issued_at_str = rfc3339_now();
-        let fields = decision_fields(&response, &issued_at_str);
+        let fields = decision_fields(&response, &issued_at_str)
+            .map_err(|e| Status::internal(format!("horodatage de décision invalide : {e}")))?;
 
         // zs-hsm expose une API bloquante (ADR-011) : jamais d'appel direct depuis un handler
         // async partageant le runtime avec le reste du service (même discipline que
@@ -120,7 +121,15 @@ impl PolicyDecisionService for PolicyEngine {
                 }));
             }
         };
-        let fields = decision_fields(&decision, &issued_at_str);
+        let fields = match decision_fields(&decision, &issued_at_str) {
+            Ok(f) => f,
+            Err(_) => {
+                return Ok(Response::new(VerifyDecisionResponse {
+                    valid: false,
+                    reason: "issued_at_invalide".to_string(),
+                }));
+            }
+        };
 
         let response = match zs_crypto::decision_seal::verify(
             std::slice::from_ref(&self.verifying_key),
@@ -141,8 +150,17 @@ impl PolicyDecisionService for PolicyEngine {
     }
 }
 
-fn decision_fields(response: &DecisionResponse, issued_at_str: &str) -> DecisionFields {
-    DecisionFields {
+// Retourne une erreur plutôt que de paniquer : `issued_at_str` peut provenir de
+// `rfc3339_from_seconds` appliqué à une valeur `seconds` reçue du réseau (`verify_decision`),
+// que `Timestamp::new` peut légitimement refuser (année hors plage, largeur non conforme) — voir
+// audit.md §3.1. Les deux appelants traduisent l'erreur en refus explicite, jamais en panique.
+fn decision_fields(
+    response: &DecisionResponse,
+    issued_at_str: &str,
+) -> Result<DecisionFields, String> {
+    let issued_at = zs_crypto::identity_assertion::Timestamp::new(issued_at_str.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(DecisionFields {
         request_id: String::new(), // request_id n'est pas porté par DecisionResponse (par design,
         // decision.proto) — voir note ADR-019 : absent du scellement pour cette raison, jamais
         // "oublié" silencieusement.
@@ -156,9 +174,8 @@ fn decision_fields(response: &DecisionResponse, issued_at_str: &str) -> Decision
             .map(|d| d.seconds.max(0) as u64)
             .unwrap_or(0),
         constraints: response.constraints.clone(),
-        issued_at: zs_crypto::identity_assertion::Timestamp::new(issued_at_str.to_string())
-            .expect("rfc3339_now/rfc3339_from_seconds produisent toujours un format valide"),
-    }
+        issued_at,
+    })
 }
 
 /// Démarre le service gRPC sur `addr` et bloque jusqu'à arrêt (échec réseau ou signal).
@@ -256,5 +273,21 @@ mod tests {
         let s = rfc3339_now();
         let seconds = request_time_from_rfc3339(&s);
         assert_eq!(rfc3339_from_seconds(seconds), s);
+    }
+
+    #[test]
+    fn decision_fields_refuse_annee_hors_plage_au_lieu_de_paniquer() {
+        // Régression audit.md §3.1 : `seconds` provient de `VerifyDecisionRequest.decision.
+        // issued_at`, contrôlé par l'appelant gRPC (`verify_decision`). Une valeur extrême produit
+        // une chaîne RFC 3339 de largeur non conforme (année sur plus ou moins de 4 chiffres) ;
+        // `decision_fields` doit refuser explicitement, jamais paniquer via `.expect()`.
+        let response = DecisionResponse::default();
+        for seconds in [i64::MAX, i64::MIN] {
+            let issued_at_str = rfc3339_from_seconds(seconds);
+            assert!(
+                decision_fields(&response, &issued_at_str).is_err(),
+                "seconds={seconds} (chaîne \"{issued_at_str}\") devait être refusé, pas accepté ni paniquer"
+            );
+        }
     }
 }

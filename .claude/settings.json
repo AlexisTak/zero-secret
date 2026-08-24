@@ -107,7 +107,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"Branche: $(git branch --show-current) | ADR ouverts: $(ls docs/adr/*.md 2>/dev/null | wc -l) | Rappel: contrat -> generate -> tests -> impl -> audit\"",
+            "command": "echo \"Branche: $(git branch --show-current) | ADR ouverts: $(grep -l '^\\*\\*Statut\\*\\* : proposé' docs/adr/ADR-*.md 2>/dev/null | wc -l) | Rappel: contrat -> generate -> tests -> impl -> audit\"",
             "timeout": 10
           }
         ]
