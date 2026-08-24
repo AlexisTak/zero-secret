@@ -35,6 +35,9 @@ divergence silencieuse.
 | [027](ADR-027-champ-decision-audit-seal.md) | Champ decision dans audit-seal/v1 (policy.decided), access-broker câblé sur audit-collector | accepté | 2026-08-24 |
 | [028](ADR-028-quorum-operation-audit-admin-api.md) | admin-api câblé sur audit-collector : un quorum.operation par porteur distinct | accepté | 2026-08-24 |
 | [029](ADR-029-credential-issued-audit-credential-issuer.md) | credential-issuer câblé sur audit-collector (credential.issued), EventType::CredentialIssued | accepté | 2026-08-24 |
+| [030](ADR-030-audit-seal-v2-hybride-instruction.md) | Passage de audit-seal à la suite hybride v2 (ECDSA P-256 + ML-DSA-65) | proposé | 2026-08-24 |
+| [031](ADR-031-ancrage-periodique-journal-audit.md) | Ancrage périodique du journal d'audit (audit.chain_verified) | proposé | 2026-08-24 |
+| [032](ADR-032-socle-ml-dsa-65-suites-hybrides.md) | Socle ML-DSA-65 partagé pour les suites hybrides (zs-crypto, zs-hsm) | proposé | 2026-08-24 |
 
 ## Règles
 
