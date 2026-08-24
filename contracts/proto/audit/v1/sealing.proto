@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+// Contrat de scellement d'un événement d'audit (pont Rust<->Go, audit-sealer/audit-collector).
+//
+// Sans état, sans logique de chaînage : audit-sealer REÇOIT des champs déjà calculés
+// (sequence/prev_hash déterminés par audit-collector) et ne fait QUE l'opération
+// cryptographique (zs_crypto::audit_seal::AuditSealer::seal). Servi sur un socket Unix, jamais
+// un port réseau ouvert — voir l'ADR de ce lot : exposer la clé zs-audit-seal-v1 comme un
+// oracle de signature accessible à quiconque atteint un port détruirait la non-répudiation de
+// tout le journal.
+//
+// Miroir direct de zs_crypto::audit_seal::AuditEventFields — ne porte PAS le champ `decision`
+// du contrat JSON Schema (contracts/events/audit-event.schema.json), non supporté par
+// AuditEventFields à ce jour (portée assumée de ce module, "à ajouter avec le lot qui produit
+// ces événements, pas par anticipation") : policy.decided/credential.issued ne peuvent donc pas
+// encore être scellés via ce pont, seuls les types déjà couverts par
+// zs_crypto::audit_seal::EventType le peuvent (parcours WebAuthn + quorum.operation).
+
+package audit.v1;
+
+option go_package = "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1;auditv1";
+
+import "google/protobuf/timestamp.proto";
+
+service AuditSealingService {
+  rpc Seal(SealRequest) returns (SealResponse);
+
+  // Hache les octets scellés d'un événement déjà persisté — audit-collector (Go) en a besoin
+  // pour calculer le prev_hash de l'événement suivant (ChainHead), mais aucun composant Go
+  // n'a le droit d'importer une bibliothèque de hachage directement (règle absolue #4,
+  // tools/lib/check-no-direct-crypto.sh interdit tout import crypto/* côté Go) — même le
+  // hachage, façade minimale ici (zs_audit::chain::hash_sealed_event, déjà existante).
+  rpc HashPrevious(HashPreviousRequest) returns (HashPreviousResponse);
+}
+
+message HashPreviousRequest {
+  bytes sealed_bytes = 1;
+}
+
+message HashPreviousResponse {
+  bytes digest = 1; // SHA-256, 32 octets
+}
+
+message SealRequest {
+  string event_id                = 1; // UUIDv7, généré par audit-collector à la réception
+  uint64 sequence                 = 2; // tête de chaîne + 1, calculée par audit-collector
+  bytes prev_hash                 = 3; // 32 octets, CHAIN_ROOT (64 zéros) pour le 1er événement
+  google.protobuf.Timestamp occurred_at = 4;
+  string authority_domain         = 5;
+  // Valeur exacte du contrat (ex. "authentication.succeeded") — traduite en
+  // zs_crypto::audit_seal::EventType côté audit-sealer, refusée si non reconnue.
+  string event_type               = 6;
+  Actor actor                     = 7;
+  optional Target target           = 8;
+  string outcome                  = 9; // "success" | "denied" | "error"
+  optional Context context         = 10;
+}
+
+message Actor {
+  string subject_id    = 1;
+  string kind          = 2; // "human" | "workload" | "system"
+  optional string aal         = 3; // "AAL1" | "AAL2" | "AAL3", absent si non applicable
+  optional string auth_method = 4;
+}
+
+message Target {
+  string type = 1;
+  string id   = 2;
+}
+
+message Context {
+  optional string source_network = 1;
+  optional string ticket_ref     = 2;
+  optional string justification  = 3; // borné à 512 caractères par le contrat
+}
+
+message SealResponse {
+  bytes sealed_bytes = 1; // octets canoniques complets (JCS), signature incluse
+}

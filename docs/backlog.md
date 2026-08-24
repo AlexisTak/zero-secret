@@ -706,6 +706,36 @@ questions qu'elle pose.
   `/quorum` (session requise, refus relayé, assertion mal encodée refusée avant tout appel
   réseau).
 
+### Pont d'audit Rust↔Go — `audit-sealer` (Rust) + `audit-collector` (Go)
+- [x] `contracts/proto/audit/v1/{sealing,collection}.proto` — deux contrats distincts,
+      `AuditSealingService` (Rust, socket Unix uniquement) et `AuditCollectionService` (Go,
+      réseau normal).
+- [x] `apps/audit-sealer` (nouveau binaire Rust) — sans état, sans Postgres, ouvre
+      `zs_crypto::audit_seal::AuditSealer` (HSM) au démarrage, sert `Seal`/`HashPrevious` sur un
+      `tokio::net::UnixListener` — **jamais un port réseau**, voir ADR-026 pour la justification
+      (exposer la clé `zs-audit-seal-v1` en réseau ouvert détruirait la non-répudiation du
+      journal).
+- [x] `apps/audit-collector` (Go, jusqu'ici un stub vide) — premier driver Postgres du dépôt côté
+      Go (`jackc/pgx/v5`), porte tout le chaînage (`internal/store`, même requête de tête de
+      chaîne que `identity-provider`), génère `event_id`/`occurred_at` à la réception, appelle
+      `audit-sealer` par le socket Unix, persiste (`INSERT` protégé par la contrainte
+      `UNIQUE (authority_domain, sequence)`, migration 002 — jamais de ré-essai sur conflit,
+      ADR-011).
+- **Portée non couverte, signalée** : le câblage des trois producteurs Go
+  (`access-broker`/`admin-api`/`credential-issuer` appelant réellement `audit-collector`) est
+  **différé** — ce lot livre le pont et sa réception réseau, testés de bout en bout avec des
+  événements construits pour le test. `policy.decided`/`credential.issued` ne peuvent **toujours
+  pas** être scellés via ce pont : `AuditEventFields` (`zs-crypto`) ne porte pas encore le champ
+  `decision` qu'exige `contracts/events/audit-event.schema.json` pour ces deux types — seuls les
+  types déjà couverts par `zs_crypto::audit_seal::EventType` (parcours WebAuthn +
+  `quorum.operation`) peuvent l'être aujourd'hui. Étendre `AuditEventFields` est une décision
+  crypto séparée, non instruite ici.
+- **`apps/audit-sealer/src/main.rs` non vérifié sur ce poste** — `tokio::net::UnixListener` est
+  gardé par `#[cfg(unix)]` (Windows n'a pas cette API), donc `cargo build --workspace` réussit
+  sur un poste Windows mais ce binaire précis refuse de démarrer hors Linux/macOS. À vérifier en
+  CI Linux avant tout déploiement.
+- Voir ADR-026 pour la conception complète, y compris la décision critique du socket Unix.
+
 ---
 
 ## Règles de session

@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+// Contrat de réception d'un événement d'audit brut — access-broker/admin-api/credential-issuer
+// (producteurs Go) vers audit-collector. Réseau normal (TCP, en clair — même dette de TLS que
+// partout ailleurs dans ce dépôt), à la différence du pont de scellement (sealing.proto,
+// socket Unix, jamais un port ouvert).
+//
+// Câblage des producteurs différé (ce lot livre le récepteur seul, testé avec des événements
+// construits pour le test) — voir l'ADR de ce lot.
+
+package audit.v1;
+
+option go_package = "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1;auditv1";
+
+import "audit/v1/sealing.proto";
+
+service AuditCollectionService {
+  // Refus explicite (jamais une erreur gRPC muette) si event_type est inconnu de
+  // zs_crypto::audit_seal::EventType, si la contrainte d'unicité (authority_domain, sequence)
+  // est violée par une course concurrente, ou si audit-sealer est indisponible — dans tous ces
+  // cas, l'événement n'est PAS persisté et RecordResult.accepted = false, jamais un succès
+  // partiel ni un ré-essai automatique (seal() n'est pas idempotent, ADR-011).
+  //
+  // RawEvent/RecordResult plutôt que RecordRequest/RecordResponse pour rester aligné avec le
+  // vocabulaire déjà établi dans ce dépôt pour les contrats d'audit (EmissionOrder/Result,
+  // DecisionRequest/Response) — même raisonnement que policy/v1 et credential/v1.
+  // buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+  rpc Record(RawEvent) returns (RecordResult);
+}
+
+message RawEvent {
+  string authority_domain = 1;
+  string event_type       = 2;
+  Actor actor              = 3;
+  optional Target target    = 4;
+  string outcome           = 5;
+  optional Context context  = 6;
+}
+
+message RecordResult {
+  bool accepted     = 1;
+  string reason     = 2; // non vide si et seulement si accepted = false
+  string event_id   = 3; // généré par audit-collector, vide si accepted = false
+  uint64 sequence   = 4;
+}

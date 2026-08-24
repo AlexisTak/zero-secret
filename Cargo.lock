@@ -97,6 +97,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "audit-sealer"
+version = "0.1.0"
+dependencies = [
+ "prost-types",
+ "secrecy",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "zs-audit",
+ "zs-audit-sealing",
+ "zs-crypto",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3903,6 +3920,17 @@ dependencies = [
  "serde_json",
  "thiserror",
  "zs-crypto",
+]
+
+[[package]]
+name = "zs-audit-sealing"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "prost-types",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
 ]
 
 [[package]]
