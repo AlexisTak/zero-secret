@@ -36,6 +36,9 @@ message RawEvent {
   optional Target target    = 4;
   string outcome           = 5;
   optional Context context  = 6;
+  // Requis si et seulement si event_type == "policy.decided" — voir sealing.proto::Decision et
+  // ADR-027.
+  optional Decision decision = 7;
 }
 
 message RecordResult {

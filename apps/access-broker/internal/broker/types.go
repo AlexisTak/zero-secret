@@ -76,9 +76,10 @@ type Decision struct {
 	DecisionHash  []byte
 	PolicyVersion string
 	// Signed porte la DecisionResponse complète, signée (decision-seal/v1, H4), telle que reçue
-	// du PDP — nil si Allowed = false (aucune décision ALLOW signée à transmettre). Un futur
-	// appelant (httpapi, déclenchement d'émission vers credential-issuer, backlog L2.4 suite) en
-	// a besoin en entier, pas seulement des champs déjà aplatis ci-dessus : VerifyDecision exige
-	// la signature/l'horodatage de scellement, absents de cette forme réduite.
+	// du PDP — nil seulement si le PDP n'a jamais été consulté (refus local avant tout appel,
+	// ex. justification trop longue). policy-engine scelle ALLOW et DENY sans distinction
+	// (ADR-027) : Signed est peuplé dans les deux cas dès que Decide atteint le PDP. Deux
+	// consommateurs : credential-issuer.Emit (VerifyDecision, ALLOW uniquement, L2.4 suite) et
+	// l'événement d'audit policy.decided (ALLOW et DENY, ADR-027).
 	Signed *policyv1.DecisionResponse
 }

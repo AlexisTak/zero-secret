@@ -13,6 +13,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
 	credentialv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/credential/v1"
 	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
 	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
@@ -67,6 +68,22 @@ func (f *fakeCredentialClient) Emit(ctx context.Context, in *credentialv1.Emissi
 	return f.response, nil
 }
 
+type fakeAuditClient struct {
+	auditv1.AuditCollectionServiceClient
+	called  bool
+	lastReq *auditv1.RawEvent
+	err     error
+}
+
+func (f *fakeAuditClient) Record(ctx context.Context, in *auditv1.RawEvent, opts ...grpc.CallOption) (*auditv1.RecordResult, error) {
+	f.called = true
+	f.lastReq = in
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &auditv1.RecordResult{Accepted: true, EventId: "evt-1", Sequence: 0}, nil
+}
+
 func fixedTime() time.Time {
 	return time.Date(2026, 8, 23, 10, 0, 0, 0, time.UTC)
 }
@@ -92,7 +109,8 @@ func TestAssertionDuDemandeurAbsenteEstRefuseeSans401(t *testing.T) {
 	identity := &fakeIdentityClient{}
 	credential := &fakeCredentialClient{}
 	policy := &fakePolicyClient{}
-	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(identity, credential, audit, broker.New(policy, identity))))
 	defer srv.Close()
 
 	body, _ := json.Marshal(validBody())
@@ -114,7 +132,8 @@ func TestAssertionDuDemandeurInvalideEstRefusee401AvantAppelAuPDP(t *testing.T) 
 	identity := &fakeIdentityClient{valid: false}
 	credential := &fakeCredentialClient{}
 	policy := &fakePolicyClient{}
-	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(identity, credential, audit, broker.New(policy, identity))))
 	defer srv.Close()
 
 	body, _ := json.Marshal(validBody())
@@ -149,7 +168,8 @@ func TestRequeteValideRetourneLaDecisionDuPDP(t *testing.T) {
 		Reasons:      []string{"db-connect-production"},
 		DecisionHash: []byte{0x01, 0x02},
 	}}
-	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(identity, credential, audit, broker.New(policy, identity))))
 	defer srv.Close()
 
 	body, _ := json.Marshal(validBody())
@@ -182,6 +202,18 @@ func TestRequeteValideRetourneLaDecisionDuPDP(t *testing.T) {
 	if decision.LeaseId == nil || *decision.LeaseId != "database/creds/readonly/abc123" {
 		t.Fatalf("lease_id inattendu : %v", decision.LeaseId)
 	}
+	if !audit.called {
+		t.Fatal("policy.decided aurait dû être envoyé à audit-collector (PDP consulté)")
+	}
+	if audit.lastReq.Outcome != "success" {
+		t.Fatalf("outcome inattendu : %s", audit.lastReq.Outcome)
+	}
+	if audit.lastReq.Decision == nil || audit.lastReq.Decision.RequestId == "" {
+		t.Fatal("decision.request_id attendu, non vide")
+	}
+	if len(audit.lastReq.Decision.DecisionHash) == 0 {
+		t.Fatal("decision.decision_hash attendu")
+	}
 }
 
 func TestEmissionEchoueeNinvalidePasLaDecisionMaisOmetLeBail(t *testing.T) {
@@ -192,7 +224,8 @@ func TestEmissionEchoueeNinvalidePasLaDecisionMaisOmetLeBail(t *testing.T) {
 		Reasons:      []string{"db-connect-production"},
 		DecisionHash: []byte{0x01, 0x02},
 	}}
-	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(identity, credential, audit, broker.New(policy, identity))))
 	defer srv.Close()
 
 	body, _ := json.Marshal(validBody())
@@ -228,7 +261,8 @@ func TestEmissionNestJamaisDeclencheeSurUnRefus(t *testing.T) {
 		Effect:  policyv1.Effect_EFFECT_DENY,
 		Reasons: []string{"politique_refusee"},
 	}}
-	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(identity, credential, audit, broker.New(policy, identity))))
 	defer srv.Close()
 
 	body, _ := json.Marshal(validBody())
@@ -245,13 +279,77 @@ func TestEmissionNestJamaisDeclencheeSurUnRefus(t *testing.T) {
 	if credential.called {
 		t.Fatal("credential-issuer ne doit jamais être appelé pour une décision refusée")
 	}
+	if !audit.called {
+		t.Fatal("policy.decided doit être audité même sur un refus du PDP (ADR-027)")
+	}
+	if audit.lastReq.Outcome != "denied" {
+		t.Fatalf("outcome inattendu : %s", audit.lastReq.Outcome)
+	}
+}
+
+func TestPolicyDecidedNestJamaisEnvoyeSurUnRefusLocalAvantLePDP(t *testing.T) {
+	identity := &fakeIdentityClient{valid: true, subjectID: "sub-demandeur"}
+	credential := &fakeCredentialClient{}
+	policy := &fakePolicyClient{response: &policyv1.DecisionResponse{Effect: policyv1.Effect_EFFECT_ALLOW}}
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(identity, credential, audit, broker.New(policy, identity))))
+	defer srv.Close()
+
+	longBody := validBody()
+	longBody.Justification = string(make([]byte, broker.MaxJustificationLength+1))
+
+	body, _ := json.Marshal(longBody)
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/access-requests", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Identity-Assertion", base64.StdEncoding.EncodeToString([]byte("assertion-du-demandeur")))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if audit.called {
+		t.Fatal("un refus local avant tout appel au PDP n'a pas de décision à auditer")
+	}
+}
+
+func TestEchecDauditCollectorNinvalidePasLaReponseHTTP(t *testing.T) {
+	identity := &fakeIdentityClient{valid: true, subjectID: "sub-demandeur"}
+	credential := &fakeCredentialClient{response: &credentialv1.EmissionResult{Allowed: true, LeaseId: "lease-1"}}
+	policy := &fakePolicyClient{response: &policyv1.DecisionResponse{
+		Effect:       policyv1.Effect_EFFECT_ALLOW,
+		Reasons:      []string{"db-connect-production"},
+		DecisionHash: []byte{0x01, 0x02},
+	}}
+	audit := &fakeAuditClient{err: errors.New("audit-collector indisponible")}
+	srv := httptest.NewServer(Handler(New(identity, credential, audit, broker.New(policy, identity))))
+	defer srv.Close()
+
+	body, _ := json.Marshal(validBody())
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/access-requests", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Identity-Assertion", base64.StdEncoding.EncodeToString([]byte("assertion-du-demandeur")))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("une panne d'audit-collector ne doit jamais invalider la réponse HTTP : attendu 200, reçu %d", resp.StatusCode)
+	}
+	if !audit.called {
+		t.Fatal("audit-collector aurait dû être appelé (même si sa réponse échoue)")
+	}
 }
 
 func TestCorpsMalformeEstRefuse400(t *testing.T) {
 	identity := &fakeIdentityClient{valid: true, subjectID: "sub-demandeur"}
 	credential := &fakeCredentialClient{}
 	policy := &fakePolicyClient{}
-	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(identity, credential, audit, broker.New(policy, identity))))
 	defer srv.Close()
 
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/access-requests", bytes.NewReader([]byte("{not json")))

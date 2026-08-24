@@ -15,13 +15,23 @@
 //! la signature. Cette divergence de forme avec `identity_assertion` est assumée et datée pour
 //! résorption au passage `v2` (ADR-013), pas un oubli.
 //!
-//! **Périmètre de ce lot** : le champ `decision` du contrat (présent sur `policy.decided` et
-//! `credential.issued`, backlog L2+) n'est pas encore supporté — aucun `EventType` de ce module
-//! ne le requiert (parcours WebAuthn L1.1-L1.3 uniquement). À ajouter avec le lot qui produit ces
-//! événements, pas par anticipation.
+//! **Champ `decision` (ADR-027)** : porte `policy.decided` — extension additive du contrat v1
+//! (déjà déclaré dans `contracts/events/audit-event.schema.json`, `zs-crypto` n'en implémentait
+//! qu'un sous-ensemble). Couplage bidirectionnel obligatoire avec `EventType` :
+//! `PolicyDecided` exige `decision`, tout autre type l'interdit
+//! (`EventType::requires_decision`, vérifié en émission ET en vérification). `credential.issued`
+//! (même forme de `decision`) reste hors périmètre — aucun producteur ne l'émet encore, pas
+//! d'anticipation.
+//!
+//! `decision.decision_signature`/`decision_signature_key_id` sont transportés tels quels, JAMAIS
+//! vérifiés par ce module : `audit-seal/v1` atteste que le domaine d'autorité a *détenu* ce
+//! `decision_hash`, pas qu'il vient réellement du PDP. Établir l'origine PDP exige une
+//! vérification indépendante de `decision-seal/v1` (clé distincte, hors du périmètre de ce
+//! module) par un vérificateur hors ligne qui n'existe pas encore dans ce dépôt — limite
+//! documentée explicitement (ADR-027, `security/threat-models/audit-sealer.md`).
 
 use crate::common::{self, FieldError, bounded_ascii_string};
-pub use crate::common::{EventId, Timestamp};
+pub use crate::common::{EventId, RequestId, Timestamp};
 use crate::identity_assertion::{AssuranceLevel, AuthMethod, SubjectId};
 use aws_lc_rs::signature::{ECDSA_P256_SHA256_FIXED, UnparsedPublicKey};
 use serde::Deserialize;
@@ -32,10 +42,17 @@ pub const SUITE_V1: &str = "audit-seal/v1";
 const DOMAIN_PREFIX_V1: &str = "zero-secret/audit-seal/v1";
 const MAX_BYTES: usize = 8192;
 const REQUIRED_COMPONENTS_V1: &[&str] = &["ecdsa-p256"];
+/// Plafond de `decision.reasons` — premier champ de cardinalité variable du document signé
+/// (ADR-027). Sans borne, un événement peut être scellé, chaîné, persisté, puis refusé en
+/// vérification (`MAX_BYTES` dépassé) : une rupture de chaîne définitive, pas un refus par
+/// défaut sain. Vérifié en émission (`seal`) ET en vérification (`verify`).
+const MAX_REASONS: usize = 16;
 
 bounded_ascii_string!(AuthorityDomain, 128, "authority_domain");
 bounded_ascii_string!(ShortText, 256, "text");
 bounded_ascii_string!(Justification, 512, "context.justification");
+bounded_ascii_string!(PolicyVersion, 256, "decision.policy_version");
+bounded_ascii_string!(Reason, 256, "decision.reasons");
 
 /// Séquence d'un événement dans la chaîne de son domaine d'autorité. Bornée à 2^53−1 : au-delà,
 /// la canonicalisation numérique ECMAScript (RFC 8785) perd la précision qu'un vérificateur
@@ -78,6 +95,10 @@ pub enum EventType {
     /// actuel — à instruire par un ADR dédié à l'ouverture d'`audit-collector`, pas improvisée
     /// ici sous forme de `target.id` composite.
     AuditChainVerified,
+    /// Décision du PDP (`policy-engine`, ADR-015/ADR-019), ALLOW ou DENY — `outcome` distingue
+    /// les deux (`success`/`denied`), `decision` (requis, voir `requires_decision`) porte la
+    /// preuve rejouable hors ligne (ADR-027).
+    PolicyDecided,
 }
 
 impl EventType {
@@ -91,6 +112,7 @@ impl EventType {
             EventType::RecoveryInitiated => "recovery.initiated",
             EventType::QuorumOperation => "quorum.operation",
             EventType::AuditChainVerified => "audit.chain_verified",
+            EventType::PolicyDecided => "policy.decided",
         }
     }
 
@@ -104,8 +126,17 @@ impl EventType {
             "recovery.initiated" => EventType::RecoveryInitiated,
             "quorum.operation" => EventType::QuorumOperation,
             "audit.chain_verified" => EventType::AuditChainVerified,
+            "policy.decided" => EventType::PolicyDecided,
             _ => return None,
         })
+    }
+
+    /// Le contrat impose `decision` sur `policy.decided` et l'interdit sur tout autre type —
+    /// JSON Schema seul ne peut pas exprimer ce couplage conditionnel (`additionalProperties`
+    /// ne dépend pas d'un autre champ), donc porté ici et vérifié dans les deux sens (`seal`,
+    /// `verify`) — ADR-027.
+    fn requires_decision(self) -> bool {
+        matches!(self, EventType::PolicyDecided)
     }
 }
 
@@ -180,6 +211,23 @@ pub struct Context {
     pub justification: Option<Justification>,
 }
 
+/// Preuve rejouable hors ligne d'une décision du PDP — requis si et seulement si
+/// `event_type == PolicyDecided` (`EventType::requires_decision`, ADR-027).
+///
+/// `decision_signature`/`decision_signature_key_id` sont recopiés de `decision-seal/v1`
+/// (`policyv1.DecisionResponse`) mais **non vérifiés ici** : `audit-seal/v1` atteste que le
+/// domaine d'autorité a détenu ce `decision_hash`, pas qu'il vient réellement du PDP — voir la
+/// mise en garde en tête de module.
+pub struct DecisionInfo {
+    pub request_id: RequestId,
+    pub decision_hash: [u8; 32],
+    pub policy_version: PolicyVersion,
+    pub reasons: Vec<Reason>,
+    pub granted_ttl_seconds: Option<u32>,
+    pub decision_signature: Option<Vec<u8>>,
+    pub decision_signature_key_id: Option<ShortText>,
+}
+
 /// Contenu complet d'un événement à sceller — `event_id`/`sequence`/`prev_hash` sont fournis par
 /// l'appelant (`zs-audit`, via son `AuditChainStore`), ce module ne consulte aucune horloge ni
 /// n'alloue de séquence lui-même (déterminisme, testabilité, même principe que
@@ -195,6 +243,7 @@ pub struct AuditEventFields {
     pub target: Option<Target>,
     pub outcome: Outcome,
     pub context: Option<Context>,
+    pub decision: Option<DecisionInfo>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -253,7 +302,11 @@ impl AuditSealer {
     /// produirait une seconde signature valide sur le même contenu, risque de fourche de chaîne
     /// puisque `prev_hash` du prochain événement couvre la signature de celui-ci).
     pub fn seal(&self, fields: AuditEventFields) -> Result<SealedAuditEvent, SealError> {
+        validate_decision_coupling(fields.event_type, &fields.decision)?;
+
         let unsigned = unsigned_document(&fields);
+        validate_size(&unsigned, &self.key_id)?;
+
         let message = signed_message(DOMAIN_PREFIX_V1, &unsigned);
         let digest = common::sha256(&message);
 
@@ -384,6 +437,8 @@ struct WireDocument {
     outcome: String,
     #[serde(default)]
     context: Option<WireContext>,
+    #[serde(default)]
+    decision: Option<WireDecision>,
     prev_hash: String,
     signature: WireSignature,
 }
@@ -416,6 +471,21 @@ struct WireContext {
     ticket_ref: Option<String>,
     #[serde(default)]
     justification: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireDecision {
+    request_id: String,
+    decision_hash: String,
+    policy_version: String,
+    reasons: Vec<String>,
+    #[serde(default)]
+    granted_ttl_seconds: Option<u64>,
+    #[serde(default)]
+    decision_signature: Option<String>,
+    #[serde(default)]
+    decision_signature_key_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -467,6 +537,21 @@ pub fn verify(
         EventType::from_contract_str(&doc.event_type).ok_or(VerifyError::MalformedDocument)?;
     ActorKind::from_contract_str(&doc.actor.kind).ok_or(VerifyError::MalformedDocument)?;
     Outcome::from_contract_str(&doc.outcome).ok_or(VerifyError::MalformedDocument)?;
+    // Couplage bidirectionnel (ADR-027) : un vérificateur hors ligne ne doit jamais obtenir un
+    // `policy.decided` sans `decision`, ni un autre type avec un `decision` orphelin — quelle
+    // que soit la configuration de l'émetteur qui a produit ce document.
+    if event_type.requires_decision() != doc.decision.is_some() {
+        return Err(VerifyError::MalformedDocument);
+    }
+    if let Some(d) = &doc.decision {
+        if d.reasons.len() > MAX_REASONS {
+            return Err(VerifyError::MalformedDocument);
+        }
+        let hash = common::hex_decode(&d.decision_hash).ok_or(VerifyError::MalformedDocument)?;
+        if hash.len() != 32 {
+            return Err(VerifyError::MalformedDocument);
+        }
+    }
 
     let required = required_components(&doc.signature.suite)?;
     if doc.signature.components.len() != required.len()
@@ -549,25 +634,134 @@ fn domain_prefix_for(suite: &str) -> Result<&'static str, VerifyError> {
     }
 }
 
+/// Construit par insertion conditionnelle, pas par `json!` avec un `Option` non mappé : le
+/// contrat refuse `null` pour ces propriétés (`type: string`, pas nullable) — un champ interne
+/// absent doit être omis, jamais scellé en `null` (même principe que `target`/`context` au
+/// niveau supérieur, bug corrigé en même temps que l'ajout de `decision`, ADR-027).
 fn actor_value(actor: &Actor) -> Value {
-    json!({
-        "subject_id": actor.subject_id.as_str(),
-        "kind": actor.kind.as_contract_str(),
-        "aal": actor.aal.map(AssuranceLevel::as_str),
-        "auth_method": actor.auth_method.as_ref().map(AuthMethod::as_str),
-    })
+    let mut map = Map::new();
+    map.insert("subject_id".to_string(), json!(actor.subject_id.as_str()));
+    map.insert("kind".to_string(), json!(actor.kind.as_contract_str()));
+    if let Some(aal) = actor.aal {
+        map.insert("aal".to_string(), json!(aal.as_str()));
+    }
+    if let Some(auth_method) = &actor.auth_method {
+        map.insert("auth_method".to_string(), json!(auth_method.as_str()));
+    }
+    Value::Object(map)
 }
 
 fn target_value(target: &Target) -> Value {
     json!({ "type": target.target_type.as_str(), "id": target.id.as_str() })
 }
 
+/// Voir la mise en garde d'`actor_value` — même correctif.
 fn context_value(context: &Context) -> Value {
-    json!({
-        "source_network": context.source_network.as_ref().map(ShortText::as_str),
-        "ticket_ref": context.ticket_ref.as_ref().map(ShortText::as_str),
-        "justification": context.justification.as_ref().map(Justification::as_str),
-    })
+    let mut map = Map::new();
+    if let Some(v) = &context.source_network {
+        map.insert("source_network".to_string(), json!(v.as_str()));
+    }
+    if let Some(v) = &context.ticket_ref {
+        map.insert("ticket_ref".to_string(), json!(v.as_str()));
+    }
+    if let Some(v) = &context.justification {
+        map.insert("justification".to_string(), json!(v.as_str()));
+    }
+    Value::Object(map)
+}
+
+/// Voir la mise en garde d'`actor_value` — même construction par insertion conditionnelle.
+fn decision_value(decision: &DecisionInfo) -> Value {
+    let mut map = Map::new();
+    map.insert(
+        "request_id".to_string(),
+        json!(decision.request_id.as_str()),
+    );
+    map.insert(
+        "decision_hash".to_string(),
+        json!(common::hex_encode(&decision.decision_hash)),
+    );
+    map.insert(
+        "policy_version".to_string(),
+        json!(decision.policy_version.as_str()),
+    );
+    map.insert(
+        "reasons".to_string(),
+        json!(
+            decision
+                .reasons
+                .iter()
+                .map(Reason::as_str)
+                .collect::<Vec<_>>()
+        ),
+    );
+    if let Some(ttl) = decision.granted_ttl_seconds {
+        map.insert("granted_ttl_seconds".to_string(), json!(ttl));
+    }
+    if let Some(sig) = &decision.decision_signature {
+        map.insert(
+            "decision_signature".to_string(),
+            json!(common::hex_encode(sig)),
+        );
+    }
+    if let Some(key_id) = &decision.decision_signature_key_id {
+        map.insert(
+            "decision_signature_key_id".to_string(),
+            json!(key_id.as_str()),
+        );
+    }
+    Value::Object(map)
+}
+
+/// Couplage bidirectionnel `event_type` ↔ `decision` (ADR-027) — JSON Schema seul ne peut pas
+/// l'exprimer (`additionalProperties`/`required` ne dépendent pas d'un autre champ du message).
+/// Appelé en émission (`AuditSealer::seal`) et en vérification (`verify`), même contrôle des deux
+/// côtés : un consommateur hors ligne ne doit jamais pouvoir obtenir un événement `policy.decided`
+/// dépourvu de liaison, quelle que soit la configuration de l'émetteur qui l'a produit.
+fn validate_decision_coupling(
+    event_type: EventType,
+    decision: &Option<DecisionInfo>,
+) -> Result<(), SealError> {
+    if event_type.requires_decision() != decision.is_some() {
+        return Err(SealError::InvalidFields("decision"));
+    }
+    if let Some(d) = decision
+        && d.reasons.len() > MAX_REASONS
+    {
+        return Err(SealError::InvalidFields("decision.reasons"));
+    }
+    Ok(())
+}
+
+/// Garde de taille, indépendante du HSM (testable sans scelleur réel) — `verify()` refuse déjà
+/// au-delà de `MAX_BYTES` ; sans ce contrôle en émission, un événement pourrait être scellé et
+/// chaîné puis irrémédiablement refusé à la vérification (rupture de chaîne définitive, pas un
+/// refus par défaut sain).
+fn validate_size(unsigned: &Map<String, Value>, key_id: &str) -> Result<(), SealError> {
+    let unsigned_len = common::canonical_bytes(&Value::Object(unsigned.clone())).len();
+    if unsigned_len + signature_overhead_bytes(key_id) > MAX_BYTES {
+        return Err(SealError::InvalidFields("size"));
+    }
+    Ok(())
+}
+
+/// Mesuré, pas estimé (mise en garde `referent-crypto`) : sérialise un conteneur de signature
+/// représentatif (même `key_id` que le scelleur réel, `value` à la longueur exacte d'une
+/// signature ECDSA P-256 brute r‖s — 64 octets, 128 caractères hex) et prend la longueur réelle
+/// de ses octets canoniques, plutôt que de compter les caractères à la main.
+fn signature_overhead_bytes(key_id: &str) -> usize {
+    let placeholder = json!({
+        "suite": SUITE_V1,
+        "components": [{
+            "component": REQUIRED_COMPONENTS_V1[0],
+            "key_id": key_id,
+            "value": "0".repeat(128),
+        }],
+    });
+    // `,"signature":` + la valeur canonicalisée — c'est exactement ce que l'insertion de cette
+    // clé ajoute à un objet non vide (le document non signé porte toujours au moins
+    // "schema_version", jamais vide).
+    1 + "\"signature\":".len() + common::canonical_bytes(&placeholder).len()
 }
 
 fn unsigned_document(fields: &AuditEventFields) -> Map<String, Value> {
@@ -602,9 +796,20 @@ fn unsigned_document(fields: &AuditEventFields) -> Map<String, Value> {
     if let Some(context) = &fields.context {
         map.insert("context".to_string(), context_value(context));
     }
+    if let Some(decision) = &fields.decision {
+        map.insert("decision".to_string(), decision_value(decision));
+    }
     map
 }
 
+/// Reconstruit le document non signé depuis un `WireDocument` déjà déserialisé, pour la
+/// comparaison de canonicité (`verify`) — insertion conditionnelle des champs internes
+/// optionnels, MÊME correctif qu'`actor_value`/`context_value`/`decision_value` : un
+/// `json!({"aal": doc.actor.aal})` avec `aal: None` produirait `"aal": null` dans le document
+/// reconstruit, qui ne correspondrait alors JAMAIS aux octets d'origine (qui omettent la clé) —
+/// tout événement sans `aal`/`auth_method`/champ de `context` interne aurait été refusé en
+/// `NonCanonical` à tort. Bug latent partagé avec le côté émission, masqué par les mêmes
+/// fixtures de test qui renseignaient toujours ces champs.
 fn unsigned_document_from_wire(doc: &WireDocument) -> Map<String, Value> {
     let mut map = Map::new();
     map.insert("schema_version".to_string(), json!(doc.schema_version));
@@ -614,15 +819,18 @@ fn unsigned_document_from_wire(doc: &WireDocument) -> Map<String, Value> {
     map.insert("occurred_at".to_string(), json!(doc.occurred_at));
     map.insert("authority_domain".to_string(), json!(doc.authority_domain));
     map.insert("event_type".to_string(), json!(doc.event_type));
-    map.insert(
-        "actor".to_string(),
-        json!({
-            "subject_id": doc.actor.subject_id,
-            "kind": doc.actor.kind,
-            "aal": doc.actor.aal,
-            "auth_method": doc.actor.auth_method,
-        }),
-    );
+    {
+        let mut actor = Map::new();
+        actor.insert("subject_id".to_string(), json!(doc.actor.subject_id));
+        actor.insert("kind".to_string(), json!(doc.actor.kind));
+        if let Some(aal) = &doc.actor.aal {
+            actor.insert("aal".to_string(), json!(aal));
+        }
+        if let Some(auth_method) = &doc.actor.auth_method {
+            actor.insert("auth_method".to_string(), json!(auth_method));
+        }
+        map.insert("actor".to_string(), Value::Object(actor));
+    }
     if let Some(target) = &doc.target {
         map.insert(
             "target".to_string(),
@@ -631,14 +839,34 @@ fn unsigned_document_from_wire(doc: &WireDocument) -> Map<String, Value> {
     }
     map.insert("outcome".to_string(), json!(doc.outcome));
     if let Some(context) = &doc.context {
-        map.insert(
-            "context".to_string(),
-            json!({
-                "source_network": context.source_network,
-                "ticket_ref": context.ticket_ref,
-                "justification": context.justification,
-            }),
-        );
+        let mut ctx = Map::new();
+        if let Some(v) = &context.source_network {
+            ctx.insert("source_network".to_string(), json!(v));
+        }
+        if let Some(v) = &context.ticket_ref {
+            ctx.insert("ticket_ref".to_string(), json!(v));
+        }
+        if let Some(v) = &context.justification {
+            ctx.insert("justification".to_string(), json!(v));
+        }
+        map.insert("context".to_string(), Value::Object(ctx));
+    }
+    if let Some(decision) = &doc.decision {
+        let mut d = Map::new();
+        d.insert("request_id".to_string(), json!(decision.request_id));
+        d.insert("decision_hash".to_string(), json!(decision.decision_hash));
+        d.insert("policy_version".to_string(), json!(decision.policy_version));
+        d.insert("reasons".to_string(), json!(decision.reasons));
+        if let Some(v) = decision.granted_ttl_seconds {
+            d.insert("granted_ttl_seconds".to_string(), json!(v));
+        }
+        if let Some(v) = &decision.decision_signature {
+            d.insert("decision_signature".to_string(), json!(v));
+        }
+        if let Some(v) = &decision.decision_signature_key_id {
+            d.insert("decision_signature_key_id".to_string(), json!(v));
+        }
+        map.insert("decision".to_string(), Value::Object(d));
     }
     map
 }
@@ -710,6 +938,27 @@ mod tests {
             target: None,
             outcome: Outcome::Success,
             context: None,
+            decision: None,
+        }
+    }
+
+    fn sample_decision() -> DecisionInfo {
+        DecisionInfo {
+            request_id: RequestId::new("f47ac10b-58cc-4372-a567-0e02b2c3d479").unwrap(),
+            decision_hash: [0xCDu8; 32],
+            policy_version: PolicyVersion::new("db.connect@1").unwrap(),
+            reasons: vec![Reason::new("db-connect-production").unwrap()],
+            granted_ttl_seconds: Some(900),
+            decision_signature: Some(vec![0xEFu8; 64]),
+            decision_signature_key_id: Some(ShortText::new("decision-key-1").unwrap()),
+        }
+    }
+
+    fn sample_policy_decided_fields(sequence: u64, prev_hash: [u8; 32]) -> AuditEventFields {
+        AuditEventFields {
+            event_type: EventType::PolicyDecided,
+            decision: Some(sample_decision()),
+            ..sample_fields(sequence, prev_hash)
         }
     }
 
@@ -764,6 +1013,195 @@ mod tests {
         assert!(!text.contains("null"));
         assert!(!text.contains("\"target\""));
         assert!(!text.contains("\"context\""));
+    }
+
+    #[test]
+    fn champ_interne_optionnel_absent_nest_jamais_null_meme_objet_present() {
+        // Bug préexistant corrigé avec l'ajout de `decision` (ADR-027) : actor_value/
+        // context_value construisaient l'objet via json!() avec un Option non mappé — un champ
+        // interne absent (aal, auth_method, source_network, ticket_ref, justification) devenait
+        // "null" au lieu d'être omis, alors que actor/context restent PRÉSENTS (aal/auth_method
+        // ne sont pas None dans sample_fields, mais context.source_network/ticket_ref/
+        // justification le sont toujours dans ce test). Masqué jusqu'ici par des fixtures qui
+        // renseignaient toujours ces champs.
+        let signer = MockSigner::new(0x11);
+        let mut fields = sample_fields(0, [0u8; 32]);
+        fields.actor.aal = None;
+        fields.actor.auth_method = None;
+        fields.context = Some(Context::default());
+        let sealed = seal_with_mock(&signer, fields);
+        let text = String::from_utf8(sealed.as_bytes().to_vec()).unwrap();
+        assert!(!text.contains("null"), "document : {text}");
+        assert!(text.contains("\"context\":{}"), "document : {text}");
+
+        // Et le document reste vérifiable — preuve que unsigned_document_from_wire reconstruit
+        // exactement les mêmes octets (même correctif appliqué des deux côtés).
+        let key =
+            accept_verifying_key(SUITE_V1, &signer.key_id(), &signer.public_key_sec1()).unwrap();
+        assert!(verify(&[key], sealed.as_bytes(), &default_policy()).is_ok());
+    }
+
+    #[test]
+    fn policy_decided_avec_decision_est_scelle_et_verifie() {
+        let signer = MockSigner::new(0x22);
+        let sealed = seal_with_mock(&signer, sample_policy_decided_fields(0, [0u8; 32]));
+        let key =
+            accept_verifying_key(SUITE_V1, &signer.key_id(), &signer.public_key_sec1()).unwrap();
+
+        let verified = verify(&[key], sealed.as_bytes(), &default_policy()).unwrap();
+        assert_eq!(verified.event_type, EventType::PolicyDecided);
+    }
+
+    #[test]
+    fn policy_decided_valide_le_contrat() {
+        let schema_text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/events/audit-event.schema.json"
+        ))
+        .unwrap();
+        let schema: Value = serde_json::from_str(&schema_text).unwrap();
+        let validator = jsonschema::validator_for(&schema).unwrap();
+
+        let signer = MockSigner::new(0x22);
+        let sealed = seal_with_mock(&signer, sample_policy_decided_fields(0, [0u8; 32]));
+        let document: Value = serde_json::from_slice(sealed.as_bytes()).unwrap();
+
+        let errors: Vec<_> = validator.iter_errors(&document).collect();
+        assert!(
+            errors.is_empty(),
+            "événement policy.decided non conforme au contrat : {errors:?}"
+        );
+    }
+
+    // --- couplage decision <-> event_type (ADR-027) -------------------------------------------
+
+    #[test]
+    fn decision_absente_sur_policy_decided_est_refusee_au_scellement() {
+        assert_eq!(
+            validate_decision_coupling(EventType::PolicyDecided, &None),
+            Err(SealError::InvalidFields("decision"))
+        );
+    }
+
+    #[test]
+    fn decision_presente_sur_type_non_policy_decided_est_refusee_au_scellement() {
+        assert_eq!(
+            validate_decision_coupling(
+                EventType::AuthenticationSucceeded,
+                &Some(sample_decision())
+            ),
+            Err(SealError::InvalidFields("decision"))
+        );
+    }
+
+    #[test]
+    fn decision_absente_sur_policy_decided_est_refusee_a_la_verification() {
+        // seal_with_mock contourne volontairement validate_decision_coupling (elle construit le
+        // document directement) — c'est précisément ce qui permet de prouver que verify() fait
+        // AUSSI ce contrôle, indépendamment de ce que l'émetteur aurait dû refuser.
+        let signer = MockSigner::new(0x11);
+        let mut fields = sample_fields(0, [0u8; 32]);
+        fields.event_type = EventType::PolicyDecided;
+        let sealed = seal_with_mock(&signer, fields);
+        let key =
+            accept_verifying_key(SUITE_V1, &signer.key_id(), &signer.public_key_sec1()).unwrap();
+
+        assert_eq!(
+            verify(&[key], sealed.as_bytes(), &default_policy()),
+            Err(VerifyError::MalformedDocument)
+        );
+    }
+
+    #[test]
+    fn decision_presente_sur_type_non_policy_decided_est_refusee_a_la_verification() {
+        let signer = MockSigner::new(0x11);
+        let mut fields = sample_fields(0, [0u8; 32]);
+        fields.decision = Some(sample_decision());
+        let sealed = seal_with_mock(&signer, fields);
+        let key =
+            accept_verifying_key(SUITE_V1, &signer.key_id(), &signer.public_key_sec1()).unwrap();
+
+        assert_eq!(
+            verify(&[key], sealed.as_bytes(), &default_policy()),
+            Err(VerifyError::MalformedDocument)
+        );
+    }
+
+    #[test]
+    fn decision_hash_falsifie_est_refuse_par_la_signature() {
+        let signer = MockSigner::new(0x22);
+        let sealed = seal_with_mock(&signer, sample_policy_decided_fields(0, [0u8; 32]));
+        let key =
+            accept_verifying_key(SUITE_V1, &signer.key_id(), &signer.public_key_sec1()).unwrap();
+
+        let text = String::from_utf8(sealed.as_bytes().to_vec()).unwrap();
+        let injected = text.replacen(&common::hex_encode(&[0xCDu8; 32]), &"0".repeat(64), 1);
+
+        assert_eq!(
+            verify(&[key], injected.as_bytes(), &default_policy()),
+            Err(VerifyError::InvalidSignature)
+        );
+    }
+
+    #[test]
+    fn request_id_non_uuid_est_refuse() {
+        assert_eq!(
+            RequestId::new("pas-un-uuid").unwrap_err(),
+            FieldError("decision.request_id")
+        );
+        // Contrairement à EventId, un UUID valide non-v7 est accepté (le contrat ne l'exige pas).
+        assert!(RequestId::new("f47ac10b-58cc-4372-a567-0e02b2c3d479").is_ok());
+    }
+
+    #[test]
+    fn reasons_au_dela_de_max_est_refuse_au_scellement() {
+        let mut decision = sample_decision();
+        decision.reasons = (0..MAX_REASONS + 1)
+            .map(|i| Reason::new(format!("motif-{i}")).unwrap())
+            .collect();
+        assert_eq!(
+            validate_decision_coupling(EventType::PolicyDecided, &Some(decision)),
+            Err(SealError::InvalidFields("decision.reasons"))
+        );
+    }
+
+    #[test]
+    fn reasons_au_dela_de_max_est_refuse_a_la_verification() {
+        // Même contournement volontaire que decision_absente_sur_policy_decided_..._verification.
+        let signer = MockSigner::new(0x22);
+        let mut fields = sample_policy_decided_fields(0, [0u8; 32]);
+        fields.decision = Some(DecisionInfo {
+            reasons: (0..MAX_REASONS + 1)
+                .map(|i| Reason::new(format!("motif-{i}")).unwrap())
+                .collect(),
+            ..sample_decision()
+        });
+        let sealed = seal_with_mock(&signer, fields);
+        let key =
+            accept_verifying_key(SUITE_V1, &signer.key_id(), &signer.public_key_sec1()).unwrap();
+
+        assert_eq!(
+            verify(&[key], sealed.as_bytes(), &default_policy()),
+            Err(VerifyError::MalformedDocument)
+        );
+    }
+
+    #[test]
+    fn document_surdimensionne_est_refuse_au_scellement() {
+        // validate_size travaille sur le Map déjà construit — pas besoin de passer par des
+        // champs bornés individuellement pour prouver l'arithmétique de la garde elle-même.
+        let mut unsigned = unsigned_document(&sample_fields(0, [0u8; 32]));
+        unsigned.insert("__test_filler__".to_string(), json!("x".repeat(MAX_BYTES)));
+        assert_eq!(
+            validate_size(&unsigned, "0123456789abcdef"),
+            Err(SealError::InvalidFields("size"))
+        );
+    }
+
+    #[test]
+    fn document_de_taille_normale_est_accepte_au_scellement() {
+        let unsigned = unsigned_document(&sample_policy_decided_fields(0, [0u8; 32]));
+        assert!(validate_size(&unsigned, "0123456789abcdef").is_ok());
     }
 
     // --- refus obligatoires ------------------------------------------------------------------

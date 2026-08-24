@@ -26,6 +26,11 @@ pub enum EventType {
     /// Ancrage périodique — voir la mise en garde de `zs_crypto::audit_seal::EventType`
     /// (charge utile probante non instruite dans ce lot).
     AuditChainVerified,
+    /// Miroir de `zs_crypto::audit_seal::EventType::PolicyDecided` (ADR-027) — aucun producteur
+    /// Rust ne l'utilise à ce jour : `access-broker` (Go) construit son `RawEvent` directement
+    /// depuis le contrat proto, pas via ce crate. Ajouté pour cohérence des deux énumérations,
+    /// pas par anticipation d'un usage.
+    PolicyDecided,
 }
 
 impl EventType {
@@ -42,6 +47,7 @@ impl EventType {
             EventType::RecoveryInitiated => "recovery.initiated",
             EventType::QuorumOperation => "quorum.operation",
             EventType::AuditChainVerified => "audit.chain_verified",
+            EventType::PolicyDecided => "policy.decided",
         }
     }
 }
