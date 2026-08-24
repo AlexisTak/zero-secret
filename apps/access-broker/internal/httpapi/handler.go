@@ -134,6 +134,13 @@ func (h *API) CreateAccessRequest(w http.ResponseWriter, r *http.Request, params
 			ResourceId:      body.Resource.Id,
 			AuthorityDomain: body.Resource.AuthorityDomain,
 			Decision:        decision.Signed,
+			// request_id/subject_id/aal/auth_method (ADR-029) : credential-issuer n'a aucun
+			// autre moyen de les connaître — DecisionResponse ne porte pas de Principal. Même
+			// request_id que policy.decided, pour corréler les deux événements d'une requête.
+			RequestId:  requestID.String(),
+			SubjectId:  verifyResp.SubjectId,
+			Aal:        optionalString(verifyResp.Aal),
+			AuthMethod: optionalString(verifyResp.AuthMethod),
 		})
 		if err == nil && emission.Allowed {
 			resp.LeaseId = &emission.LeaseId

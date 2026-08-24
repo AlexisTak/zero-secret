@@ -776,6 +776,24 @@ questions qu'elle pose.
   `decision` (`requires_decision()` ne le couvre pas).
 - Voir ADR-028 pour la conception complète.
 
+### `credential-issuer` câblé sur `audit-collector` (`credential.issued`)
+- [x] `crates/zs-crypto::audit_seal` — `EventType::CredentialIssued`, même règle
+      `requires_decision()` que `PolicyDecided`, `DecisionInfo` réutilisé tel quel (ADR-029,
+      aucun nouveau type/primitive/suite).
+- [x] `contracts/proto/credential/v1/emission.proto` — `EmissionOrder` porte désormais
+      `request_id`/`subject_id`/`aal`/`auth_method` (deux trous de contrat trouvés en
+      implémentant : `DecisionResponse` n'a ni `request_id` ni `Principal`) — jamais utilisés
+      pour une décision d'autorisation, uniquement pour construire l'événement d'audit.
+- [x] `internal/grpcapi/handler.go` — `credential.issued` envoyé seulement après un succès
+      OpenBao réel (règle déjà en place avant ce lot), jamais pour un refus. Best-effort, même
+      patron que `policy.decided`/`quorum.operation` (ADR-027/028).
+- **Signalé** : extension `zs-crypto` faite sans consultation `referent-crypto` fraîche (service
+  indisponible au moment du lot, 4 tentatives) — accord explicite de l'utilisateur, justifié par
+  l'identité structurelle avec `PolicyDecided` déjà validé. Voir ADR-029, section « Consultation
+  crypto ».
+- Voir ADR-029 pour la conception complète. **Les trois producteurs Go sont maintenant câblés
+  sur `audit-collector`** (`access-broker`, `admin-api`, `credential-issuer`).
+
 ---
 
 ## Règles de session

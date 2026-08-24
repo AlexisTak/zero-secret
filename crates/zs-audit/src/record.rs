@@ -31,6 +31,10 @@ pub enum EventType {
     /// depuis le contrat proto, pas via ce crate. Ajouté pour cohérence des deux énumérations,
     /// pas par anticipation d'un usage.
     PolicyDecided,
+    /// Miroir de `zs_crypto::audit_seal::EventType::CredentialIssued` (ADR-029) — même
+    /// raisonnement que `PolicyDecided` : aucun producteur Rust, `credential-issuer` (Go)
+    /// construit son `RawEvent` directement depuis le contrat proto.
+    CredentialIssued,
 }
 
 impl EventType {
@@ -48,6 +52,7 @@ impl EventType {
             EventType::QuorumOperation => "quorum.operation",
             EventType::AuditChainVerified => "audit.chain_verified",
             EventType::PolicyDecided => "policy.decided",
+            EventType::CredentialIssued => "credential.issued",
         }
     }
 }

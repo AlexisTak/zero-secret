@@ -14,12 +14,22 @@ import (
 // (aucun n'existe), construite par l'appelant de ce package pour ce lot. Decision porte la
 // DecisionResponse complète, y compris sa signature decision-seal/v1 (H4) : c'est elle qui est
 // vérifiée, jamais un champ isolé fourni séparément par l'appelant.
+//
+// RequestID/SubjectID/AAL/AuthMethod (ADR-029) : credential-issuer n'a par ailleurs aucun moyen
+// de connaître la requête ou l'identité du demandeur — DecisionResponse ne porte pas de
+// Principal (l'approbateur est déjà vérifié en amont par access-broker, jamais revérifié ici).
+// Ces champs ne servent qu'à construire l'événement credential.issued (actor/decision.request_id
+// requis par contracts/events/audit-event.schema.json), jamais à une décision d'autorisation.
 type EmissionOrder struct {
 	Verb            string
 	ResourceType    string
 	ResourceID      string
 	AuthorityDomain string
 	Decision        *policyv1.DecisionResponse
+	RequestID       string
+	SubjectID       string
+	AAL             string
+	AuthMethod      string
 }
 
 // Result est la sortie d'une émission réussie — jamais retournée pour un refus (le refus est un
@@ -37,18 +47,23 @@ type Result struct {
 }
 
 // IssuedCredentialEvent porte les champs de credential.issued (contracts/events/
-// audit-event.schema.json) — construit ici, PAS scellé : un service Rust d'audit symétrique à
-// H3/H4 (audit_seal) n'existe pas encore côté réseau accessible à ce composant Go. Un futur
-// appelant scelle/persiste ces champs. request_id/decision_hash/policy_version/reasons partagés
-// avec policy.decided (backlog L2.4 : « permet de relier les deux événements sans dénormaliser
-// la décision »).
+// audit-event.schema.json) — construit ici, scellé par internal/grpcapi (ADR-029) via
+// audit-collector/audit-sealer, jamais dans ce paquet (aucune crypto ici, règle absolue #4).
+// request_id/decision_hash/policy_version/reasons partagés avec policy.decided (permet de relier
+// les deux événements d'une même requête sans dénormaliser la décision).
 type IssuedCredentialEvent struct {
-	EventID           string // UUIDv7 généré AVANT l'appel OpenBao (R7, ADR-008/012) — voir Emit
-	DecisionHash      []byte
-	PolicyVersion     string
-	Reasons           []string
-	GrantedTTLSeconds int64
-	LeaseID           string
+	EventID                string // UUIDv7 généré AVANT l'appel OpenBao (R7, ADR-008/012) — voir Emit
+	RequestID              string // recopié d'EmissionOrder.RequestID (ADR-029)
+	SubjectID              string
+	AAL                    string
+	AuthMethod             string
+	DecisionHash           []byte
+	PolicyVersion          string
+	Reasons                []string
+	GrantedTTLSeconds      int64
+	DecisionSignature      []byte
+	DecisionSignatureKeyID string
+	LeaseID                string
 }
 
 // ConsumedDecisionStore est le port de prévention de rejeu (« decision_hash déjà consommé »,

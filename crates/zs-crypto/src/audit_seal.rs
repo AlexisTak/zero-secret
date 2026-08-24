@@ -99,6 +99,11 @@ pub enum EventType {
     /// les deux (`success`/`denied`), `decision` (requis, voir `requires_decision`) porte la
     /// preuve rejouable hors ligne (ADR-027).
     PolicyDecided,
+    /// Émission réussie d'un credential (`credential-issuer`, ADR-020) — construit seulement
+    /// après un succès OpenBao réel, jamais pour un refus (`outcome` toujours `success`, un refus
+    /// n'atteint jamais ce point). Même forme de `decision` que `PolicyDecided`
+    /// (`requires_decision`) — le contrat les traite identiquement (ADR-029).
+    CredentialIssued,
 }
 
 impl EventType {
@@ -113,6 +118,7 @@ impl EventType {
             EventType::QuorumOperation => "quorum.operation",
             EventType::AuditChainVerified => "audit.chain_verified",
             EventType::PolicyDecided => "policy.decided",
+            EventType::CredentialIssued => "credential.issued",
         }
     }
 
@@ -127,16 +133,17 @@ impl EventType {
             "quorum.operation" => EventType::QuorumOperation,
             "audit.chain_verified" => EventType::AuditChainVerified,
             "policy.decided" => EventType::PolicyDecided,
+            "credential.issued" => EventType::CredentialIssued,
             _ => return None,
         })
     }
 
-    /// Le contrat impose `decision` sur `policy.decided` et l'interdit sur tout autre type —
-    /// JSON Schema seul ne peut pas exprimer ce couplage conditionnel (`additionalProperties`
-    /// ne dépend pas d'un autre champ), donc porté ici et vérifié dans les deux sens (`seal`,
-    /// `verify`) — ADR-027.
+    /// Le contrat impose `decision` sur `policy.decided`/`credential.issued` et l'interdit sur
+    /// tout autre type — JSON Schema seul ne peut pas exprimer ce couplage conditionnel
+    /// (`additionalProperties` ne dépend pas d'un autre champ), donc porté ici et vérifié dans
+    /// les deux sens (`seal`, `verify`) — ADR-027/ADR-029.
     fn requires_decision(self) -> bool {
-        matches!(self, EventType::PolicyDecided)
+        matches!(self, EventType::PolicyDecided | EventType::CredentialIssued)
     }
 }
 
@@ -962,6 +969,14 @@ mod tests {
         }
     }
 
+    fn sample_credential_issued_fields(sequence: u64, prev_hash: [u8; 32]) -> AuditEventFields {
+        AuditEventFields {
+            event_type: EventType::CredentialIssued,
+            decision: Some(sample_decision()),
+            ..sample_fields(sequence, prev_hash)
+        }
+    }
+
     fn seal_with_mock(signer: &MockSigner, fields: AuditEventFields) -> SealedAuditEvent {
         let unsigned = unsigned_document(&fields);
         let sig = signer.sign_document(DOMAIN_PREFIX_V1, &unsigned);
@@ -1070,6 +1085,46 @@ mod tests {
         assert!(
             errors.is_empty(),
             "événement policy.decided non conforme au contrat : {errors:?}"
+        );
+    }
+
+    #[test]
+    fn credential_issued_avec_decision_est_scelle_et_verifie() {
+        let signer = MockSigner::new(0x33);
+        let sealed = seal_with_mock(&signer, sample_credential_issued_fields(0, [0u8; 32]));
+        let key =
+            accept_verifying_key(SUITE_V1, &signer.key_id(), &signer.public_key_sec1()).unwrap();
+
+        let verified = verify(&[key], sealed.as_bytes(), &default_policy()).unwrap();
+        assert_eq!(verified.event_type, EventType::CredentialIssued);
+    }
+
+    #[test]
+    fn credential_issued_valide_le_contrat() {
+        let schema_text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/events/audit-event.schema.json"
+        ))
+        .unwrap();
+        let schema: Value = serde_json::from_str(&schema_text).unwrap();
+        let validator = jsonschema::validator_for(&schema).unwrap();
+
+        let signer = MockSigner::new(0x33);
+        let sealed = seal_with_mock(&signer, sample_credential_issued_fields(0, [0u8; 32]));
+        let document: Value = serde_json::from_slice(sealed.as_bytes()).unwrap();
+
+        let errors: Vec<_> = validator.iter_errors(&document).collect();
+        assert!(
+            errors.is_empty(),
+            "événement credential.issued non conforme au contrat : {errors:?}"
+        );
+    }
+
+    #[test]
+    fn decision_absente_sur_credential_issued_est_refusee_au_scellement() {
+        assert_eq!(
+            validate_decision_coupling(EventType::CredentialIssued, &None),
+            Err(SealError::InvalidFields("decision"))
         );
     }
 

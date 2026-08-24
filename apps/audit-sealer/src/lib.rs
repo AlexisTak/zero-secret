@@ -10,8 +10,7 @@
 //! partager en service dédié, donc la colocalisation par socket Unix remplace le mTLS absent.
 //!
 //! Porte désormais le champ `decision` (ADR-027) — `policy.decided` peut être scellé via ce
-//! pont. `credential.issued` (même forme de `decision`) reste hors périmètre, aucun producteur
-//! ne l'émet encore.
+//! pont, ainsi que `credential.issued` depuis ADR-029 (même forme de `decision`).
 
 use tonic::{Request, Response, Status};
 
@@ -196,6 +195,7 @@ fn event_type_from_str(s: &str) -> Option<EventType> {
         "quorum.operation" => EventType::QuorumOperation,
         "audit.chain_verified" => EventType::AuditChainVerified,
         "policy.decided" => EventType::PolicyDecided,
+        "credential.issued" => EventType::CredentialIssued,
         _ => return None,
     })
 }
@@ -267,9 +267,10 @@ mod tests {
 
     #[test]
     fn event_type_inconnu_est_refuse() {
-        // credential.issued a la même forme de `decision` que policy.decided mais aucun
-        // producteur ne l'émet encore (ADR-027, pas d'anticipation) — reste refusé ici.
-        assert!(event_type_from_str("credential.issued").is_none());
+        // access.requested/access.approved/access.denied/credential.expired/credential.revoked/
+        // policy.modified sont dans le contrat (contracts/events/audit-event.schema.json) mais
+        // n'ont aucun producteur ni variante d'EventType à ce jour (pas d'anticipation).
+        assert!(event_type_from_str("access.requested").is_none());
         assert!(event_type_from_str("n_importe_quoi").is_none());
     }
 
@@ -278,6 +279,7 @@ mod tests {
         assert!(event_type_from_str("quorum.operation").is_some());
         assert!(event_type_from_str("authentication.succeeded").is_some());
         assert!(event_type_from_str("policy.decided").is_some());
+        assert!(event_type_from_str("credential.issued").is_some());
     }
 
     fn sample_actor() -> ProtoActor {
@@ -336,7 +338,7 @@ mod tests {
                 nanos: 0,
             }),
             authority_domain: "identity-provider".to_string(),
-            event_type: "credential.issued".to_string(),
+            event_type: "access.requested".to_string(),
             actor: Some(sample_actor()),
             target: None,
             outcome: "success".to_string(),
@@ -395,6 +397,27 @@ mod tests {
         };
         let fields = fields_from_request(req).expect("construction réussie, decision absente");
         assert!(fields.decision.is_none());
+    }
+
+    #[test]
+    fn fields_from_request_accepte_credential_issued_avec_decision() {
+        let req = SealRequest {
+            event_id: "0198e6c1-0000-7000-8000-000000000000".to_string(),
+            sequence: 0,
+            prev_hash: vec![0u8; 32],
+            occurred_at: Some(prost_types::Timestamp {
+                seconds: 1_777_000_000,
+                nanos: 0,
+            }),
+            authority_domain: "credential-issuer".to_string(),
+            event_type: "credential.issued".to_string(),
+            actor: Some(sample_actor()),
+            target: None,
+            outcome: "success".to_string(),
+            context: None,
+            decision: Some(sample_decision()),
+        };
+        assert!(fields_from_request(req).is_ok());
     }
 
     #[test]
