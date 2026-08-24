@@ -568,11 +568,14 @@ AH qu'imposerait un seuil plus strict (ex. N=100/T=15min, ~14× plus d'ancrages 
 peu actifs comme `admin-api`). Par domaine, configurable, plancher de sécurité documenté — à
 recaler sur charge réelle observée (critère de réexamen déjà posé).
 
-**Q5 — Ancrage sur chaîne cassée.** Confirmez-vous qu'un ancrage `outcome: "error"` est émis et
-publié quand `verify_chain` échoue, plutôt qu'un refus d'émettre ? Position défendue ici : oui —
-refuser produirait un silence, c'est-à-dire le résultat recherché par l'adversaire. C'est une
-exception explicite au « refus par défaut », qui porte sur l'octroi d'accès et non sur la
-production de preuve : elle doit être validée consciemment.
+**Q5 — Ancrage sur chaîne cassée. TRANCHÉE (2026-08-24) : émis et publié, jamais refusé.** Un
+ancrage `outcome: "error"` est produit et publié dans le registre externe même quand
+`verify_chain` échoue, plutôt qu'un refus d'émettre. Validé consciemment comme **exception
+explicite** au « refus par défaut » du projet : cette règle absolue porte sur l'octroi d'accès,
+pas sur la production de preuve — refuser d'émettre un ancrage produirait un silence, exactement
+le résultat que rechercherait un adversaire ayant tronqué la chaîne. L'échec de `verify_chain`
+déclenche une alarme en plus de l'ancrage `outcome: "error"`, jamais un blocage silencieux de
+l'ancrage lui-même.
 
 **Q6 — Forme de `publications`.** Tableau borné à 4 dès maintenant (recommandé : reproduit le
 pari gagnant du conteneur `signature` à N composantes d'ADR-012/013, où anticiper a évité une
