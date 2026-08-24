@@ -502,12 +502,16 @@ qu'on sache de combien avant une mesure sur un jeu de données réel. **L'hypoth
 elle-même reste une estimation de dimensionnement, pas un engagement contractuel avec un client
 réel** — à recaler dès qu'une charge de production réelle est observée.
 
-**Q6 — Portée de l'événement charnière.** L'ancrage de chaîne est aujourd'hui explicitement
-laissé en suspens (`EventType::AuditChainVerified` : « la charge utile probante d'un ancrage
-n'existe dans aucun champ du contrat actuel — à instruire par un ADR dédié »). L'événement
-charnière proposé en (b) est-il traité ici en cas particulier minimal, ou faut-il d'abord
-instruire l'ancrage périodique et faire de la charnière son premier cas d'usage ? Traiter la
-charnière ici risque d'improviser précisément ce qu'ADR-013 a refusé d'improviser.
+**Q6 — Portée de l'événement charnière. TRANCHÉE (2026-08-24) : instruire d'abord un ADR dédié
+à l'ancrage périodique.** L'ancrage de chaîne est aujourd'hui explicitement laissé en suspens
+(`EventType::AuditChainVerified` : « la charge utile probante d'un ancrage n'existe dans aucun
+champ du contrat actuel — à instruire par un ADR dédié »). Traiter la charnière ici, en cas
+particulier minimal, aurait improvisé précisément ce qu'ADR-013 a refusé d'improviser. La
+bascule `audit-seal/v2` devient un cas d'usage de cet ancrage une fois instruit, pas
+l'inverse — **la section (b) de §6 (« marquer la frontière dans la chaîne elle-même ») et le
+point 7 de la Décision proposée restent en l'état pour mémoire, mais leur mise en œuvre est
+suspendue jusqu'à l'ADR d'ancrage.** Instruction lancée séparément (voir référence ci-dessous
+une fois produite) — retarde d'autant l'acceptation de ce document.
 
 **Q7 — Découpage en deux ADR.** Validation de la séparation « ADR socle ML-DSA-65 dans
 `zs-crypto`/`zs-hsm` » + « ADR-030 `audit-seal/v2` », ou ADR unique quitte à ce qu'il porte le
