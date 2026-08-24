@@ -40,8 +40,12 @@ type Approval struct {
 
 // Decision defines model for Decision.
 type Decision struct {
-	Allowed       bool     `json:"allowed"`
-	DecisionHash  *[]byte  `json:"decision_hash,omitempty"`
+	Allowed              bool    `json:"allowed"`
+	DecisionHash         *[]byte `json:"decision_hash,omitempty"`
+	LeaseDurationSeconds *int    `json:"lease_duration_seconds,omitempty"`
+
+	// LeaseId Présent seulement si allowed = true ET que l'émission via credential-issuer a réussi (backlog L2.4 suite) — absent si l'émission a échoué (indisponibilité OpenBao) même quand la décision elle-même est ALLOW ; le client doit distinguer "refusé" d'"autorisé mais rien n'a pu être émis".
+	LeaseId       *string  `json:"lease_id,omitempty"`
 	PolicyVersion *string  `json:"policy_version,omitempty"`
 	Reasons       []string `json:"reasons"`
 }

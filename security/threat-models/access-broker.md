@@ -57,7 +57,7 @@ si le texte libre en introduit (risque résiduel déjà noté ci-dessus). Pas de
 | Compromission d'un poste admin (scénario 3) | `tests/adversarial/` — nouvelle tâche sans action FIDO2 fraîche | Non écrit — backlog L2+ |
 | Compromission d'un serveur applicatif (scénario 4) | `tests/adversarial/` — usage anormal d'un certificat court détecté | Non écrit |
 | Approbateur = demandeur | `tests/adversarial/` — auto-approbation refusée | Non écrit |
-| Décision falsifiée en transit | `tests/adversarial/` — ordre d'émission sans signature PDP valide, refusé par `credential-issuer` | Non écrit |
+| Décision falsifiée en transit | `apps/credential-issuer/internal/issuer/issuer_test.go` (`TestDecisionInvalideEstRefuseeAvantAppelOpenBao`) + `internal/grpcapi/handler_test.go` (bout en bout réseau) — ordre d'émission sans signature PDP valide, refusé par `credential-issuer` | Écrit (L2.4 suite, ADR-025) |
 
 ## Hypothèses de sécurité
 
@@ -68,4 +68,14 @@ si le texte libre en introduit (risque résiduel déjà noté ci-dessus). Pas de
 - Le mécanisme d'authentification de l'approbateur existe et est robuste — **non vérifié**,
   c'est un angle mort explicite de ce modèle (voir STRIDE Spoofing ci-dessus).
 - mTLS/SPIFFE est établi correctement vers `policy-engine` et `credential-issuer` en amont de ce
-  composant.
+  composant — **hypothèse, pas encore appliquée techniquement** : les trois liaisons gRPC sont
+  en clair dans ce dépôt à ce jour (L2.4 suite, ADR-025).
+
+## Addendum (L2.4 suite, ADR-025) — déclenchement réel de l'émission
+
+`access-broker` appelle réellement `credential-issuer` après une décision `ALLOW`
+(`internal/httpapi/handler.go`) — jusqu'ici la liaison n'existait qu'en commentaire. Un échec
+d'émission (OpenBao indisponible, décision déjà consommée côté `credential-issuer`) ne fait
+jamais échouer la requête HTTP ni ne change `allowed` : seuls `lease_id`/
+`lease_duration_seconds` restent absents de la réponse — l'appelant doit vérifier leur présence
+pour savoir si un accès exploitable a réellement été émis, pas seulement lire `allowed`.

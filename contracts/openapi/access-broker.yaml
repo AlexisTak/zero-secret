@@ -138,6 +138,15 @@ components:
           format: byte
         policy_version:
           type: string
+        lease_id:
+          type: string
+          description: >-
+            Présent seulement si allowed = true ET que l'émission via credential-issuer a
+            réussi (backlog L2.4 suite) — absent si l'émission a échoué (indisponibilité
+            OpenBao) même quand la décision elle-même est ALLOW ; le client doit distinguer
+            "refusé" d'"autorisé mais rien n'a pu être émis".
+        lease_duration_seconds:
+          type: integer
     Error:
       type: object
       required: [reason]

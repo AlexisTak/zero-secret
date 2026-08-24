@@ -566,17 +566,28 @@ questions qu'elle pose.
 - **Mapping verbe → moteur OpenBao minimal et explicite** : seul `db.connect` instrué (seule
   politique réelle, L2.1) → `database/creds/{resource.id}`. Tout autre verbe refusé
   explicitement (`moteur_non_supporte`), cohérent avec le risque EoP du modèle de menaces.
-- **Port `ConsumedDecisionStore`, sans implémentation — prévention de rejeu NON assurée** : le
-  modèle de menaces liste explicitement ce scénario ; sans stockage persistant (scope-cut DB
-  cohérent avec L1.1/L1.2/L1.4), un ordre rejoué serait aujourd'hui honoré une seconde fois — gap
-  réel, signalé, pas silencieux.
 - **Nouvelle dépendance `github.com/google/uuid`** (BSD-3-Clause) : génération d'UUIDv7 pour
   `event_id` — aucune génération UUIDv7 n'existait encore nulle part dans ce dépôt (Rust comme
   Go, seulement des validateurs/littéraux de test). Pas une opération cryptographique au sens de
   la règle absolue #4 (identifiant unique, pas une primitive de sécurité).
-- **Hors périmètre, signalé** : `credential.issued` non scellé (exigerait un service Rust d'audit
-  symétrique à H3/H4, inexistant, comme `policy.decided` en L2.3) ; aucun serveur réseau ; mTLS.
+- **Hors périmètre, signalé** : `credential.issued` non scellé (exigerait un pont d'audit
+  Rust↔Go, inexistant, comme `policy.decided` en L2.3) — reconfirmé en ADR-025.
 - Voir ADR-020 pour la conception complète.
+
+### L2.4 (suite) — Entrée réseau réelle + câblage `access-broker`
+- [x] `contracts/proto/credential/v1/emission.proto` (`CredentialIssuanceService.Emit`/`Revoke`)
+      — premier serveur gRPC réel de `credential-issuer` (`internal/grpcapi`, `main.go`).
+- [x] `ConsumedDecisionStore` **implémenté** en mémoire (`InMemoryConsumedDecisionStore`) —
+      fermeture du trou de rejeu signalé en L2.4, devenu réellement exploitable maintenant que
+      le serveur est accessible en réseau (pas une coupe de portée reconduite, voir ADR-025).
+      Testé bout en bout via un serveur gRPC réel (`TestRejeuDeLaMemeDecisionEstRefuseViaLeReseau`).
+- [x] `access-broker` déclenche l'émission après une décision `ALLOW` (`internal/httpapi/
+      handler.go`) — `broker.Decision.Signed` porte la `DecisionResponse` complète nécessaire à
+      `VerifyDecision` côté `credential-issuer`. `lease_id`/`lease_duration_seconds` ajoutés à
+      `contracts/openapi/access-broker.yaml` (`Decision`), absents si l'émission échoue — un
+      échec d'émission n'invalide jamais la décision elle-même (testé).
+- **Toujours hors périmètre, reconfirmé** : `credential.issued` non scellé.
+- Voir ADR-025 pour la conception complète.
 
 ### L2.5 — Administration (`admin-api`, Go)
 - [x] Quorum sur les opérations critiques : `apps/admin-api/internal/quorum` — sur le modèle

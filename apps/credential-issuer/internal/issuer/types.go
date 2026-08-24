@@ -52,11 +52,11 @@ type IssuedCredentialEvent struct {
 }
 
 // ConsumedDecisionStore est le port de prévention de rejeu (« decision_hash déjà consommé »,
-// security/threat-models/credential-issuer.md) — SANS IMPLÉMENTATION dans ce lot, cohérent avec
-// le scope-cut DB déjà pratiqué en L1.1/L1.2/L1.4 (pas de câblage DB avant qu'un serveur en ait
-// réellement besoin). Interface documentée pour qu'un futur appelant sache exactement quel
-// contrat d'atomicité respecter — la prévention de rejeu N'EST PAS assurée tant qu'aucune
-// implémentation réelle n'est branchée.
+// security/threat-models/credential-issuer.md). Implémentation en mémoire fournie
+// (consumed_decisions.go) — ce lot rend credential-issuer réellement accessible en réseau, ce
+// qui rend le rejeu réellement exploitable (une décision ALLOW signée rejouée deux fois
+// émettrait deux credentials pour une seule autorisation) : fermer ce trou n'est plus une
+// coupe de portée légitime à ce stade (voir ADR de ce lot).
 type ConsumedDecisionStore interface {
 	// MarkConsumed doit être atomique : deux appels concurrents avec le même decisionHash ne
 	// doivent jamais réussir tous les deux (contrat que toute implémentation future doit tenir).

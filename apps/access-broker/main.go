@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	credentialv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/credential/v1"
 	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
 	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
 
@@ -43,20 +44,24 @@ func mustDial(addr string) *grpc.ClientConn {
 func main() {
 	policyAddr := envOr("ZS_ACCESS_BROKER_POLICY_ENGINE_ADDR", "127.0.0.1:50061")
 	identityAddr := envOr("ZS_ACCESS_BROKER_IDENTITY_PROVIDER_ADDR", "127.0.0.1:50062")
+	credentialIssuerAddr := envOr("ZS_ACCESS_BROKER_CREDENTIAL_ISSUER_ADDR", "127.0.0.1:50064")
 	httpAddr := envOr("ZS_ACCESS_BROKER_HTTP_ADDR", "127.0.0.1:8081")
 
 	policyConn := mustDial(policyAddr)
 	defer policyConn.Close()
 	identityConn := mustDial(identityAddr)
 	defer identityConn.Close()
+	credentialConn := mustDial(credentialIssuerAddr)
+	defer credentialConn.Close()
 
 	policyClient := policyv1.NewPolicyDecisionServiceClient(policyConn)
 	identityClient := identityv1.NewAssertionVerificationServiceClient(identityConn)
+	credentialClient := credentialv1.NewCredentialIssuanceServiceClient(credentialConn)
 
 	b := broker.New(policyClient, identityClient)
-	api := httpapi.New(identityClient, b)
+	api := httpapi.New(identityClient, credentialClient, b)
 
-	log.Printf("access-broker: en écoute sur %s (gRPC en clair vers %s, %s — mTLS hors périmètre)", httpAddr, policyAddr, identityAddr)
+	log.Printf("access-broker: en écoute sur %s (gRPC en clair vers %s, %s, %s — mTLS hors périmètre)", httpAddr, policyAddr, identityAddr, credentialIssuerAddr)
 	if err := http.ListenAndServe(httpAddr, httpapi.Handler(api)); err != nil {
 		fmt.Fprintf(os.Stderr, "access-broker: erreur serveur HTTP : %v\n", err)
 		os.Exit(1)

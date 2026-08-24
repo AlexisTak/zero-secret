@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	credentialv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/credential/v1"
 	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
 	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
 
@@ -48,6 +50,23 @@ func (f *fakePolicyClient) Decide(ctx context.Context, in *policyv1.DecisionRequ
 	return f.response, nil
 }
 
+type fakeCredentialClient struct {
+	credentialv1.CredentialIssuanceServiceClient
+	response *credentialv1.EmissionResult
+	err      error
+	called   bool
+	lastReq  *credentialv1.EmissionOrder
+}
+
+func (f *fakeCredentialClient) Emit(ctx context.Context, in *credentialv1.EmissionOrder, opts ...grpc.CallOption) (*credentialv1.EmissionResult, error) {
+	f.called = true
+	f.lastReq = in
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.response, nil
+}
+
 func fixedTime() time.Time {
 	return time.Date(2026, 8, 23, 10, 0, 0, 0, time.UTC)
 }
@@ -71,8 +90,9 @@ func validBody() AccessRequestBody {
 
 func TestAssertionDuDemandeurAbsenteEstRefuseeSans401(t *testing.T) {
 	identity := &fakeIdentityClient{}
+	credential := &fakeCredentialClient{}
 	policy := &fakePolicyClient{}
-	srv := httptest.NewServer(Handler(New(identity, broker.New(policy, identity))))
+	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
 	defer srv.Close()
 
 	body, _ := json.Marshal(validBody())
@@ -92,8 +112,9 @@ func TestAssertionDuDemandeurAbsenteEstRefuseeSans401(t *testing.T) {
 
 func TestAssertionDuDemandeurInvalideEstRefusee401AvantAppelAuPDP(t *testing.T) {
 	identity := &fakeIdentityClient{valid: false}
+	credential := &fakeCredentialClient{}
 	policy := &fakePolicyClient{}
-	srv := httptest.NewServer(Handler(New(identity, broker.New(policy, identity))))
+	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
 	defer srv.Close()
 
 	body, _ := json.Marshal(validBody())
@@ -119,12 +140,16 @@ func TestAssertionDuDemandeurInvalideEstRefusee401AvantAppelAuPDP(t *testing.T) 
 
 func TestRequeteValideRetourneLaDecisionDuPDP(t *testing.T) {
 	identity := &fakeIdentityClient{valid: true, subjectID: "sub-demandeur", aal: "AAL3", authMethod: "webauthn/device-bound"}
+	credential := &fakeCredentialClient{response: &credentialv1.EmissionResult{
+		Allowed: true,
+		LeaseId: "database/creds/readonly/abc123",
+	}}
 	policy := &fakePolicyClient{response: &policyv1.DecisionResponse{
 		Effect:       policyv1.Effect_EFFECT_ALLOW,
 		Reasons:      []string{"db-connect-production"},
 		DecisionHash: []byte{0x01, 0x02},
 	}}
-	srv := httptest.NewServer(Handler(New(identity, broker.New(policy, identity))))
+	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
 	defer srv.Close()
 
 	body, _ := json.Marshal(validBody())
@@ -151,12 +176,82 @@ func TestRequeteValideRetourneLaDecisionDuPDP(t *testing.T) {
 	if len(decision.Reasons) != 1 || decision.Reasons[0] != "db-connect-production" {
 		t.Fatalf("raisons inattendues : %v", decision.Reasons)
 	}
+	if !credential.called {
+		t.Fatal("credential-issuer aurait dû être appelé pour une décision ALLOW")
+	}
+	if decision.LeaseId == nil || *decision.LeaseId != "database/creds/readonly/abc123" {
+		t.Fatalf("lease_id inattendu : %v", decision.LeaseId)
+	}
+}
+
+func TestEmissionEchoueeNinvalidePasLaDecisionMaisOmetLeBail(t *testing.T) {
+	identity := &fakeIdentityClient{valid: true, subjectID: "sub-demandeur"}
+	credential := &fakeCredentialClient{err: errors.New("openbao indisponible")}
+	policy := &fakePolicyClient{response: &policyv1.DecisionResponse{
+		Effect:       policyv1.Effect_EFFECT_ALLOW,
+		Reasons:      []string{"db-connect-production"},
+		DecisionHash: []byte{0x01, 0x02},
+	}}
+	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
+	defer srv.Close()
+
+	body, _ := json.Marshal(validBody())
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/access-requests", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Identity-Assertion", base64.StdEncoding.EncodeToString([]byte("assertion-du-demandeur")))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("un échec d'émission ne doit jamais invalider la décision : attendu 200, reçu %d", resp.StatusCode)
+	}
+
+	var decision Decision
+	if err := json.NewDecoder(resp.Body).Decode(&decision); err != nil {
+		t.Fatalf("réponse JSON invalide : %v", err)
+	}
+	if !decision.Allowed {
+		t.Fatal("attendu autorisé malgré l'échec d'émission")
+	}
+	if decision.LeaseId != nil {
+		t.Fatalf("lease_id ne doit pas être présent quand l'émission a échoué, reçu : %v", *decision.LeaseId)
+	}
+}
+
+func TestEmissionNestJamaisDeclencheeSurUnRefus(t *testing.T) {
+	identity := &fakeIdentityClient{valid: true, subjectID: "sub-demandeur"}
+	credential := &fakeCredentialClient{}
+	policy := &fakePolicyClient{response: &policyv1.DecisionResponse{
+		Effect:  policyv1.Effect_EFFECT_DENY,
+		Reasons: []string{"politique_refusee"},
+	}}
+	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
+	defer srv.Close()
+
+	body, _ := json.Marshal(validBody())
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/access-requests", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Identity-Assertion", base64.StdEncoding.EncodeToString([]byte("assertion-du-demandeur")))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if credential.called {
+		t.Fatal("credential-issuer ne doit jamais être appelé pour une décision refusée")
+	}
 }
 
 func TestCorpsMalformeEstRefuse400(t *testing.T) {
 	identity := &fakeIdentityClient{valid: true, subjectID: "sub-demandeur"}
+	credential := &fakeCredentialClient{}
 	policy := &fakePolicyClient{}
-	srv := httptest.NewServer(Handler(New(identity, broker.New(policy, identity))))
+	srv := httptest.NewServer(Handler(New(identity, credential, broker.New(policy, identity))))
 	defer srv.Close()
 
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/access-requests", bytes.NewReader([]byte("{not json")))

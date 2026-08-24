@@ -57,9 +57,9 @@ décision, déjà pseudonymisés en amont. Pas de donnée biométrique.
 
 | Menace | Test | Statut |
 |---|---|---|
-| Ordre d'émission sans signature valide | `tests/adversarial/` — décision non signée ou signature invalide, refus | Non écrit — backlog L2+ |
+| Ordre d'émission sans signature valide | `internal/issuer/issuer_test.go` — `TestDecisionInvalideEstRefuseeAvantAppelOpenBao` | Écrit |
 | Vol de credential en mémoire (scénario 2) | `tests/adversarial/` — impact borné à la fenêtre résiduelle démontré | Non écrit |
-| Rejeu d'un ordre d'émission déjà traité | `tests/adversarial/` — `decision_hash` déjà consommé, refus | Non écrit |
+| Rejeu d'un ordre d'émission déjà traité | `internal/issuer/issuer_test.go` (`TestDecisionDejaConsommeeEstRefuseeSansSecondAppelOpenBao`) et `internal/grpcapi/handler_test.go` (`TestRejeuDeLaMemeDecisionEstRefuseViaLeReseau`, bout en bout réseau) | Écrit |
 | Compromission prestataire (scénario 5) | `tests/adversarial/` — aucun compte dormant après retrait d'un accès prestataire | Non écrit |
 
 ## Hypothèses de sécurité
@@ -70,6 +70,19 @@ décision, déjà pseudonymisés en amont. Pas de donnée biométrique.
   fait avec la clé **publique** correspondante, via `zs-crypto`.
 - OpenBao et la PKI sont disponibles et se comportent conformément à leur documentation
   officielle — pas revérifié ici (ADR-002).
-- L'ordre des opérations (audit puis émission, ou émission puis audit) n'est pas encore
-  tranché — à spécifier avant l'implémentation, c'est un point structurant pour la garantie de
-  non-répudiation.
+- **Ordre des opérations tranché (R7, ADR-008/012, réappliqué L2.4)** : `event_id` généré avant
+  l'appel OpenBao, `credential.issued` construit seulement après un succès réel — mais
+  `credential.issued` n'est toujours pas scellé (voir addendum ci-dessous), la garantie de
+  non-répudiation reste donc partielle.
+
+## Addendum (L2.4 suite, ADR-025) — entrée réseau réelle
+
+- `credential-issuer` a désormais un vrai serveur gRPC (`CredentialIssuanceService`), appelé par
+  `access-broker` après une décision `ALLOW`. Le rejeu d'une décision — répertorié ci-dessus
+  comme théorique tant qu'aucun réseau n'existait — est désormais réellement exploitable et
+  fermé (`ConsumedDecisionStore` implémenté en mémoire, mono-instance).
+- `credential.issued` reste construit mais non scellé — pas aggravé par ce lot, angle mort
+  hérité, à réexaminer avec un futur pont d'audit Rust↔Go (voir critère de réexamen d'ADR-025).
+- Pas de mTLS entre `access-broker` et `credential-issuer` — l'hypothèse « seul access-broker
+  authentifié peut dialoguer avec credential-issuer » (périmètre de ce document) n'est donc pas
+  encore appliquée techniquement, seulement par convention réseau (adresses non exposées).
