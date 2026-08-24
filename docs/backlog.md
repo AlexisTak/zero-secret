@@ -81,6 +81,22 @@ artefact signé et attesté.
 - **Acceptation** : un secret introduit volontairement dans une branche est bloqué avant fusion.
   Vérifié localement (`gitleaks detect` sur un commit de test, secret détecté, commit annulé) ;
   le stage `détection de secrets` du `Jenkinsfile` reproduit ça sur chaque build.
+- [x] Options de sécurité GitHub natives activées (2026-08-24, une fois le dépôt public) —
+      `security_and_analysis` : `secret_scanning` (dont `push_protection`, bloque un secret
+      **avant** qu'il atteigne l'historique distant — complémentaire à `gitleaks` côté Jenkins,
+      qui détecte après coup sur un commit déjà écrit) et `dependabot_security_updates` (PR
+      automatique dès qu'un correctif amont existe) : activés. `private-vulnerability-reporting`
+      et `automated-security-fixes` : activés. `code-scanning/default-setup` (CodeQL, Go/
+      JavaScript-TypeScript/Rust) : configuré — géré par une Action GitHub, indépendant du
+      `Jenkinsfile`, ne remplace aucun stage existant.
+      **Non activés, signalé** : `secret_scanning_validity_checks` et
+      `secret_scanning_non_provider_patterns` — l'API a accepté la requête sans erreur mais
+      l'état est resté `disabled` après relecture, probablement une fonctionnalité GitHub
+      Advanced Security non couverte par le plan de l'organisation, pas un choix. À revérifier
+      si le plan change.
+      **Dependabot a immédiatement remonté 16 alertes** (9 critiques) sur `main`, invisibles
+      tant que le dépôt était privé — corrigées dans la foulée
+      (`apps/audit-collector`, `jackc/pgx/v5` et `golang.org/x/crypto`, PR #44).
 - **Limite constatée et assumée** : le stage `build reproductible (informatif)` est non bloquant
   (`catchError` → `UNSTABLE`, pas `FAILURE`). Un `cargo build --release` identique, réexécuté à
   l'identique, produit deux binaires différents bit à bit (non-déterminisme connu de l'écosystème
