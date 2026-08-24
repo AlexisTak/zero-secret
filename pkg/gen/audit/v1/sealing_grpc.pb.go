@@ -13,12 +13,16 @@
 // oracle de signature accessible à quiconque atteint un port détruirait la non-répudiation de
 // tout le journal.
 //
-// Miroir direct de zs_crypto::audit_seal::AuditEventFields — ne porte PAS le champ `decision`
-// du contrat JSON Schema (contracts/events/audit-event.schema.json), non supporté par
-// AuditEventFields à ce jour (portée assumée de ce module, "à ajouter avec le lot qui produit
-// ces événements, pas par anticipation") : policy.decided/credential.issued ne peuvent donc pas
-// encore être scellés via ce pont, seuls les types déjà couverts par
-// zs_crypto::audit_seal::EventType le peuvent (parcours WebAuthn + quorum.operation).
+// Miroir direct de zs_crypto::audit_seal::AuditEventFields, désormais y compris le champ
+// `decision` (ADR-027) — porte policy.decided. credential.issued reste hors périmètre (même
+// forme de decision, mais aucun producteur ne l'émet encore — pas d'anticipation).
+//
+// `decision.decision_signature`/`decision_signature_key_id` sont recopiés tels quels depuis
+// policyv1.DecisionResponse (decision-seal/v1, H4/ADR-019) — audit-sealer ne les VÉRIFIE PAS au
+// scellement (pas de dépendance réseau vers policy-engine, cf. ADR-026 : audit-sealer reste sans
+// état). Ils sont transportés pour qu'un futur vérificateur hors ligne, possédant la clé
+// decision-seal/v1, puisse établir l'origine PDP indépendamment de la signature audit-seal/v1
+// elle-même — outil non construit dans ce dépôt à ce jour (ADR-027).
 
 package auditv1
 

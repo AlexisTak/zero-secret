@@ -464,6 +464,8 @@ async fn seal_and_append_audit_event(
             ticket_ref: None,
             justification: audit_seal::Justification::new(j).ok(),
         }),
+        // identity-provider n'émet jamais policy.decided (produit par access-broker, ADR-027).
+        decision: None,
     };
 
     let sealed = {
@@ -504,6 +506,10 @@ fn event_type_str(t: AuditEventType) -> &'static str {
         AuditEventType::RecoveryInitiated => "recovery.initiated",
         AuditEventType::QuorumOperation => "quorum.operation",
         AuditEventType::AuditChainVerified => "audit.chain_verified",
+        // identity-provider n'émet jamais cet événement (produit par access-broker après une
+        // décision du PDP, ADR-027) — bras nécessaire pour l'exhaustivité du match, jamais
+        // atteint en pratique.
+        AuditEventType::PolicyDecided => "policy.decided",
     }
 }
 

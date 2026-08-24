@@ -13,12 +13,16 @@
 // oracle de signature accessible à quiconque atteint un port détruirait la non-répudiation de
 // tout le journal.
 //
-// Miroir direct de zs_crypto::audit_seal::AuditEventFields — ne porte PAS le champ `decision`
-// du contrat JSON Schema (contracts/events/audit-event.schema.json), non supporté par
-// AuditEventFields à ce jour (portée assumée de ce module, "à ajouter avec le lot qui produit
-// ces événements, pas par anticipation") : policy.decided/credential.issued ne peuvent donc pas
-// encore être scellés via ce pont, seuls les types déjà couverts par
-// zs_crypto::audit_seal::EventType le peuvent (parcours WebAuthn + quorum.operation).
+// Miroir direct de zs_crypto::audit_seal::AuditEventFields, désormais y compris le champ
+// `decision` (ADR-027) — porte policy.decided. credential.issued reste hors périmètre (même
+// forme de decision, mais aucun producteur ne l'émet encore — pas d'anticipation).
+//
+// `decision.decision_signature`/`decision_signature_key_id` sont recopiés tels quels depuis
+// policyv1.DecisionResponse (decision-seal/v1, H4/ADR-019) — audit-sealer ne les VÉRIFIE PAS au
+// scellement (pas de dépendance réseau vers policy-engine, cf. ADR-026 : audit-sealer reste sans
+// état). Ils sont transportés pour qu'un futur vérificateur hors ligne, possédant la clé
+// decision-seal/v1, puisse établir l'origine PDP indépendamment de la signature audit-seal/v1
+// elle-même — outil non construit dans ce dépôt à ce jour (ADR-027).
 
 package auditv1
 
@@ -135,11 +139,14 @@ type SealRequest struct {
 	AuthorityDomain string                 `protobuf:"bytes,5,opt,name=authority_domain,json=authorityDomain,proto3" json:"authority_domain,omitempty"`
 	// Valeur exacte du contrat (ex. "authentication.succeeded") — traduite en
 	// zs_crypto::audit_seal::EventType côté audit-sealer, refusée si non reconnue.
-	EventType     string   `protobuf:"bytes,6,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
-	Actor         *Actor   `protobuf:"bytes,7,opt,name=actor,proto3" json:"actor,omitempty"`
-	Target        *Target  `protobuf:"bytes,8,opt,name=target,proto3,oneof" json:"target,omitempty"`
-	Outcome       string   `protobuf:"bytes,9,opt,name=outcome,proto3" json:"outcome,omitempty"` // "success" | "denied" | "error"
-	Context       *Context `protobuf:"bytes,10,opt,name=context,proto3,oneof" json:"context,omitempty"`
+	EventType string   `protobuf:"bytes,6,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	Actor     *Actor   `protobuf:"bytes,7,opt,name=actor,proto3" json:"actor,omitempty"`
+	Target    *Target  `protobuf:"bytes,8,opt,name=target,proto3,oneof" json:"target,omitempty"`
+	Outcome   string   `protobuf:"bytes,9,opt,name=outcome,proto3" json:"outcome,omitempty"` // "success" | "denied" | "error"
+	Context   *Context `protobuf:"bytes,10,opt,name=context,proto3,oneof" json:"context,omitempty"`
+	// Requis si et seulement si event_type == "policy.decided" — refusé dans les deux sens par
+	// audit-sealer (zs_crypto::audit_seal::EventType::requires_decision, ADR-027).
+	Decision      *Decision `protobuf:"bytes,11,opt,name=decision,proto3,oneof" json:"decision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -244,6 +251,107 @@ func (x *SealRequest) GetContext() *Context {
 	return nil
 }
 
+func (x *SealRequest) GetDecision() *Decision {
+	if x != nil {
+		return x.Decision
+	}
+	return nil
+}
+
+type Decision struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	RequestId         string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`          // UUID, PAS nécessairement UUIDv7 (contrat)
+	DecisionHash      []byte                 `protobuf:"bytes,2,opt,name=decision_hash,json=decisionHash,proto3" json:"decision_hash,omitempty"` // 32 octets (decision-binding/v1)
+	PolicyVersion     string                 `protobuf:"bytes,3,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	Reasons           []string               `protobuf:"bytes,4,rep,name=reasons,proto3" json:"reasons,omitempty"` // borné à 16 par audit-sealer (ADR-027)
+	GrantedTtlSeconds *uint32                `protobuf:"varint,5,opt,name=granted_ttl_seconds,json=grantedTtlSeconds,proto3,oneof" json:"granted_ttl_seconds,omitempty"`
+	// Recopiés de policyv1.DecisionResponse (decision-seal/v1) — non vérifiés par audit-sealer,
+	// voir la mise en garde en tête de fichier.
+	DecisionSignature      []byte  `protobuf:"bytes,6,opt,name=decision_signature,json=decisionSignature,proto3,oneof" json:"decision_signature,omitempty"`
+	DecisionSignatureKeyId *string `protobuf:"bytes,7,opt,name=decision_signature_key_id,json=decisionSignatureKeyId,proto3,oneof" json:"decision_signature_key_id,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *Decision) Reset() {
+	*x = Decision{}
+	mi := &file_audit_v1_sealing_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Decision) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Decision) ProtoMessage() {}
+
+func (x *Decision) ProtoReflect() protoreflect.Message {
+	mi := &file_audit_v1_sealing_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Decision.ProtoReflect.Descriptor instead.
+func (*Decision) Descriptor() ([]byte, []int) {
+	return file_audit_v1_sealing_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Decision) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *Decision) GetDecisionHash() []byte {
+	if x != nil {
+		return x.DecisionHash
+	}
+	return nil
+}
+
+func (x *Decision) GetPolicyVersion() string {
+	if x != nil {
+		return x.PolicyVersion
+	}
+	return ""
+}
+
+func (x *Decision) GetReasons() []string {
+	if x != nil {
+		return x.Reasons
+	}
+	return nil
+}
+
+func (x *Decision) GetGrantedTtlSeconds() uint32 {
+	if x != nil && x.GrantedTtlSeconds != nil {
+		return *x.GrantedTtlSeconds
+	}
+	return 0
+}
+
+func (x *Decision) GetDecisionSignature() []byte {
+	if x != nil {
+		return x.DecisionSignature
+	}
+	return nil
+}
+
+func (x *Decision) GetDecisionSignatureKeyId() string {
+	if x != nil && x.DecisionSignatureKeyId != nil {
+		return *x.DecisionSignatureKeyId
+	}
+	return ""
+}
+
 type Actor struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SubjectId     string                 `protobuf:"bytes,1,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
@@ -256,7 +364,7 @@ type Actor struct {
 
 func (x *Actor) Reset() {
 	*x = Actor{}
-	mi := &file_audit_v1_sealing_proto_msgTypes[3]
+	mi := &file_audit_v1_sealing_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -268,7 +376,7 @@ func (x *Actor) String() string {
 func (*Actor) ProtoMessage() {}
 
 func (x *Actor) ProtoReflect() protoreflect.Message {
-	mi := &file_audit_v1_sealing_proto_msgTypes[3]
+	mi := &file_audit_v1_sealing_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -281,7 +389,7 @@ func (x *Actor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Actor.ProtoReflect.Descriptor instead.
 func (*Actor) Descriptor() ([]byte, []int) {
-	return file_audit_v1_sealing_proto_rawDescGZIP(), []int{3}
+	return file_audit_v1_sealing_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Actor) GetSubjectId() string {
@@ -322,7 +430,7 @@ type Target struct {
 
 func (x *Target) Reset() {
 	*x = Target{}
-	mi := &file_audit_v1_sealing_proto_msgTypes[4]
+	mi := &file_audit_v1_sealing_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -334,7 +442,7 @@ func (x *Target) String() string {
 func (*Target) ProtoMessage() {}
 
 func (x *Target) ProtoReflect() protoreflect.Message {
-	mi := &file_audit_v1_sealing_proto_msgTypes[4]
+	mi := &file_audit_v1_sealing_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -347,7 +455,7 @@ func (x *Target) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Target.ProtoReflect.Descriptor instead.
 func (*Target) Descriptor() ([]byte, []int) {
-	return file_audit_v1_sealing_proto_rawDescGZIP(), []int{4}
+	return file_audit_v1_sealing_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Target) GetType() string {
@@ -375,7 +483,7 @@ type Context struct {
 
 func (x *Context) Reset() {
 	*x = Context{}
-	mi := &file_audit_v1_sealing_proto_msgTypes[5]
+	mi := &file_audit_v1_sealing_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -387,7 +495,7 @@ func (x *Context) String() string {
 func (*Context) ProtoMessage() {}
 
 func (x *Context) ProtoReflect() protoreflect.Message {
-	mi := &file_audit_v1_sealing_proto_msgTypes[5]
+	mi := &file_audit_v1_sealing_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -400,7 +508,7 @@ func (x *Context) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Context.ProtoReflect.Descriptor instead.
 func (*Context) Descriptor() ([]byte, []int) {
-	return file_audit_v1_sealing_proto_rawDescGZIP(), []int{5}
+	return file_audit_v1_sealing_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Context) GetSourceNetwork() string {
@@ -433,7 +541,7 @@ type SealResponse struct {
 
 func (x *SealResponse) Reset() {
 	*x = SealResponse{}
-	mi := &file_audit_v1_sealing_proto_msgTypes[6]
+	mi := &file_audit_v1_sealing_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -445,7 +553,7 @@ func (x *SealResponse) String() string {
 func (*SealResponse) ProtoMessage() {}
 
 func (x *SealResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_audit_v1_sealing_proto_msgTypes[6]
+	mi := &file_audit_v1_sealing_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -458,7 +566,7 @@ func (x *SealResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SealResponse.ProtoReflect.Descriptor instead.
 func (*SealResponse) Descriptor() ([]byte, []int) {
-	return file_audit_v1_sealing_proto_rawDescGZIP(), []int{6}
+	return file_audit_v1_sealing_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SealResponse) GetSealedBytes() []byte {
@@ -476,7 +584,7 @@ const file_audit_v1_sealing_proto_rawDesc = "" +
 	"\x13HashPreviousRequest\x12!\n" +
 	"\fsealed_bytes\x18\x01 \x01(\fR\vsealedBytes\".\n" +
 	"\x14HashPreviousResponse\x12\x16\n" +
-	"\x06digest\x18\x01 \x01(\fR\x06digest\"\xa1\x03\n" +
+	"\x06digest\x18\x01 \x01(\fR\x06digest\"\xe3\x03\n" +
 	"\vSealRequest\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x1a\n" +
 	"\bsequence\x18\x02 \x01(\x04R\bsequence\x12\x1b\n" +
@@ -490,10 +598,24 @@ const file_audit_v1_sealing_proto_rawDesc = "" +
 	"\x06target\x18\b \x01(\v2\x10.audit.v1.TargetH\x00R\x06target\x88\x01\x01\x12\x18\n" +
 	"\aoutcome\x18\t \x01(\tR\aoutcome\x120\n" +
 	"\acontext\x18\n" +
-	" \x01(\v2\x11.audit.v1.ContextH\x01R\acontext\x88\x01\x01B\t\n" +
+	" \x01(\v2\x11.audit.v1.ContextH\x01R\acontext\x88\x01\x01\x123\n" +
+	"\bdecision\x18\v \x01(\v2\x12.audit.v1.DecisionH\x02R\bdecision\x88\x01\x01B\t\n" +
 	"\a_targetB\n" +
 	"\n" +
-	"\b_context\"\x8f\x01\n" +
+	"\b_contextB\v\n" +
+	"\t_decision\"\x85\x03\n" +
+	"\bDecision\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
+	"\rdecision_hash\x18\x02 \x01(\fR\fdecisionHash\x12%\n" +
+	"\x0epolicy_version\x18\x03 \x01(\tR\rpolicyVersion\x12\x18\n" +
+	"\areasons\x18\x04 \x03(\tR\areasons\x123\n" +
+	"\x13granted_ttl_seconds\x18\x05 \x01(\rH\x00R\x11grantedTtlSeconds\x88\x01\x01\x122\n" +
+	"\x12decision_signature\x18\x06 \x01(\fH\x01R\x11decisionSignature\x88\x01\x01\x12>\n" +
+	"\x19decision_signature_key_id\x18\a \x01(\tH\x02R\x16decisionSignatureKeyId\x88\x01\x01B\x16\n" +
+	"\x14_granted_ttl_secondsB\x15\n" +
+	"\x13_decision_signatureB\x1c\n" +
+	"\x1a_decision_signature_key_id\"\x8f\x01\n" +
 	"\x05Actor\x12\x1d\n" +
 	"\n" +
 	"subject_id\x18\x01 \x01(\tR\tsubjectId\x12\x12\n" +
@@ -533,31 +655,33 @@ func file_audit_v1_sealing_proto_rawDescGZIP() []byte {
 	return file_audit_v1_sealing_proto_rawDescData
 }
 
-var file_audit_v1_sealing_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_audit_v1_sealing_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_audit_v1_sealing_proto_goTypes = []any{
 	(*HashPreviousRequest)(nil),   // 0: audit.v1.HashPreviousRequest
 	(*HashPreviousResponse)(nil),  // 1: audit.v1.HashPreviousResponse
 	(*SealRequest)(nil),           // 2: audit.v1.SealRequest
-	(*Actor)(nil),                 // 3: audit.v1.Actor
-	(*Target)(nil),                // 4: audit.v1.Target
-	(*Context)(nil),               // 5: audit.v1.Context
-	(*SealResponse)(nil),          // 6: audit.v1.SealResponse
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(*Decision)(nil),              // 3: audit.v1.Decision
+	(*Actor)(nil),                 // 4: audit.v1.Actor
+	(*Target)(nil),                // 5: audit.v1.Target
+	(*Context)(nil),               // 6: audit.v1.Context
+	(*SealResponse)(nil),          // 7: audit.v1.SealResponse
+	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
 }
 var file_audit_v1_sealing_proto_depIdxs = []int32{
-	7, // 0: audit.v1.SealRequest.occurred_at:type_name -> google.protobuf.Timestamp
-	3, // 1: audit.v1.SealRequest.actor:type_name -> audit.v1.Actor
-	4, // 2: audit.v1.SealRequest.target:type_name -> audit.v1.Target
-	5, // 3: audit.v1.SealRequest.context:type_name -> audit.v1.Context
-	2, // 4: audit.v1.AuditSealingService.Seal:input_type -> audit.v1.SealRequest
-	0, // 5: audit.v1.AuditSealingService.HashPrevious:input_type -> audit.v1.HashPreviousRequest
-	6, // 6: audit.v1.AuditSealingService.Seal:output_type -> audit.v1.SealResponse
-	1, // 7: audit.v1.AuditSealingService.HashPrevious:output_type -> audit.v1.HashPreviousResponse
-	6, // [6:8] is the sub-list for method output_type
-	4, // [4:6] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	8, // 0: audit.v1.SealRequest.occurred_at:type_name -> google.protobuf.Timestamp
+	4, // 1: audit.v1.SealRequest.actor:type_name -> audit.v1.Actor
+	5, // 2: audit.v1.SealRequest.target:type_name -> audit.v1.Target
+	6, // 3: audit.v1.SealRequest.context:type_name -> audit.v1.Context
+	3, // 4: audit.v1.SealRequest.decision:type_name -> audit.v1.Decision
+	2, // 5: audit.v1.AuditSealingService.Seal:input_type -> audit.v1.SealRequest
+	0, // 6: audit.v1.AuditSealingService.HashPrevious:input_type -> audit.v1.HashPreviousRequest
+	7, // 7: audit.v1.AuditSealingService.Seal:output_type -> audit.v1.SealResponse
+	1, // 8: audit.v1.AuditSealingService.HashPrevious:output_type -> audit.v1.HashPreviousResponse
+	7, // [7:9] is the sub-list for method output_type
+	5, // [5:7] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_audit_v1_sealing_proto_init() }
@@ -567,14 +691,15 @@ func file_audit_v1_sealing_proto_init() {
 	}
 	file_audit_v1_sealing_proto_msgTypes[2].OneofWrappers = []any{}
 	file_audit_v1_sealing_proto_msgTypes[3].OneofWrappers = []any{}
-	file_audit_v1_sealing_proto_msgTypes[5].OneofWrappers = []any{}
+	file_audit_v1_sealing_proto_msgTypes[4].OneofWrappers = []any{}
+	file_audit_v1_sealing_proto_msgTypes[6].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_audit_v1_sealing_proto_rawDesc), len(file_audit_v1_sealing_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

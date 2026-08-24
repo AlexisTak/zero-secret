@@ -1,7 +1,8 @@
 # Modèle de menaces — audit-collector
 
-**Dernière révision** : 2026-08-24 — **Déclencheur** : pont d'audit Rust↔Go, ADR-026 (sorti du
-statut « avant tout code L1.4 » : `apps/audit-collector` a maintenant une implémentation réelle)
+**Dernière révision** : 2026-08-24 — **Déclencheur** : `policy.decided` scellable + câblage
+`access-broker`, ADR-027 (sorti du statut « avant tout code L1.4 » depuis ADR-026 :
+`apps/audit-collector` a maintenant une implémentation réelle)
 
 ## Périmètre
 
@@ -19,11 +20,13 @@ pour tout rejeu (`make replay`) et pour toute preuve devant un tiers (RSSI, CEST
 reçoit un événement brut, calcule `sequence`/`prev_hash` (même requête de tête de chaîne
 qu'`identity-provider`), délègue le scellement à `audit-sealer` par socket Unix colocalisé
 (jamais un port réseau — voir `security/threat-models/audit-sealer.md`), persiste dans
-`audit.events` (rôle `audit_writer`). **Aucun producteur Go (`access-broker`/`admin-api`/
-`credential-issuer`) n'appelle encore ce service** — infrastructure prête, pas câblée. Seuls les
-types d'événements déjà couverts par `zs_crypto::audit_seal::EventType` (parcours WebAuthn +
-`quorum.operation`) peuvent être scellés ; `policy.decided`/`credential.issued` ne le peuvent pas
-tant que `AuditEventFields` ne porte pas de champ `decision`.
+`audit.events` (rôle `audit_writer`). **`access-broker` est le premier producteur Go câblé**
+(ADR-027) : `policy.decided`, ALLOW et DENY, appelé depuis `internal/httpapi/handler.go` quand le
+PDP a réellement été consulté, best-effort (échec journalisé, ne bloque jamais la réponse HTTP du
+producteur). `admin-api`/`credential-issuer` n'appellent pas encore ce service. Types d'événements
+scellables : parcours WebAuthn + `quorum.operation` (`zs_crypto::audit_seal::EventType`) et,
+depuis ADR-027, `policy.decided`. `credential.issued` reste non scellable, même forme de
+`decision` mais aucun producteur ne l'émet encore.
 
 ## Actifs
 
@@ -60,6 +63,7 @@ dette TLS différée — voir `security/threat-models/audit-sealer.md`.
 | Menace | Scénario concret | Probabilité | Impact | Mesure compensatoire | Risque résiduel |
 |---|---|---|---|---|---|
 | **S**poofing | Un émetteur non légitime injecte de faux événements d'audit | Faible (mTLS SPIFFE entre composants internes) | Élevé (pollution ou fabrication de preuve) | Authentification mTLS de chaque émetteur, `actor.kind` porté par l'événement lui-même mais vérifié contre l'identité mTLS de la connexion | Si un composant légitime est compromis, il peut émettre de faux événements en son propre nom — cette limite est structurelle, pas spécifique à `audit-collector` |
+| **S**poofing | Un `access-broker` compromis fait persister un `policy.decided` portant un `decision.decision_hash` fabriqué (ADR-027) | Faible en pratique, structurellement possible : `audit-collector` fait confiance au contenu du `RawEvent` reçu, ne le confronte à aucune source indépendante | Élevé (le journal revendique une décision du PDP qui n'a jamais eu lieu) | `decision.decision_signature`/`decision_signature_key_id` transportés jusqu'au document scellé — voir `security/threat-models/audit-sealer.md` pour la mesure complète | Même limite qu'`audit-sealer` : aucune vérification de `decision_signature` n'a lieu sur ce chemin (ni ici, ni au scellement) tant qu'aucun vérificateur hors ligne indépendant n'existe dans ce dépôt |
 | **T**ampering | Modification d'un événement déjà écrit pour effacer une trace | Très faible si le rôle applicatif ne peut pas faire `UPDATE`/`DELETE` (backlog L0.6) | Critique (invalide toute la garantie d'audit) | Schéma `audit` : `UPDATE` et `DELETE` révoqués pour tous les rôles applicatifs (backlog L0.6, à prouver par test, pas par lecture de migration) ; chaînage Merkle rend toute modification détectable même en cas de contournement du contrôle d'accès applicatif | Un accès direct au superutilisateur PostgreSQL contournerait le contrôle de rôle — seul le chaînage cryptographique resterait comme détection, pas comme prévention ; c'est un risque résiduel structurel assumé, cohérent avec le scénario 6 (aucune protection n'est absolue face à un accès superutilisateur, seule la détection compte) |
 | **R**epudiation | Un composant nie avoir émis un événement qu'il a bien produit | Très faible (c'est l'inverse même de la fonction de ce composant) | Non applicable — ce composant EST la mesure contre la répudiation des autres, il ne peut pas raisonnablement répudier ses propres événements sans invalider sa propre fonction | Chaînage et signature garantissent l'attribution ; sans objet au-delà | Non applicable — c'est la mesure compensatoire de tout le reste du système, pas une menace propre à ce composant |
 | **I**nformation Disclosure | Fuite du journal complet (export SIEM mal configuré, ou accès en lecture trop large) | Moyenne (le journal agrège des données de tout le système, cible de valeur) | Élevé (agrégation = surface bien plus large que chaque composant pris isolément) | Contrôle d'accès en lecture strict, export SIEM authentifié, aucune donnée biométrique ni secret dans les événements (contrainte de schéma explicite : « INTERDIT : credential, clé, jeton complet, donnée biométrique ») | Le champ `justification` (texte libre, jusqu'à 512 caractères) peut porter une donnée sensible saisie par erreur en amont — ce composant ne peut pas la filtrer a posteriori sans casser l'intégrité du chaînage (modifier un événement déjà chaîné est interdit par construction) ; risque résiduel assumé, à traiter en amont (validation à la source, pas ici) |

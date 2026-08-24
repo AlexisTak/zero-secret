@@ -47,8 +47,8 @@ signature_encoding = "raw r||s, hexadécimal minuscule"
 domain_separation = "zero-secret/audit-seal/v1"
 signature_container = "objet {suite, components}, arité imposée par la suite — forme distincte d'identity-assertion (tableau au premier niveau), imposée par contracts/events/audit-event.schema.json, résorption visée en v2 (ADR-013)"
 key_label = "zs-audit-seal-v1"
-adrs = ["ADR-010", "ADR-011", "ADR-013", "ADR-023", "ADR-026"]
-notes = "Scellement et vérification réels implémentés (crates/zs-crypto::audit_seal, L1.4b) — opération HSM la plus fréquente du système (une par action métier, règle absolue #9). Premier appelant applicatif réel de seal() : apps/identity-provider/src/httpapi.rs (H5, ADR-023). Second appelant, second HSM/pool distinct d'identity-provider (même clé zs-audit-seal-v1, ouverture séparée) : apps/audit-sealer (ADR-026), pont Rust<->Go — sert Seal/HashPrevious sur socket Unix uniquement, jamais un port réseau, seul point d'entrée cryptographique pour les événements construits côté Go."
+adrs = ["ADR-010", "ADR-011", "ADR-013", "ADR-023", "ADR-026", "ADR-027"]
+notes = "Scellement et vérification réels implémentés (crates/zs-crypto::audit_seal, L1.4b) — opération HSM la plus fréquente du système (une par action métier, règle absolue #9). Premier appelant applicatif réel de seal() : apps/identity-provider/src/httpapi.rs (H5, ADR-023). Second appelant, second HSM/pool distinct d'identity-provider (même clé zs-audit-seal-v1, ouverture séparée) : apps/audit-sealer (ADR-026), pont Rust<->Go — sert Seal/HashPrevious sur socket Unix uniquement, jamais un port réseau, seul point d'entrée cryptographique pour les événements construits côté Go. Champ decision implémenté (ADR-027, extension additive de v1, aucun changement de suite/algorithme/canonicalisation/hachage/séparation de domaine — événements déjà scellés avant cet ajout restent vérifiables bit à bit, vecteurs figés tests/vectors/audit-seal-v1/chain.json inchangés) : porte policy.decided, câblé depuis apps/access-broker (ALLOW et DENY). decision.decision_signature/decision_signature_key_id recopiés de decision-seal/v1, non vérifiés au scellement — établissent l'origine PDP pour un vérificateur hors ligne indépendant, non construit dans ce dépôt à ce jour."
 
 [[suite]]
 id = "decision-binding/v1"
@@ -78,5 +78,5 @@ signature_encoding = "raw r||s, hexadécimal minuscule (transmis en bytes bruts 
 domain_separation = "zero-secret/decision-seal/v1"
 signature_container = "champs decision_signature/decision_signature_key_id de DecisionResponse (proto), pas un document JSON opaque — DecisionResponse est déjà typé, pas reparsé depuis des octets non fiables"
 key_label = "zs-decision-seal-v1"
-adrs = ["ADR-011", "ADR-015", "ADR-019"]
-notes = "Authentifie l'origine PDP d'une DecisionResponse (policy-engine, L2.2) pour credential-issuer (L2.4), qui ne peut pas vérifier lui-même (ADR-001). Couvre effect/reasons/max_ttl/constraints/decision_hash/policy_version/issued_at — jamais decision_hash isolément (H4, ADR-019). Troisième clé HSM dédiée après zs-identity-assertion-v1/zs-audit-seal-v1."
+adrs = ["ADR-011", "ADR-015", "ADR-019", "ADR-027"]
+notes = "Authentifie l'origine PDP d'une DecisionResponse (policy-engine, L2.2) pour credential-issuer (L2.4), qui ne peut pas vérifier lui-même (ADR-001). Couvre effect/reasons/max_ttl/constraints/decision_hash/policy_version/issued_at — jamais decision_hash isolément (H4, ADR-019). Troisième clé HSM dédiée après zs-identity-assertion-v1/zs-audit-seal-v1. decision_signature/decision_signature_key_id également recopiés (non re-vérifiés) dans l'événement audit-seal/v1 policy.decided (ADR-027) — un futur vérificateur hors ligne possédant cette clé publique peut établir l'origine PDP indépendamment de audit-seal/v1."
