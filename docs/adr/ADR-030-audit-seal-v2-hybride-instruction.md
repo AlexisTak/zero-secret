@@ -89,8 +89,9 @@ ANSSI portant sur ML-DSA** n'est identifiable de manière fiable : les grands fo
 (Thales Luna, Utimaco, Entrust nShield, Atos/Eviden Trustway) annoncent du firmware PQC, mais le
 périmètre certifié/qualifié est en cours de renouvellement chez tous. **C'est le risque
 calendaire dominant de cet ADR** : notre code peut être prêt en 2026 sans qu'un HSM qualifié
-ML-DSA soit disponible en 2027. Action à mener avant acceptation : demander par écrit à deux
-fournisseurs le périmètre `CKM_ML_DSA` et le statut visa/qualification ANSSI associé (Q2).
+ML-DSA soit disponible en 2027. Action en cours (Q2, tranché 2026-08-24) : le porteur du projet
+sollicite directement les fournisseurs par écrit sur le périmètre `CKM_ML_DSA` et le statut
+visa/qualification ANSSI associé — réponses à venir.
 
 ### 2. Bibliothèque pour la composante ML-DSA-65 côté Rust
 
@@ -455,10 +456,12 @@ temporaire si Kryoptic s'avère indisponible à l'implémentation, dans les mêm
 strictes déjà décrites (nommé explicitement, refusé au démarrage en production, couvert par un
 test de refus).
 
-**Q2 — Disponibilité HSM matériel.** Qui sollicite les fournisseurs, sur quel périmètre
-(`CKM_ML_DSA`, statut visa ANSSI, calendrier), et quel est le plan si aucun ne s'engage avant
-2027 ? Cet ADR ne peut pas être clos sans réponse : nous décririons une cible que la production
-ne peut pas atteindre.
+**Q2 — Disponibilité HSM matériel. TRANCHÉE (2026-08-24) : le porteur du projet sollicite
+directement les fournisseurs** (Thales Luna, Utimaco, Entrust nShield, Atos/Eviden Trustway en
+priorité — liste §1) sur le périmètre `CKM_ML_DSA` et le statut visa/qualification ANSSI associé.
+Réponses à consigner dans ce document (ou en annexe référencée) dès reçues. Le plan de repli si
+aucun fournisseur ne s'engage avant 2027 reste à formuler une fois les réponses connues — pas
+avant, pour ne pas planifier un repli sur une hypothèse non vérifiée.
 
 **Q3 — Signeur ML-DSA de test indépendant.** `audit_seal.rs` utilise aujourd'hui `p256` comme
 implémentation ECDSA indépendante d'`aws-lc-rs` en test (ADR-011/012/013). Reproduit-on ce
