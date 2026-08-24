@@ -21,14 +21,16 @@ import (
 
 type fakeSealer struct {
 	auditv1.AuditSealingServiceClient
-	sealCalls int
-	sealErr   error
-	sealedOut []byte
-	hashOut   []byte
+	sealCalls   int
+	sealErr     error
+	sealedOut   []byte
+	hashOut     []byte
+	lastSealReq *auditv1.SealRequest
 }
 
 func (f *fakeSealer) Seal(ctx context.Context, in *auditv1.SealRequest, opts ...grpc.CallOption) (*auditv1.SealResponse, error) {
 	f.sealCalls++
+	f.lastSealReq = in
 	if f.sealErr != nil {
 		return nil, f.sealErr
 	}
@@ -198,5 +200,38 @@ func TestActeurEstSerialiseAvecLesNomsDeChampsDuContrat(t *testing.T) {
 	// contracts/events/audit-event.schema.json exige subject_id/kind en snake_case.
 	if !bytes.Contains(st.appendedIn.ActorJSON, []byte(`"subject_id"`)) {
 		t.Fatalf("subject_id attendu en snake_case, obtenu : %s", st.appendedIn.ActorJSON)
+	}
+}
+
+func TestDecisionEstTransmiseAAuditSealer(t *testing.T) {
+	// Régression : Record() construisait le SealRequest sans jamais lire raw.GetDecision(),
+	// donc tout policy.decided était silencieusement rejeté par audit-sealer (couplage
+	// decision<->event_type violé, ADR-027) sans qu'aucune erreur Go ne remonte — le refus
+	// métier devient un Result{Accepted:false}, jamais vérifié par les appelants best-effort
+	// (access-broker). Ce test échoue si le champ decision cesse d'être transmis.
+	sealer := &fakeSealer{sealedOut: []byte("octets")}
+	st := &fakeStore{}
+	c := New(sealer, st)
+
+	raw := &auditv1.RawEvent{
+		AuthorityDomain: "corp.eu-west",
+		EventType:       "policy.decided",
+		Actor:           &auditv1.Actor{SubjectId: "alice", Kind: "human"},
+		Outcome:         "success",
+		Decision: &auditv1.Decision{
+			RequestId:     "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+			DecisionHash:  []byte{0xCD, 0xCD},
+			PolicyVersion: "db.connect@1",
+			Reasons:       []string{"db-connect-production"},
+		},
+	}
+	if _, err := c.Record(context.Background(), raw); err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	if sealer.lastSealReq.Decision == nil {
+		t.Fatal("decision aurait dû être transmise dans le SealRequest envoyé à audit-sealer")
+	}
+	if sealer.lastSealReq.Decision.RequestId != "f47ac10b-58cc-4372-a567-0e02b2c3d479" {
+		t.Fatalf("decision.request_id inattendu : %s", sealer.lastSealReq.Decision.RequestId)
 	}
 }

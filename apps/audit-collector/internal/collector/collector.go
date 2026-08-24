@@ -90,6 +90,7 @@ func (c *Collector) Record(ctx context.Context, raw *auditv1.RawEvent) (Result, 
 		Target:          raw.GetTarget(),
 		Outcome:         raw.GetOutcome(),
 		Context:         raw.GetContext(),
+		Decision:        raw.GetDecision(),
 	})
 	if err != nil {
 		if status.Code(err) == codes.InvalidArgument {
