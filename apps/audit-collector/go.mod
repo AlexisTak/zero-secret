@@ -1,6 +1,6 @@
 module github.com/Biscuits-ia/biscuits-shield/apps/audit-collector
 
-go 1.25.0
+go 1.23
 
 require (
 	github.com/Biscuits-ia/biscuits-shield/pkg/gen v0.0.0
