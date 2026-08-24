@@ -34,12 +34,13 @@ type Lease struct {
 // Issuer orchestre l'émission. La vérification de décision utilise directement l'interface gRPC
 // générée (policyv1.PolicyDecisionServiceClient) — même patron que access-broker (L2.3).
 type Issuer struct {
-	policyClient policyv1.PolicyDecisionServiceClient
-	leases       LeaseIssuer
+	policyClient      policyv1.PolicyDecisionServiceClient
+	leases            LeaseIssuer
+	consumedDecisions ConsumedDecisionStore
 }
 
-func New(policyClient policyv1.PolicyDecisionServiceClient, leases LeaseIssuer) *Issuer {
-	return &Issuer{policyClient: policyClient, leases: leases}
+func New(policyClient policyv1.PolicyDecisionServiceClient, leases LeaseIssuer, consumedDecisions ConsumedDecisionStore) *Issuer {
+	return &Issuer{policyClient: policyClient, leases: leases, consumedDecisions: consumedDecisions}
 }
 
 // Emit vérifie la décision (H4), refuse tout ce qui n'est pas une décision valide et ALLOW, mappe
@@ -65,6 +66,17 @@ func (iss *Issuer) Emit(ctx context.Context, order EmissionOrder) (Result, error
 	}
 	if order.Decision.Effect != policyv1.Effect_EFFECT_ALLOW {
 		return Result{Allowed: false, Reasons: order.Decision.Reasons}, nil
+	}
+
+	// Anti-rejeu (backlog L2.4 suite) : une décision ALLOW signée ne doit jamais produire deux
+	// émissions. Marquée consommée seulement à partir d'ici — jamais pour une décision absente,
+	// invalide ou DENY, qui ne représente aucune tentative d'émission réelle.
+	alreadyConsumed, err := iss.consumedDecisions.MarkConsumed(order.Decision.DecisionHash)
+	if err != nil {
+		return Result{}, fmt.Errorf("vérification de rejeu : %w", err)
+	}
+	if alreadyConsumed {
+		return Result{Allowed: false, Reasons: []string{"decision_deja_consommee"}}, nil
 	}
 
 	path, err := openBaoPath(order.Verb, order.ResourceID)

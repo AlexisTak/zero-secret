@@ -5,7 +5,11 @@
 // ne sont couverts ici — voir ADR-017.
 package broker
 
-import "time"
+import (
+	"time"
+
+	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
+)
 
 // MaxJustificationLength borne Context.justification, déjà documentée dans decision.proto mais
 // jamais appliquée avant cette contribution.
@@ -71,4 +75,10 @@ type Decision struct {
 	Reasons       []string
 	DecisionHash  []byte
 	PolicyVersion string
+	// Signed porte la DecisionResponse complète, signée (decision-seal/v1, H4), telle que reçue
+	// du PDP — nil si Allowed = false (aucune décision ALLOW signée à transmettre). Un futur
+	// appelant (httpapi, déclenchement d'émission vers credential-issuer, backlog L2.4 suite) en
+	// a besoin en entier, pas seulement des champs déjà aplatis ci-dessus : VerifyDecision exige
+	// la signature/l'horodatage de scellement, absents de cette forme réduite.
+	Signed *policyv1.DecisionResponse
 }

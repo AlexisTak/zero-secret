@@ -73,7 +73,7 @@ func validOrder() EmissionOrder {
 func TestDecisionAbsenteEstRefuseeAvantToutAppel(t *testing.T) {
 	policyClient := &fakePolicyClient{}
 	leases := &fakeLeaseIssuer{}
-	iss := New(policyClient, leases)
+	iss := New(policyClient, leases, NewInMemoryConsumedDecisionStore())
 
 	result, err := iss.Emit(context.Background(), EmissionOrder{})
 	if err != nil {
@@ -92,7 +92,7 @@ func TestDecisionInvalideEstRefuseeAvantAppelOpenBao(t *testing.T) {
 		verifyResp: &policyv1.VerifyDecisionResponse{Valid: false, Reason: "signature_invalide"},
 	}
 	leases := &fakeLeaseIssuer{}
-	iss := New(policyClient, leases)
+	iss := New(policyClient, leases, NewInMemoryConsumedDecisionStore())
 
 	result, err := iss.Emit(context.Background(), validOrder())
 	if err != nil {
@@ -112,7 +112,7 @@ func TestDecisionInvalideEstRefuseeAvantAppelOpenBao(t *testing.T) {
 func TestEffectDenyEstRefuseSansAppelOpenBao(t *testing.T) {
 	policyClient := &fakePolicyClient{verifyResp: &policyv1.VerifyDecisionResponse{Valid: true}}
 	leases := &fakeLeaseIssuer{}
-	iss := New(policyClient, leases)
+	iss := New(policyClient, leases, NewInMemoryConsumedDecisionStore())
 
 	order := validOrder()
 	order.Decision.Effect = policyv1.Effect_EFFECT_DENY
@@ -132,7 +132,7 @@ func TestEffectDenyEstRefuseSansAppelOpenBao(t *testing.T) {
 func TestVerbeNonSupporteEstRefuse(t *testing.T) {
 	policyClient := &fakePolicyClient{verifyResp: &policyv1.VerifyDecisionResponse{Valid: true}}
 	leases := &fakeLeaseIssuer{}
-	iss := New(policyClient, leases)
+	iss := New(policyClient, leases, NewInMemoryConsumedDecisionStore())
 
 	order := validOrder()
 	order.Verb = "ssh.session"
@@ -152,7 +152,7 @@ func TestVerbeNonSupporteEstRefuse(t *testing.T) {
 func TestEmissionValideAppelleOpenBaoAvecLeTTLDeLaDecision(t *testing.T) {
 	policyClient := &fakePolicyClient{verifyResp: &policyv1.VerifyDecisionResponse{Valid: true}}
 	leases := &fakeLeaseIssuer{lease: Lease{ID: "database/creds/readonly/abc123", LeaseDuration: 900 * time.Second}}
-	iss := New(policyClient, leases)
+	iss := New(policyClient, leases, NewInMemoryConsumedDecisionStore())
 
 	result, err := iss.Emit(context.Background(), validOrder())
 	if err != nil {
@@ -184,10 +184,37 @@ func TestEmissionValideAppelleOpenBaoAvecLeTTLDeLaDecision(t *testing.T) {
 	}
 }
 
+func TestDecisionDejaConsommeeEstRefuseeSansSecondAppelOpenBao(t *testing.T) {
+	policyClient := &fakePolicyClient{verifyResp: &policyv1.VerifyDecisionResponse{Valid: true}}
+	leases := &fakeLeaseIssuer{lease: Lease{ID: "database/creds/readonly/abc123", LeaseDuration: 900 * time.Second}}
+	store := NewInMemoryConsumedDecisionStore()
+	iss := New(policyClient, leases, store)
+
+	first, err := iss.Emit(context.Background(), validOrder())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	if !first.Allowed {
+		t.Fatalf("attendu autorisé au premier appel, raisons : %v", first.Reasons)
+	}
+
+	leases.called = false // ré-arme pour isoler l'observation du second appel
+	second, err := iss.Emit(context.Background(), validOrder())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	if second.Allowed {
+		t.Fatal("une décision déjà consommée ne doit jamais être rejouée avec succès")
+	}
+	if leases.called {
+		t.Fatal("OpenBao ne doit jamais être appelé une seconde fois pour la même décision")
+	}
+}
+
 func TestEchecOpenBaoEstUneErreurGoPasUnRefusMetier(t *testing.T) {
 	policyClient := &fakePolicyClient{verifyResp: &policyv1.VerifyDecisionResponse{Valid: true}}
 	leases := &fakeLeaseIssuer{issueErr: errors.New("openbao indisponible")}
-	iss := New(policyClient, leases)
+	iss := New(policyClient, leases, NewInMemoryConsumedDecisionStore())
 
 	_, err := iss.Emit(context.Background(), validOrder())
 	if err == nil {
@@ -199,7 +226,7 @@ func TestRevokePropageLerreurDuClientOpenBao(t *testing.T) {
 	policyClient := &fakePolicyClient{}
 	wantErr := errors.New("openbao indisponible")
 	leases := &fakeLeaseIssuer{revokeErr: wantErr}
-	iss := New(policyClient, leases)
+	iss := New(policyClient, leases, NewInMemoryConsumedDecisionStore())
 
 	if err := iss.Revoke(context.Background(), "some-lease"); !errors.Is(err, wantErr) {
 		t.Fatalf("attendu %v, reçu %v", wantErr, err)

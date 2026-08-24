@@ -30,6 +30,7 @@ divergence silencieuse.
 | [022](ADR-022-openapi-access-broker-admin-api.md) | Première entrée HTTP réelle (access-broker, admin-api, contracts/openapi/) | accepté | 2026-08-23 |
 | [023](ADR-023-ceremonie-webauthn-http-identity-provider.md) | Endpoints HTTP de cérémonie WebAuthn (identity-provider, H5) | accepté | 2026-08-23 |
 | [024](ADR-024-frontiere-crypto-typescript-console-web.md) | Frontière crypto TypeScript (console-web) | accepté | 2026-08-23 |
+| [025](ADR-025-entree-reseau-credential-issuer.md) | Entrée réseau réelle pour credential-issuer + câblage access-broker (L2.4 suite) | accepté | 2026-08-24 |
 
 ## Règles
 

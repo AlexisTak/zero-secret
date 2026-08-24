@@ -104,12 +104,16 @@ func (b *Broker) Decide(ctx context.Context, req AccessRequest) (Decision, error
 		return Decision{}, fmt.Errorf("appel au PDP : %w", err)
 	}
 
-	return Decision{
+	decision := Decision{
 		Allowed:       resp.Effect == policyv1.Effect_EFFECT_ALLOW,
 		Reasons:       resp.Reasons,
 		DecisionHash:  resp.DecisionHash,
 		PolicyVersion: resp.PolicyVersion,
-	}, nil
+	}
+	if decision.Allowed {
+		decision.Signed = resp
+	}
+	return decision, nil
 }
 
 // authLevelFromString traduit "AAL1"/"AAL2"/"AAL3" ; toute autre valeur (y compris vide) devient

@@ -18,18 +18,20 @@ import (
 
 	"github.com/google/uuid"
 
+	credentialv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/credential/v1"
 	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
 
 	"github.com/Biscuits-ia/biscuits-shield/apps/access-broker/internal/broker"
 )
 
 type API struct {
-	identityClient identityv1.AssertionVerificationServiceClient
-	broker         *broker.Broker
+	identityClient   identityv1.AssertionVerificationServiceClient
+	credentialClient credentialv1.CredentialIssuanceServiceClient
+	broker           *broker.Broker
 }
 
-func New(identityClient identityv1.AssertionVerificationServiceClient, b *broker.Broker) *API {
-	return &API{identityClient: identityClient, broker: b}
+func New(identityClient identityv1.AssertionVerificationServiceClient, credentialClient credentialv1.CredentialIssuanceServiceClient, b *broker.Broker) *API {
+	return &API{identityClient: identityClient, credentialClient: credentialClient, broker: b}
 }
 
 func (h *API) CreateAccessRequest(w http.ResponseWriter, r *http.Request, params CreateAccessRequestParams) {
@@ -101,12 +103,36 @@ func (h *API) CreateAccessRequest(w http.ResponseWriter, r *http.Request, params
 		return
 	}
 
-	writeJSON(w, http.StatusOK, Decision{
+	resp := Decision{
 		Allowed:       decision.Allowed,
 		Reasons:       decision.Reasons,
 		DecisionHash:  &decision.DecisionHash,
 		PolicyVersion: &decision.PolicyVersion,
-	})
+	}
+
+	// Émission déclenchée uniquement pour une décision ALLOW (backlog L2.4 suite) — un échec
+	// d'émission (OpenBao indisponible, décision déjà consommée) n'invalide jamais la décision
+	// elle-même : la réponse reste 200 avec allowed=true, mais lease_id/lease_duration_seconds
+	// restent absents. Le client doit distinguer "refusé" d'"autorisé mais rien n'a pu être émis"
+	// (voir contracts/openapi/access-broker.yaml, Decision.lease_id).
+	if decision.Allowed && decision.Signed != nil {
+		emission, err := h.credentialClient.Emit(ctx, &credentialv1.EmissionOrder{
+			Verb:            body.Verb,
+			ResourceType:    body.Resource.Type,
+			ResourceId:      body.Resource.Id,
+			AuthorityDomain: body.Resource.AuthorityDomain,
+			Decision:        decision.Signed,
+		})
+		if err == nil && emission.Allowed {
+			resp.LeaseId = &emission.LeaseId
+			if emission.LeaseDuration != nil {
+				seconds := int(emission.LeaseDuration.AsDuration().Seconds())
+				resp.LeaseDurationSeconds = &seconds
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func posturefrom(p Posture) broker.Posture {
