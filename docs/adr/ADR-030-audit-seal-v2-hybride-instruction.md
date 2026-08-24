@@ -213,8 +213,9 @@ Surcoût pur du bloc `signature` : **247 octets en v1 → 6 930 octets en v2 (+6
   la colonne reste inline ; en v2 (~7,8 Kio) **chaque ligne bascule en stockage TOAST hors ligne**.
   Conséquence : ~1 déréférencement TOAST supplémentaire par événement lors de la vérification de
   chaîne, qui lit `sealed_bytes` séquentiellement. Volumétrie : **×6,8 sur le journal d'audit**,
-  l'objet le plus volumineux et le plus rétentionné du système. À chiffrer sur l'hypothèse de
-  charge retenue avant acceptation (Q5).
+  l'objet le plus volumineux et le plus rétentionné du système. Chiffré (Q5, 2026-08-24) :
+  ~700 Go sur 5 ans en v2 (scénario nominal, hypothèse ~50 000 événements/jour), contre ~105 Go
+  qu'aurait représenté la même charge en v1 seul — détail complet en fin de document.
 
 ### 5. Latence — protocole de mesure (non mesurable aujourd'hui)
 
@@ -381,7 +382,8 @@ Trois suites d'émission visent la même hybridation : `audit-seal/v2`, `identit
 **Négatives — assumées**
 - ×6,8 sur le volume du journal d'audit (1 151 → 7 834 octets par événement nominal), et bascule
   systématique en stockage TOAST côté Postgres : coût de stockage, de sauvegarde et d'I/O de
-  rejeu réel et permanent.
+  rejeu réel et permanent. Chiffré (Q5) : ~700 Go sur 5 ans à ~50 000 événements/jour, contre
+  ~105 Go en v1 seul — ordre de grandeur, pas une compression TOAST mesurée.
 - Deux opérations HSM par action métier au lieu d'une, sur l'opération la plus fréquente :
   dimensionnement du pool à revoir, latence à mesurer, débit maximal du système potentiellement
   contraint par le HSM.
@@ -479,9 +481,26 @@ coût (~8 Kio transférés au HSM par signature au lieu de 32 octets) reste à c
 de latence réelle (§5) avant l'implémentation — cette décision porte sur le mécanisme, pas sur
 sa performance, qui n'invaliderait le choix que si elle s'avérait rédhibitoire.
 
-**Q5 — Acceptation du coût volumétrique.** ×6,8 sur le journal d'audit et bascule TOAST
-systématique en Postgres. Quelle hypothèse de charge (événements/jour) et quelle durée de
-rétention retenir pour chiffrer ce coût ? Sans ces deux chiffres, l'acceptation est aveugle.
+**Q5 — Acceptation du coût volumétrique. TRANCHÉE (2026-08-24) : hypothèse ~50 000
+événements/jour, rétention 5 ans** (échelle organisation cliente de taille moyenne, cohérente
+avec un objectif de qualification ANSSI/CESTI plutôt qu'un pilote). Chiffré à partir des tailles
+mesurées §4 (`nominal` = 1 151 o v1 / 7 834 o v2, `pire cas` = 7 458 o v1 / 14 141 o v2),
+`50 000 × 1826 jours` :
+
+| Scénario | Volume/jour v1 | Volume/jour v2 | Total 5 ans v1 | Total 5 ans v2 |
+|---|---|---|---|---|
+| nominal | 57,5 Mo | 391,7 Mo | 105,1 Go | 715,2 Go |
+| pire cas | 372,9 Mo | 707,0 Mo | 680,9 Go | 1 291,1 Go |
+
+**Ordre de grandeur retenu pour le dimensionnement : ~700 Go sur 5 ans en v2 (scénario
+nominal)**, à comparer aux ~105 Go qu'aurait représenté la même charge restée en v1 seul —
+c'est le coût concret de la conformité PQC sur cet objet. Ces chiffres ignorent la compression
+TOAST (Postgres compresse par défaut au-delà du seuil de bascule, non mesurée ici — le contenu
+hexadécimal répétitif d'une signature ML-DSA devrait bien compresser, mais aucune mesure réelle
+n'existe) : le total physique sur disque sera probablement inférieur à ces chiffres bruts, sans
+qu'on sache de combien avant une mesure sur un jeu de données réel. **L'hypothèse de charge
+elle-même reste une estimation de dimensionnement, pas un engagement contractuel avec un client
+réel** — à recaler dès qu'une charge de production réelle est observée.
 
 **Q6 — Portée de l'événement charnière.** L'ancrage de chaîne est aujourd'hui explicitement
 laissé en suspens (`EventType::AuditChainVerified` : « la charge utile probante d'un ancrage
