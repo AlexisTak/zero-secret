@@ -577,9 +577,11 @@ le résultat que rechercherait un adversaire ayant tronqué la chaîne. L'échec
 déclenche une alarme en plus de l'ancrage `outcome: "error"`, jamais un blocage silencieux de
 l'ancrage lui-même.
 
-**Q6 — Forme de `publications`.** Tableau borné à 4 dès maintenant (recommandé : reproduit le
-pari gagnant du conteneur `signature` à N composantes d'ADR-012/013, où anticiper a évité une
-rupture de contrat) ou objet unique quitte à modifier le contrat plus tard ?
+**Q6 — Forme de `publications`. TRANCHÉE (2026-08-24) : tableau borné à 4, comme déjà proposé en
+§4.** Confirme le format du contrat déjà rédigé (`"maxItems": 4`) — reproduit le pari gagnant du
+conteneur `signature` à N composantes d'ADR-012/013, où anticiper la cardinalité a évité une
+rupture de contrat ultérieure. Accueille un registre supplémentaire (ex. reçu SCITT, option (e)
+en veille) sans jamais modifier `contracts/events/audit-event.schema.json` de nouveau.
 
 **Q7 — Antériorité vis-à-vis d'ADR-030.** Confirmez-vous l'ordre ADR-031 → ADR-030, avec le
 point 7 de la Décision proposée d'ADR-030 réécrit par renvoi à
