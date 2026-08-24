@@ -1,0 +1,17 @@
+title = "gitleaks — zero-secret"
+
+# Étend le jeu de règles par défaut de gitleaks (règle absolue #1 du CLAUDE.md racine :
+# aucun secret durable dans le code, les fixtures, les commentaires, les journaux).
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+Identifiants de labels de clés HSM (zs-<intention>-v<N>, ex. zs-decision-seal-v1) —
+règle absolue #4/#7 du CLAUDE.md racine et ADR-011 : le nom de la clé, jamais sa valeur,
+qui ne quitte jamais le HSM (invariant 7 de crates/zs-crypto/CLAUDE.md). Confirmé faux positif
+par relecture manuelle (entropie faible, ~3.5) — voir docs/backlog.md, section L0.4.
+"""
+regexes = [
+  '''zs-[a-z0-9-]+-v[0-9]+''',
+]

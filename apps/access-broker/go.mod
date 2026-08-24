@@ -1,6 +1,6 @@
 module github.com/Biscuits-ia/biscuits-shield/apps/access-broker
 
-go 1.23
+go 1.24
 
 require (
 	github.com/Biscuits-ia/biscuits-shield/pkg/gen v0.0.0

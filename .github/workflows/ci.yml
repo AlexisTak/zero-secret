@@ -16,7 +16,7 @@ on:
     branches: [main]
 
 env:
-  GO_VERSION: "1.23"
+  GO_VERSION: "1.24"
   NODE_VERSION: "22"
 
 jobs:
@@ -67,7 +67,7 @@ jobs:
       - name: gitleaks (CLI directe, pas gitleaks-action — licence org requise par l'Action depuis 2025, pas par le binaire OSS)
         run: |
           curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -xz gitleaks
-          ./gitleaks detect --source . --log-opts="--all" --redact -v
+          ./gitleaks detect --source . --config .gitleaks.toml --log-opts="--all" --redact -v
 
   build-test:
     name: build + tests + tests d'architecture
