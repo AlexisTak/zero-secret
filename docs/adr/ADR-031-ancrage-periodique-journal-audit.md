@@ -594,9 +594,12 @@ côté ADR-030 dans cette même session.
 — remplacé par « chaînage séquentiel (`prev_hash`) », avec renvoi explicite à ADR-031 pour la
 propriété que le chaînage seul ne couvre pas (troncature en queue de chaîne).
 
-**Q9 — Rétention et purge.** Existe-t-il une intention de purge du journal à moyen terme ? Si
-oui, l'interaction purge/ancrage doit être instruite avant l'implémentation, pas après : une
-purge légitime est indiscernable d'une troncature pour la procédure de vérification §3.
+**Q9 — Rétention et purge. TRANCHÉE (2026-08-24) : aucune purge prévue à ce jour.** Rétention
+indéfinie du journal tant qu'aucune politique de purge n'est instruite. L'interaction
+ancrage/purge reste explicitement hors périmètre de ce document (voir « Hors périmètre ») — dès
+qu'une politique de purge est envisagée, elle doit être instruite par un ADR dédié qui traite
+spécifiquement cette interaction avant toute implémentation, pas après : une purge légitime
+resterait sinon indiscernable d'une troncature pour la procédure de vérification §3.
 
 **Q10 — Premier ancrage.** Faut-il ancrer rétroactivement les chaînes existantes dès la mise en
 service (un premier ancrage par domaine, `previous_anchor` omis, couvrant tout l'historique déjà
