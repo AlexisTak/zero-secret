@@ -81,8 +81,8 @@ Alternatives de développement/test, par ordre de préférence :
 | C. Fournisseur PKCS#11 de test interne | maîtrisé | exclu : ce serait écrire un jeton crypto, contraire à l'invariant 1 |
 | D. SoftHSM2 pour ECDSA, ML-DSA en logiciel `aws-lc-rs` en dev uniquement | zéro outillage nouveau | crée un chemin « ML-DSA hors HSM » — acceptable seulement si mode de test explicitement nommé, refusé au démarrage en prod, couvert par un test de refus |
 
-**Recommandation : A, avec D comme filet temporaire strictement encadré.** Arbitrage à valider
-(Q1).
+**Tranché (Q1, 2026-08-24) : A — Kryoptic**, avec D comme filet temporaire strictement encadré si
+Kryoptic s'avère indisponible ou trop immature à l'implémentation.
 
 **HSM matériel qualifié ANSSI (prod).** À ce jour, aucun HSM disposant d'un **visa de sécurité
 ANSSI portant sur ML-DSA** n'est identifiable de manière fiable : les grands fournisseurs
@@ -350,8 +350,7 @@ Trois suites d'émission visent la même hybridation : `audit-seal/v2`, `identit
 
 ## Options laissées ouvertes
 
-- **O1** — jeton PKCS#11 PQC de développement : Kryoptic (recommandé) / pkcs11-provider+OpenSSL
-  3.5 / mode dégradé logiciel encadré.
+- **O1** — jeton PKCS#11 PQC de développement : **tranché, Kryoptic** (Q1, 2026-08-24).
 - **O2** — `CKM_ML_DSA` (recommandé) vs `CKM_HASH_ML_DSA_SHA256` : à trancher après vérification
   de la sémantique PKCS#11 v3.2 et mesure de latence.
 - **O3** — valeur de `MAX_BYTES_V2` : 32768 (recommandé, anticipe `decision-seal/v2`) vs 16384
@@ -447,10 +446,14 @@ Trois suites d'émission visent la même hybridation : `audit-seal/v2`, `identit
 
 ## Questions ouvertes — arbitrage humain requis avant « Statut : accepté »
 
-**Q1 — Jeton PKCS#11 PQC de développement.** Adopter Kryoptic en remplacement/complément de
-SoftHSM2 (nouvelle dépendance d'outillage, `make setup` et CI impactés, règle absolue #10), ou
-accepter temporairement un mode ML-DSA logiciel de test explicitement nommé et refusé au
-démarrage en production ? C'est le préalable technique à toute écriture de code.
+**Q1 — Jeton PKCS#11 PQC de développement. TRANCHÉE (2026-08-24) : Kryoptic.** Remplacement/
+complément de SoftHSM2 en dev, sous réserve d'un ADR de dépendance dédié (règle absolue #10 :
+licence OSI, activité de maintenance, historique CVE — Kryoptic est porté par Red Hat, PKCS#11
+3.2, support ML-DSA/ML-KEM déjà présent) et de l'adaptation de `make setup`/CI qui en découle.
+Le mode dégradé logiciel (option D) n'est pas retenu comme cible — seulement comme filet
+temporaire si Kryoptic s'avère indisponible à l'implémentation, dans les mêmes conditions
+strictes déjà décrites (nommé explicitement, refusé au démarrage en production, couvert par un
+test de refus).
 
 **Q2 — Disponibilité HSM matériel.** Qui sollicite les fournisseurs, sur quel périmètre
 (`CKM_ML_DSA`, statut visa ANSSI, calendrier), et quel est le plan si aucun ne s'engage avant
