@@ -10,7 +10,7 @@ divergence silencieuse.
 | [002](ADR-002-gestionnaire-de-secrets.md) | OpenBao comme gestionnaire de secrets | accepté | 2026-08-22 |
 | [003](ADR-003-moteur-de-politiques.md) | Cedar pour les décisions d'accès, OPA pour la plateforme | accepté | 2026-08-22 |
 | [004](ADR-004-generation-code-rust-proto.md) | Génération du code Rust depuis les contrats proto : build.rs, pas buf generate | accepté | 2026-08-22 |
-| [005](ADR-005-jenkins-remplace-github-actions.md) | Jenkins remplace GitHub Actions pour la CI, clé de signature stockée (dérogation) | accepté | 2026-08-22 |
+| [005](ADR-005-jenkins-remplace-github-actions.md) | Jenkins remplace GitHub Actions pour la CI, clé de signature stockée (dérogation) | remplacé par ADR-033 | 2026-08-22 |
 | [006](ADR-006-verification-webauthn-frontiere-crypto.md) | Vérification WebAuthn : frontière entre zs-webauthn et zs-crypto (authenticator-proof) | accepté | 2026-08-22 |
 | [007](ADR-007-suite-identity-assertion.md) | Spécification de la suite identity-assertion (émission, HSM) | accepté | 2026-08-22 |
 | [008](ADR-008-decoupage-l1-2-emission-assertion.md) | Découpage de L1.2 et frontière d'émission de l'assertion d'identité | accepté | 2026-08-22 |
@@ -38,6 +38,7 @@ divergence silencieuse.
 | [030](ADR-030-audit-seal-v2-hybride-instruction.md) | Passage de audit-seal à la suite hybride v2 (ECDSA P-256 + ML-DSA-65) | proposé | 2026-08-24 |
 | [031](ADR-031-ancrage-periodique-journal-audit.md) | Ancrage périodique du journal d'audit (audit.chain_verified) | proposé | 2026-08-24 |
 | [032](ADR-032-socle-ml-dsa-65-suites-hybrides.md) | Socle ML-DSA-65 partagé pour les suites hybrides (zs-crypto, zs-hsm) | proposé | 2026-08-24 |
+| [033](ADR-033-github-actions-remplace-jenkins.md) | GitHub Actions remplace Jenkins pour la CI | accepté | 2026-08-24 |
 
 ## Règles
 

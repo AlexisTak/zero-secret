@@ -106,6 +106,16 @@ artefact signé et attesté.
   PR #3), remplacé par Jenkins sur demande explicite — voir ADR-005 pour la justification
   complète des deux dérogations que ça introduit (secret stocké, attestation non conforme SLSA
   à la lettre).
+- **Retour à GitHub Actions (2026-08-24, ADR-033, remplace ADR-005)** : demande explicite de
+  l'utilisateur, instance Jenkins plus utilisée. `.github/workflows/{ci.yml,contracts.yml}`
+  restaurés depuis l'historique (`25e1d43~1`) et mis à jour pour couvrir `console-web`
+  (TypeScript, absent lors de la première version) et `audit-sealer` (troisième binaire Rust
+  déployable, également absent à l'époque) — construits, testés et attestés désormais. Les deux
+  dérogations d'ADR-005 disparaissent sans être remplacées : signature keyless native
+  (`actions/attest-build-provenance@v1`, OIDC/Sigstore), éphémérité native des exécuteurs
+  GitHub-hosted. `Jenkinsfile` supprimé. `tools/generate-provenance.sh` (écrit pour le stage
+  signature du `Jenkinsfile`) devient orphelin — conservé, pas supprimé, signalé dans
+  `tools/README.md`.
 
 ### L0.5 — Modèle de menaces v1
 - [x] `security/threat-models/` : un fichier par composant, les six catégories STRIDE renseignées
@@ -140,7 +150,7 @@ artefact signé et attesté.
 - **Non testé de bout en bout ici** : Podman/Docker bloqués par la politique de permission de
   cet environnement de développement (session Claude Code) — écrit et relu avec soin (syntaxe
   SQL, YAML du compose, scripts bash), mais le premier run réel (`make up && make test-e2e`)
-  reste à faire par un humain ou en CI/Jenkins.
+  reste à faire par un humain ou en CI/GitHub Actions.
 - Aucun secret durable : mots de passe PostgreSQL (`tools/migrate.sh`) et PIN SoftHSM2
   (`deploy/softhsm/init-token.sh`) générés à l'exécution, écrits dans `.env.dev`/`.env.softhsm`
   (gitignorés) ; jeton root OpenBao auto-généré par OpenBao lui-même, jamais fixé.
@@ -190,7 +200,7 @@ de l'analyseur d'attestation sans incident.
     (`crates/zs-webauthn/fuzz/fuzz_targets/attestation_parser.rs`), conformément à la mise en
     garde de `referent-crypto` — **non exécuté ici** : `cargo fuzz` (libFuzzer/ASan) échoue sur
     ce poste Windows (bibliothèque runtime `clang_rt.asan` absente du toolchain MSVC local) ; le
-    code fuzz compile (`cargo +nightly check`), l'exécution réelle est à faire en CI/Jenkins
+    code fuzz compile (`cargo +nightly check`), l'exécution réelle est à faire en CI/GitHub Actions
     (Linux).
   - Oracle différentiel de test contre `webauthn-rs` (recommandé par `referent-crypto`) :
     **reporté**, pas de test différentiel écrit faute de temps dans cette contribution.
@@ -228,7 +238,7 @@ de l'analyseur d'attestation sans incident.
 - **Non exécuté ici** : mesure de latence `sign_digest` réelle (pas de SoftHSM2 sur ce poste
   Windows, même limite que H1) ; fuzzing de `identity_assertion::verify`
   (`crates/zs-crypto/fuzz/fuzz_targets/identity_assertion_verify.rs`, compile via
-  `cargo +nightly check`, à lancer en CI/Jenkins Linux comme le fuzz target de L1.1).
+  `cargo +nightly check`, à lancer en CI/GitHub Actions Linux comme le fuzz target de L1.1).
 
 ### L1.3 — Cycle de vie
 - [x] Révocation d'authentificateur, effet immédiat (`RegisteredCredential.revoked`, vérifié en

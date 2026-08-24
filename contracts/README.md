@@ -12,7 +12,7 @@ contracts/
 
 Toute modification ici est suivie de `make generate`, sinon la compilation des consommateurs
 divergera silencieusement. Compatibilité ascendante vérifiée en CI (`buf breaking` pour les
-proto, stage `contrats (buf lint + breaking)` du `Jenkinsfile` — voir ADR-005).
+proto, workflow `contracts` de `.github/workflows/contracts.yml` — voir ADR-033).
 
 **Génération** : `buf.yaml`/`buf.gen.yaml` pilotent le lint et la génération Go (`pkg/gen/`,
 committé). Le Rust (`crates/zs-policy`, `crates/zs-identity`) n'est **pas** généré par `buf` :
