@@ -37,8 +37,11 @@ type RawEvent struct {
 	Target          *Target                `protobuf:"bytes,4,opt,name=target,proto3,oneof" json:"target,omitempty"`
 	Outcome         string                 `protobuf:"bytes,5,opt,name=outcome,proto3" json:"outcome,omitempty"`
 	Context         *Context               `protobuf:"bytes,6,opt,name=context,proto3,oneof" json:"context,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Requis si et seulement si event_type == "policy.decided" — voir sealing.proto::Decision et
+	// ADR-027.
+	Decision      *Decision `protobuf:"bytes,7,opt,name=decision,proto3,oneof" json:"decision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RawEvent) Reset() {
@@ -109,6 +112,13 @@ func (x *RawEvent) GetOutcome() string {
 func (x *RawEvent) GetContext() *Context {
 	if x != nil {
 		return x.Context
+	}
+	return nil
+}
+
+func (x *RawEvent) GetDecision() *Decision {
+	if x != nil {
+		return x.Decision
 	}
 	return nil
 }
@@ -185,7 +195,7 @@ var File_audit_v1_collection_proto protoreflect.FileDescriptor
 
 const file_audit_v1_collection_proto_rawDesc = "" +
 	"\n" +
-	"\x19audit/v1/collection.proto\x12\baudit.v1\x1a\x16audit/v1/sealing.proto\"\x8d\x02\n" +
+	"\x19audit/v1/collection.proto\x12\baudit.v1\x1a\x16audit/v1/sealing.proto\"\xcf\x02\n" +
 	"\bRawEvent\x12)\n" +
 	"\x10authority_domain\x18\x01 \x01(\tR\x0fauthorityDomain\x12\x1d\n" +
 	"\n" +
@@ -193,10 +203,12 @@ const file_audit_v1_collection_proto_rawDesc = "" +
 	"\x05actor\x18\x03 \x01(\v2\x0f.audit.v1.ActorR\x05actor\x12-\n" +
 	"\x06target\x18\x04 \x01(\v2\x10.audit.v1.TargetH\x00R\x06target\x88\x01\x01\x12\x18\n" +
 	"\aoutcome\x18\x05 \x01(\tR\aoutcome\x120\n" +
-	"\acontext\x18\x06 \x01(\v2\x11.audit.v1.ContextH\x01R\acontext\x88\x01\x01B\t\n" +
+	"\acontext\x18\x06 \x01(\v2\x11.audit.v1.ContextH\x01R\acontext\x88\x01\x01\x123\n" +
+	"\bdecision\x18\a \x01(\v2\x12.audit.v1.DecisionH\x02R\bdecision\x88\x01\x01B\t\n" +
 	"\a_targetB\n" +
 	"\n" +
-	"\b_context\"y\n" +
+	"\b_contextB\v\n" +
+	"\t_decision\"y\n" +
 	"\fRecordResult\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x19\n" +
@@ -225,18 +237,20 @@ var file_audit_v1_collection_proto_goTypes = []any{
 	(*Actor)(nil),        // 2: audit.v1.Actor
 	(*Target)(nil),       // 3: audit.v1.Target
 	(*Context)(nil),      // 4: audit.v1.Context
+	(*Decision)(nil),     // 5: audit.v1.Decision
 }
 var file_audit_v1_collection_proto_depIdxs = []int32{
 	2, // 0: audit.v1.RawEvent.actor:type_name -> audit.v1.Actor
 	3, // 1: audit.v1.RawEvent.target:type_name -> audit.v1.Target
 	4, // 2: audit.v1.RawEvent.context:type_name -> audit.v1.Context
-	0, // 3: audit.v1.AuditCollectionService.Record:input_type -> audit.v1.RawEvent
-	1, // 4: audit.v1.AuditCollectionService.Record:output_type -> audit.v1.RecordResult
-	4, // [4:5] is the sub-list for method output_type
-	3, // [3:4] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	5, // 3: audit.v1.RawEvent.decision:type_name -> audit.v1.Decision
+	0, // 4: audit.v1.AuditCollectionService.Record:input_type -> audit.v1.RawEvent
+	1, // 5: audit.v1.AuditCollectionService.Record:output_type -> audit.v1.RecordResult
+	5, // [5:6] is the sub-list for method output_type
+	4, // [4:5] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_audit_v1_collection_proto_init() }

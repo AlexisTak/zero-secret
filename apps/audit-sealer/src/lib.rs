@@ -9,17 +9,15 @@
 //! propre clé de scellement strictement intra-process, ce composant est le premier à la
 //! partager en service dédié, donc la colocalisation par socket Unix remplace le mTLS absent.
 //!
-//! Ne porte pas le champ `decision` du contrat JSON Schema (`contracts/events/
-//! audit-event.schema.json`) — non supporté par `AuditEventFields` à ce jour (portée assumée du
-//! module, cf. son commentaire) : `policy.decided`/`credential.issued` ne peuvent donc pas
-//! encore être scellés via ce pont, seuls les types déjà couverts par
-//! `zs_crypto::audit_seal::EventType` le peuvent (parcours WebAuthn + `quorum.operation`).
+//! Porte désormais le champ `decision` (ADR-027) — `policy.decided` peut être scellé via ce
+//! pont. `credential.issued` (même forme de `decision`) reste hors périmètre, aucun producteur
+//! ne l'émet encore.
 
 use tonic::{Request, Response, Status};
 
 use zs_audit_sealing::audit::v1::{
-    Actor as ProtoActor, Context as ProtoContext, HashPreviousRequest, HashPreviousResponse,
-    SealRequest, SealResponse, Target as ProtoTarget,
+    Actor as ProtoActor, Context as ProtoContext, Decision as ProtoDecision, HashPreviousRequest,
+    HashPreviousResponse, SealRequest, SealResponse, Target as ProtoTarget,
     audit_sealing_service_server::AuditSealingService,
 };
 use zs_crypto::audit_seal::{
@@ -88,6 +86,7 @@ fn fields_from_request(req: SealRequest) -> Result<AuditEventFields, String> {
 
     let target = req.target.map(target_from_proto).transpose()?;
     let context = req.context.map(context_from_proto).transpose()?;
+    let decision = req.decision.map(decision_from_proto).transpose()?;
 
     Ok(AuditEventFields {
         event_id: audit_seal::EventId::new(req.event_id).map_err(|e| e.to_string())?,
@@ -101,6 +100,7 @@ fn fields_from_request(req: SealRequest) -> Result<AuditEventFields, String> {
         target,
         outcome,
         context,
+        decision,
     })
 }
 
@@ -129,6 +129,34 @@ fn target_from_proto(target: ProtoTarget) -> Result<audit_seal::Target, String> 
     Ok(audit_seal::Target {
         target_type: audit_seal::ShortText::new(target.r#type).map_err(|e| e.to_string())?,
         id: audit_seal::ShortText::new(target.id).map_err(|e| e.to_string())?,
+    })
+}
+
+fn decision_from_proto(decision: ProtoDecision) -> Result<audit_seal::DecisionInfo, String> {
+    let decision_hash: [u8; 32] = decision
+        .decision_hash
+        .try_into()
+        .map_err(|_| "decision_hash_doit_faire_32_octets".to_string())?;
+    let reasons = decision
+        .reasons
+        .into_iter()
+        .map(audit_seal::Reason::new)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(audit_seal::DecisionInfo {
+        request_id: audit_seal::RequestId::new(decision.request_id).map_err(|e| e.to_string())?,
+        decision_hash,
+        policy_version: audit_seal::PolicyVersion::new(decision.policy_version)
+            .map_err(|e| e.to_string())?,
+        reasons,
+        granted_ttl_seconds: decision.granted_ttl_seconds,
+        decision_signature: decision.decision_signature,
+        decision_signature_key_id: decision
+            .decision_signature_key_id
+            .map(audit_seal::ShortText::new)
+            .transpose()
+            .map_err(|e| e.to_string())?,
     })
 }
 
@@ -167,6 +195,7 @@ fn event_type_from_str(s: &str) -> Option<EventType> {
         "recovery.initiated" => EventType::RecoveryInitiated,
         "quorum.operation" => EventType::QuorumOperation,
         "audit.chain_verified" => EventType::AuditChainVerified,
+        "policy.decided" => EventType::PolicyDecided,
         _ => return None,
     })
 }
@@ -238,7 +267,8 @@ mod tests {
 
     #[test]
     fn event_type_inconnu_est_refuse() {
-        assert!(event_type_from_str("policy.decided").is_none());
+        // credential.issued a la même forme de `decision` que policy.decided mais aucun
+        // producteur ne l'émet encore (ADR-027, pas d'anticipation) — reste refusé ici.
         assert!(event_type_from_str("credential.issued").is_none());
         assert!(event_type_from_str("n_importe_quoi").is_none());
     }
@@ -247,6 +277,28 @@ mod tests {
     fn event_type_connu_est_accepte() {
         assert!(event_type_from_str("quorum.operation").is_some());
         assert!(event_type_from_str("authentication.succeeded").is_some());
+        assert!(event_type_from_str("policy.decided").is_some());
+    }
+
+    fn sample_actor() -> ProtoActor {
+        ProtoActor {
+            subject_id: "subject-1".to_string(),
+            kind: "human".to_string(),
+            aal: None,
+            auth_method: None,
+        }
+    }
+
+    fn sample_decision() -> ProtoDecision {
+        ProtoDecision {
+            request_id: "f47ac10b-58cc-4372-a567-0e02b2c3d479".to_string(),
+            decision_hash: vec![0xCDu8; 32],
+            policy_version: "db.connect@1".to_string(),
+            reasons: vec!["db-connect-production".to_string()],
+            granted_ttl_seconds: Some(900),
+            decision_signature: Some(vec![0xEFu8; 64]),
+            decision_signature_key_id: Some("decision-key-1".to_string()),
+        }
     }
 
     #[test]
@@ -261,15 +313,11 @@ mod tests {
             }),
             authority_domain: "identity-provider".to_string(),
             event_type: "quorum.operation".to_string(),
-            actor: Some(ProtoActor {
-                subject_id: "subject-1".to_string(),
-                kind: "human".to_string(),
-                aal: None,
-                auth_method: None,
-            }),
+            actor: Some(sample_actor()),
             target: None,
             outcome: "success".to_string(),
             context: None,
+            decision: None,
         };
         match fields_from_request(req) {
             Err(reason) => assert_eq!(reason, "prev_hash_doit_faire_32_octets"),
@@ -288,19 +336,73 @@ mod tests {
                 nanos: 0,
             }),
             authority_domain: "identity-provider".to_string(),
-            event_type: "policy.decided".to_string(),
-            actor: Some(ProtoActor {
-                subject_id: "subject-1".to_string(),
-                kind: "human".to_string(),
-                aal: None,
-                auth_method: None,
-            }),
+            event_type: "credential.issued".to_string(),
+            actor: Some(sample_actor()),
             target: None,
             outcome: "success".to_string(),
             context: None,
+            decision: None,
         };
         match fields_from_request(req) {
             Err(reason) => assert_eq!(reason, "event_type_inconnu_ou_non_supporte"),
+            Ok(_) => panic!("attendu un refus"),
+        }
+    }
+
+    #[test]
+    fn fields_from_request_accepte_policy_decided_avec_decision() {
+        let req = SealRequest {
+            event_id: "0198e6c1-0000-7000-8000-000000000000".to_string(),
+            sequence: 0,
+            prev_hash: vec![0u8; 32],
+            occurred_at: Some(prost_types::Timestamp {
+                seconds: 1_777_000_000,
+                nanos: 0,
+            }),
+            authority_domain: "access-broker".to_string(),
+            event_type: "policy.decided".to_string(),
+            actor: Some(sample_actor()),
+            target: None,
+            outcome: "success".to_string(),
+            context: None,
+            decision: Some(sample_decision()),
+        };
+        assert!(fields_from_request(req).is_ok());
+    }
+
+    #[test]
+    fn fields_from_request_refuse_policy_decided_sans_decision() {
+        // Le couplage bidirectionnel (zs_crypto::audit_seal::EventType::requires_decision) est
+        // vérifié par AuditSealer::seal, pas par fields_from_request lui-même — mais
+        // fields_from_request doit au moins produire un AuditEventFields cohérent (decision:
+        // None ici), pas paniquer ni inventer une valeur. Le refus réel est couvert côté
+        // zs-crypto (decision_absente_sur_policy_decided_est_refusee_au_scellement).
+        let req = SealRequest {
+            event_id: "0198e6c1-0000-7000-8000-000000000000".to_string(),
+            sequence: 0,
+            prev_hash: vec![0u8; 32],
+            occurred_at: Some(prost_types::Timestamp {
+                seconds: 1_777_000_000,
+                nanos: 0,
+            }),
+            authority_domain: "access-broker".to_string(),
+            event_type: "policy.decided".to_string(),
+            actor: Some(sample_actor()),
+            target: None,
+            outcome: "success".to_string(),
+            context: None,
+            decision: None,
+        };
+        let fields = fields_from_request(req).expect("construction réussie, decision absente");
+        assert!(fields.decision.is_none());
+    }
+
+    #[test]
+    fn decision_from_proto_refuse_un_decision_hash_de_mauvaise_longueur() {
+        let mut decision = sample_decision();
+        decision.decision_hash = vec![0u8; 31];
+        match decision_from_proto(decision) {
+            Err(reason) => assert_eq!(reason, "decision_hash_doit_faire_32_octets"),
             Ok(_) => panic!("attendu un refus"),
         }
     }

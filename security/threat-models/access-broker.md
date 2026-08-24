@@ -12,8 +12,11 @@ de la révocation. C'est l'orchestrateur du plan de données — il ne décide r
 
 Frontières de confiance : utilisateur authentifié (assertion `identity-provider`) →
 `access-broker` (Go, exposé) → `policy-engine` (mTLS interne) → `credential-issuer` (mTLS
-interne, ordre d'émission portant la décision signée). Composant le plus exposé du plan de
-données : c'est lui qui reçoit les requêtes utilisateur directement.
+interne, ordre d'émission portant la décision signée) → `audit-collector` (réseau normal, même
+dette de TLS, ADR-027 : `policy.decided` envoyé après chaque décision réellement consultée
+auprès du PDP, ALLOW et DENY, best-effort — un échec n'invalide jamais la réponse HTTP).
+Composant le plus exposé du plan de données : c'est lui qui reçoit les requêtes utilisateur
+directement.
 
 ## Actifs
 

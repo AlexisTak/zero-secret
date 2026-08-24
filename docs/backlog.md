@@ -736,6 +736,33 @@ questions qu'elle pose.
   CI Linux avant tout déploiement.
 - Voir ADR-026 pour la conception complète, y compris la décision critique du socket Unix.
 
+### `policy.decided` scellable + `access-broker` câblé sur `audit-collector`
+- [x] `crates/zs-crypto::audit_seal` — `AuditEventFields.decision: Option<DecisionInfo>`,
+      `EventType::PolicyDecided`, couplage bidirectionnel `decision`↔`event_type` vérifié en
+      émission ET en vérification (`ADR-027`). Extension additive d'`audit-seal/v1`, **pas de
+      `v2`** — le vecteur figé `tests/vectors/audit-seal-v1/chain.json` reste identique bit à
+      bit, non régénéré.
+- [x] `contracts/events/audit-event.schema.json` — `decision.decision_signature`/
+      `decision_signature_key_id` (optionnels), recopiés de `decision-seal/v1` — établissent
+      l'origine PDP du `decision_hash`, jamais vérifiés par `audit-sealer` lui-même (transportés
+      pour un futur vérificateur hors ligne, non construit dans ce dépôt).
+- [x] Deux défauts préexistants de `zs-crypto` corrigés dans le même lot, trouvés en écrivant ce
+      changement (pas des ajouts de portée) : `seal()` ne bornait pas la taille du document
+      produit alors que `verify()` refuse déjà au-delà de `MAX_BYTES` (rupture de chaîne
+      définitive possible) ; `actor_value`/`context_value` (et leur pendant côté vérification)
+      sérialisaient un champ interne optionnel absent en JSON `null`, refusé par le contrat.
+- [x] `apps/audit-sealer` — accepte `policy.decided`, mappe le message proto `Decision`.
+- [x] `apps/access-broker` — `broker.Decision.Signed` peuplé sur ALLOW **et** DENY (jusqu'ici
+      ALLOW seul, asymétrie locale sans lien avec `policy-engine` qui scelle toute réponse) ;
+      `internal/httpapi/handler.go` appelle `audit-collector.Record` quand le PDP a réellement
+      été consulté, jamais pour un refus local avant tout appel PDP. Échec d'audit **best-effort**
+      — journalisé, ne fait jamais échouer la réponse HTTP (même patron que le déclenchement
+      d'émission, ADR-025).
+- **Toujours hors périmètre, reconfirmé** : `credential.issued` non scellé (même forme de
+  `decision`, aucun producteur ne l'émet encore).
+- Voir ADR-027 pour la conception complète, y compris la discussion sur la fenêtre de temps qui
+  justifie l'amendement du contrat maintenant plutôt que différé.
+
 ---
 
 ## Règles de session

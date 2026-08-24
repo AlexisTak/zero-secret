@@ -76,38 +76,52 @@ impl Timestamp {
     }
 }
 
-/// UUIDv7 validé structurellement : forme `8-4-4-4-12` hexadécimale, nibble de version (position
-/// 14) égal à `7`. Réutilisé par `identity_assertion::audit_event_id` (référence vers
-/// l'événement d'audit qui la porte) et `audit_seal::event_id` (identifiant propre de
-/// l'événement) — même validation, deux usages.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EventId(String);
+/// UUID validé structurellement : forme `8-4-4-4-12` hexadécimale. `$require_v7` impose en plus
+/// le nibble de version (position 14) égal à `7` — utilisé par `EventId` (le contrat exige
+/// UUIDv7, ordre lexicographique = ordre temporel) mais pas par `RequestId` (le contrat de
+/// `decision.request_id` n'impose que `format: uuid`, sans version particulière : l'imposer
+/// refuserait de sceller une décision légitime dont le `request_id` ne serait pas UUIDv7, un
+/// événement d'audit perdu, contraire à la règle absolue #9 — ADR-027).
+macro_rules! uuid_string {
+    ($name:ident, $field:expr, $require_v7:expr) => {
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub struct $name(String);
 
-impl EventId {
-    pub fn new(value: impl Into<String>) -> Result<Self, FieldError> {
-        let value = value.into();
-        let bytes = value.as_bytes();
-        let dashes_ok = bytes.len() == 36
-            && bytes[8] == b'-'
-            && bytes[13] == b'-'
-            && bytes[18] == b'-'
-            && bytes[23] == b'-';
-        let hex_ok = dashes_ok
-            && bytes
-                .iter()
-                .enumerate()
-                .all(|(i, &b)| matches!(i, 8 | 13 | 18 | 23) || b.is_ascii_hexdigit());
-        let version_ok = dashes_ok && bytes[14] == b'7';
-        if !(hex_ok && version_ok) {
-            return Err(FieldError("event_id"));
+        impl $name {
+            pub fn new(value: impl Into<String>) -> Result<Self, FieldError> {
+                let value = value.into();
+                let bytes = value.as_bytes();
+                let dashes_ok = bytes.len() == 36
+                    && bytes[8] == b'-'
+                    && bytes[13] == b'-'
+                    && bytes[18] == b'-'
+                    && bytes[23] == b'-';
+                let hex_ok = dashes_ok
+                    && bytes
+                        .iter()
+                        .enumerate()
+                        .all(|(i, &b)| matches!(i, 8 | 13 | 18 | 23) || b.is_ascii_hexdigit());
+                let version_ok = dashes_ok && (!$require_v7 || bytes[14] == b'7');
+                if !(hex_ok && version_ok) {
+                    return Err(FieldError($field));
+                }
+                Ok(Self(value))
+            }
+
+            pub(crate) fn as_str(&self) -> &str {
+                &self.0
+            }
         }
-        Ok(Self(value))
-    }
-
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
-    }
+    };
 }
+
+// Réutilisé par `identity_assertion::audit_event_id` (référence vers l'événement d'audit qui la
+// porte) et `audit_seal::event_id` (identifiant propre de l'événement) — UUIDv7 exigé dans les
+// deux cas.
+uuid_string!(EventId, "event_id", true);
+// `audit_seal::DecisionInfo::request_id` (ADR-027) — UUID sans contrainte de version, voir la
+// mise en garde ci-dessus.
+uuid_string!(RequestId, "decision.request_id", false);
 
 pub(crate) fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()

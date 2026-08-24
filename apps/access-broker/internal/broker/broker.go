@@ -109,9 +109,11 @@ func (b *Broker) Decide(ctx context.Context, req AccessRequest) (Decision, error
 		Reasons:       resp.Reasons,
 		DecisionHash:  resp.DecisionHash,
 		PolicyVersion: resp.PolicyVersion,
-	}
-	if decision.Allowed {
-		decision.Signed = resp
+		// policy-engine scelle TOUTES ses réponses, ALLOW et DENY confondus (decision-seal/v1,
+		// H4) — Signed est donc toujours peuplé dès que le PDP a été consulté, plus seulement
+		// sur ALLOW (ADR-027) : un refus d'accès mérite d'être audité au moins autant qu'un
+		// octroi (policy.decided, apps/access-broker/internal/httpapi/handler.go).
+		Signed: resp,
 	}
 	return decision, nil
 }

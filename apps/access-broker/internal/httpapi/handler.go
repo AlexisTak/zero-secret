@@ -12,12 +12,15 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 
+	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
 	credentialv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/credential/v1"
 	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
 
@@ -27,11 +30,12 @@ import (
 type API struct {
 	identityClient   identityv1.AssertionVerificationServiceClient
 	credentialClient credentialv1.CredentialIssuanceServiceClient
+	auditClient      auditv1.AuditCollectionServiceClient
 	broker           *broker.Broker
 }
 
-func New(identityClient identityv1.AssertionVerificationServiceClient, credentialClient credentialv1.CredentialIssuanceServiceClient, b *broker.Broker) *API {
-	return &API{identityClient: identityClient, credentialClient: credentialClient, broker: b}
+func New(identityClient identityv1.AssertionVerificationServiceClient, credentialClient credentialv1.CredentialIssuanceServiceClient, auditClient auditv1.AuditCollectionServiceClient, b *broker.Broker) *API {
+	return &API{identityClient: identityClient, credentialClient: credentialClient, auditClient: auditClient, broker: b}
 }
 
 func (h *API) CreateAccessRequest(w http.ResponseWriter, r *http.Request, params CreateAccessRequestParams) {
@@ -103,6 +107,14 @@ func (h *API) CreateAccessRequest(w http.ResponseWriter, r *http.Request, params
 		return
 	}
 
+	// policy.decided n'est audité que si le PDP a réellement été consulté (Signed != nil) —
+	// jamais pour un refus local avant tout appel PDP (justification trop longue, champ requis
+	// absent, approbation vérifiée absente) : ces refus n'ont ni decision_hash ni
+	// policy_version significatifs, il n'y a pas de décision à auditer (ADR-027).
+	if decision.Signed != nil {
+		h.recordPolicyDecided(ctx, requestID.String(), body, verifyResp, decision)
+	}
+
 	resp := Decision{
 		Allowed:       decision.Allowed,
 		Reasons:       decision.Reasons,
@@ -133,6 +145,85 @@ func (h *API) CreateAccessRequest(w http.ResponseWriter, r *http.Request, params
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// recordPolicyDecided envoie policy.decided à audit-collector — best-effort, une panne n'échoue
+// jamais la réponse HTTP (même patron que le déclenchement d'émission ci-dessus) : la décision
+// PDP a déjà eu lieu de façon irréversible au moment où l'audit est tenté, échouer toute la
+// requête ici ne l'annulerait pas, seulement priverait l'appelant légitime d'une réponse déjà
+// déterminée (ADR-027, cohérent avec docs/architecture.md : « une saturation de l'audit ne
+// dégrade pas l'accès »). Erreur journalisée, jamais silencieuse.
+func (h *API) recordPolicyDecided(ctx context.Context, requestID string, body AccessRequestBody, verifyResp *identityv1.VerifyAssertionResponse, decision broker.Decision) {
+	outcome := "denied"
+	if decision.Allowed {
+		outcome = "success"
+	}
+
+	var grantedTTL *uint32
+	if decision.Signed.MaxTtl != nil {
+		seconds := uint32(decision.Signed.MaxTtl.AsDuration().Seconds())
+		grantedTTL = &seconds
+	}
+
+	var decisionSignature []byte
+	var decisionSignatureKeyID *string
+	if len(decision.Signed.DecisionSignature) > 0 {
+		decisionSignature = decision.Signed.DecisionSignature
+		keyID := decision.Signed.DecisionSignatureKeyId
+		decisionSignatureKeyID = &keyID
+	}
+
+	_, err := h.auditClient.Record(ctx, &auditv1.RawEvent{
+		AuthorityDomain: body.ExpectedAuthorityDomain,
+		EventType:       "policy.decided",
+		Actor: &auditv1.Actor{
+			SubjectId:  verifyResp.SubjectId,
+			Kind:       "human",
+			Aal:        optionalString(verifyResp.Aal),
+			AuthMethod: optionalString(verifyResp.AuthMethod),
+		},
+		Target: &auditv1.Target{
+			Type: body.Resource.Type,
+			Id:   body.Resource.Id,
+		},
+		Outcome: outcome,
+		Context: &auditv1.Context{
+			SourceNetwork: optionalStringPtr(body.SourceNetwork),
+			TicketRef:     optionalString(body.TicketRef),
+			Justification: optionalString(body.Justification),
+		},
+		Decision: &auditv1.Decision{
+			RequestId:              requestID,
+			DecisionHash:           decision.Signed.DecisionHash,
+			PolicyVersion:          decision.Signed.PolicyVersion,
+			Reasons:                decision.Signed.Reasons,
+			GrantedTtlSeconds:      grantedTTL,
+			DecisionSignature:      decisionSignature,
+			DecisionSignatureKeyId: decisionSignatureKeyID,
+		},
+	})
+	if err != nil {
+		log.Printf("access-broker: échec de l'envoi de policy.decided à audit-collector (requête %s) : %v", requestID, err)
+	}
+}
+
+// optionalString omet un champ optional proto (jamais une chaîne vide présente, qui échouerait
+// la validation de longueur minimale côté zs-crypto ShortText — même principe que
+// contracts/openapi/access-broker.yaml : un champ optionnel absent, pas vide).
+func optionalString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// optionalStringPtr applique la même règle qu'optionalString à un champ déjà optionnel côté
+// contrat OpenAPI (*string) — un pointeur non nil vers une chaîne vide reste omis.
+func optionalStringPtr(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	return optionalString(*s)
 }
 
 func posturefrom(p Posture) broker.Posture {

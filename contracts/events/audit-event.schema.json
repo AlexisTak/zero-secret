@@ -71,7 +71,13 @@
         "decision_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "policy_version": { "type": "string" },
         "reasons": { "type": "array", "items": { "type": "string" } },
-        "granted_ttl_seconds": { "type": "integer", "minimum": 0 }
+        "granted_ttl_seconds": { "type": "integer", "minimum": 0 },
+        "decision_signature": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$",
+          "description": "Recopié de decision-seal/v1 (policyv1.DecisionResponse.decision_signature) — établit, avec decision_signature_key_id, que decision_hash vient réellement du PDP, pas seulement qu'il a été détenu par le domaine d'autorité qui a scellé cet événement (ADR-027). Non vérifié par audit-sealer au scellement : la vérification indépendante des deux signatures (audit-seal/v1 et decision-seal/v1) revient à un vérificateur hors ligne possédant les deux clés publiques."
+        },
+        "decision_signature_key_id": { "type": "string" }
       }
     },
     "context": {
