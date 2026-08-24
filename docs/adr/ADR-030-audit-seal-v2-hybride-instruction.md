@@ -1,7 +1,11 @@
 # ADR-030 — Passage de `audit-seal` à la suite hybride v2 (ECDSA P-256 + ML-DSA-65)
 
-**Statut** : proposé — ne pas passer à « accepté » avant arbitrage des questions ouvertes en fin
-de document.
+**Statut** : proposé — Q1-Q9 toutes tranchées (2026-08-24). Ne peut pas passer à « accepté »
+avant l'acceptation de ses deux prérequis : [ADR-031](ADR-031-ancrage-periodique-journal-audit.md)
+(ancrage périodique, dont dépend le mécanisme de bascule §6) et
+[ADR-032](ADR-032-socle-ml-dsa-65-suites-hybrides.md) (socle ML-DSA-65 partagé, dont dépend le
+mécanisme de signature §1-3). Une fois les deux acceptés, ADR-030 doit être amendé selon le
+tableau ADR-032 §9 avant son propre passage à « accepté ».
 **Date** : 2026-08-24
 **Auteurs** : instruction `referent-crypto`, à relire par le porteur du projet.
 
@@ -538,8 +542,13 @@ mentionné en toutes lettres, pas silencieusement contourné. ADR-013 lui-même 
 dans le document qui le décide, et devra être répercuté dans le futur ADR
 `identity-assertion/v2` qui héritera de la charge de la convergence.
 
-**Q9 — Définition de la date de bascule `T`** (option O4) : séquence de l'événement charnière
-(recommandé, vérifiable hors ligne) ou date calendaire ?
+**Q9 — Définition de la date de bascule `T` (option O4). TRANCHÉE (2026-08-24) : séquence de
+l'événement charnière, pas une date calendaire.** Close par ADR-031 §5 (ancrage périodique) :
+`T` = la séquence de l'ancrage `anchor.reason = "suite_transition"` de chaque domaine d'autorité.
+Un vérificateur applique « tout événement de séquence ≥ `T` doit être en v2 » en lisant la
+chaîne seule, hors ligne, sans horloge — propriété qu'une date calendaire ne peut pas offrir. `T`
+est donc défini par domaine, pas globalement pour le système (cohérent avec Q6 : un ancrage par
+domaine, jamais global).
 
 Sources : [cyber.gouv.fr — PQC](https://cyber.gouv.fr/enjeux-technologiques/cryptographie-post-quantique/),
 [INCYBER — ANSSI intègre le post-quantique aux exigences de certification](https://incyber.org/article/lanssi-integre-le-post-quantique-a-ses-exigences-de-certification/),
