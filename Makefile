@@ -54,7 +54,7 @@ test: ## Unitaires + propriété + politiques
 	# `cedar test` n'existe pas : le CLI expose `validate` et `run-tests`, et n'accepte qu'un
 	# fichier de politiques (pas un dossier). tools/cedar-test.sh fait les deux (L2.1).
 	# `|| true` conservé tel quel : rendre l'étape bloquante suppose de provisionner le CLI
-	# Cedar dans le Jenkinsfile — changement de CI, validation humaine explicite requise.
+	# Cedar dans .github/workflows/ci.yml — changement de CI, validation humaine explicite requise.
 	bash tools/cedar-test.sh || true
 	opa test policies/platform policies/tests -v || true
 

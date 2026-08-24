@@ -1,6 +1,6 @@
 # ADR-005 — Jenkins remplace GitHub Actions pour la CI, clé de signature stockée (dérogation)
 
-**Statut** : accepté
+**Statut** : remplacé par [ADR-033](ADR-033-github-actions-remplace-jenkins.md)
 **Date** : 2026-08-22
 **Décideurs** : responsable technique
 

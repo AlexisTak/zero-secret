@@ -1,0 +1,196 @@
+name: ci
+
+# Chaîne CI — backlog L0.4. Étapes dans l'ordre attendu : format → lint → détection de secrets
+# → build → tests → tests d'architecture → analyse de dépendances → SBOM → CBOM → build
+# reproductible → signature/attestation.
+#
+# Exécuteurs GitHub-hosted : éphémères par construction (règle absolue #1 — aucun secret
+# durable stocké ; ce que la CI a besoin de prouver son identité, elle le fait via l'OIDC de
+# GitHub, jamais via un secret de dépôt). Bascule depuis Jenkins — voir ADR-033 (remplace
+# ADR-005) : la dérogation « clé cosign stockée dans le Jenkins Credentials Store » disparaît
+# avec Jenkins, remplacée par la signature keyless native de cette plateforme.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  GO_VERSION: "1.23"
+  NODE_VERSION: "22"
+
+jobs:
+  format-lint:
+    name: format + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: gofmt -l . | tee /dev/stderr | (! read)
+      - name: go vet (par module, go.work multi-module)
+        run: |
+          go list -m -f '{{.Dir}}' | while IFS= read -r d; do
+            (cd "$d" && go vet ./...) || exit 1
+          done
+
+  console-web:
+    name: console-web (build + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/console-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - run: npm run build
+      - run: node --test
+
+  secrets:
+    name: détection de secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scanne l'historique, pas seulement HEAD
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # fourni par l'exécuteur, pas un secret durable du dépôt
+
+  build-test:
+    name: build + tests + tests d'architecture
+    needs: [format-lint, secrets]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - run: cargo build --workspace
+      - name: cargo nextest (repli sur cargo test si nextest absent)
+        run: |
+          cargo install --locked cargo-nextest 2>/dev/null || true
+          cargo nextest run --all-features || cargo test --all-features
+      - name: go build + test (par module)
+        run: |
+          go list -m -f '{{.Dir}}' | while IFS= read -r d; do
+            (cd "$d" && go build ./... && go test ./... -race) || exit 1
+          done
+      - name: tests d'architecture (L0.2)
+        run: bash tools/check-arch.sh
+
+  dependency-analysis:
+    name: analyse de dépendances
+    needs: [build-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - run: cargo install --locked cargo-audit cargo-deny
+      - run: cargo audit
+      - run: cargo deny check licenses bans sources advisories
+      - name: govulncheck (par module)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go list -m -f '{{.Dir}}' | while IFS= read -r d; do
+            (cd "$d" && govulncheck ./...) || exit 1
+          done
+
+  sbom-cbom:
+    name: SBOM + CBOM
+    needs: [build-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - run: |
+          cargo install --locked cargo-cyclonedx
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+      - run: bash tools/collect-sbom.sh
+      - run: bash tools/generate-cbom.sh > security/crypto-inventory/cbom.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cbom
+          path: |
+            security/sbom/
+            security/crypto-inventory/cbom.json
+          retention-days: 90
+
+  reproducible-build:
+    name: build reproductible (informatif — ne bloque pas la CI)
+    needs: [build-test]
+    runs-on: ubuntu-latest
+    # Vérifié localement (2026-08-22) : un cargo build --release identique, deux fois de suite,
+    # produit des binaires DIFFÉRENTS bit à bit (ordre de codegen non déterministe entre autres
+    # causes connues de l'écosystème Rust, sans -C codegen-units=1 / RUSTFLAGS dédiés). Rendre ce
+    # job bloquant aujourd'hui casserait la CI sur un problème non résolu, pas sur une régression
+    # introduite par une contribution — donc continue-on-error, en attendant l'ADR qui traite la
+    # reproductibilité (SOURCE_DATE_EPOCH, toolchain figée, flags de build hermétique).
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: build deux fois, comparer les binaires
+        run: |
+          cargo build --release -p identity-provider -p policy-engine -p audit-sealer
+          cp target/release/identity-provider /tmp/build1-identity-provider
+          cp target/release/policy-engine /tmp/build1-policy-engine
+          cp target/release/audit-sealer /tmp/build1-audit-sealer
+          cargo clean --release -p identity-provider -p policy-engine -p audit-sealer
+          cargo build --release -p identity-provider -p policy-engine -p audit-sealer
+          diff <(sha256sum /tmp/build1-identity-provider | cut -d' ' -f1) \
+               <(sha256sum target/release/identity-provider | cut -d' ' -f1)
+          diff <(sha256sum /tmp/build1-policy-engine | cut -d' ' -f1) \
+               <(sha256sum target/release/policy-engine | cut -d' ' -f1)
+          diff <(sha256sum /tmp/build1-audit-sealer | cut -d' ' -f1) \
+               <(sha256sum target/release/audit-sealer | cut -d' ' -f1)
+
+  attest:
+    name: signature + attestation de provenance
+    needs: [build-test, dependency-analysis]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # attestation de provenance signée keyless (Sigstore/Fulcio via OIDC)
+      attestations: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - run: cargo build --release -p identity-provider -p policy-engine -p audit-sealer
+      - name: build binaires Go
+        run: |
+          mkdir -p bin
+          for app in access-broker admin-api audit-collector credential-issuer; do
+            (cd "apps/$app" && go build -o "../../bin/$app" .)
+          done
+      - uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            target/release/identity-provider
+            target/release/policy-engine
+            target/release/audit-sealer
+            bin/access-broker
+            bin/admin-api
+            bin/audit-collector
+            bin/credential-issuer
