@@ -583,10 +583,11 @@ conteneur `signature` à N composantes d'ADR-012/013, où anticiper la cardinali
 rupture de contrat ultérieure. Accueille un registre supplémentaire (ex. reçu SCITT, option (e)
 en veille) sans jamais modifier `contracts/events/audit-event.schema.json` de nouveau.
 
-**Q7 — Antériorité vis-à-vis d'ADR-030.** Confirmez-vous l'ordre ADR-031 → ADR-030, avec le
-point 7 de la Décision proposée d'ADR-030 réécrit par renvoi à
-`anchor.reason = "suite_transition"` ? Cela clôt Q6 d'ADR-030 et tranche sa Q9 en faveur de la
-séquence.
+**Q7 — Antériorité vis-à-vis d'ADR-030. TRANCHÉE (2026-08-24) : confirmée.** Ordre
+ADR-031 → ADR-030. ADR-030 (§Q6/Q9, déjà mis à jour dans ce sens) renvoie à
+`anchor.reason = "suite_transition"` pour son événement charnière, et `T` s'y définit comme la
+séquence de cet ancrage plutôt qu'une date calendaire — cohérent avec la décision déjà actée
+côté ADR-030 dans cette même session.
 
 **Q8 — Correction documentaire.** Validez-vous la correction de `docs/architecture.md` et
 `security/threat-models/audit-collector.md`, qui décrivent un « chaînage Merkle » inexistant ?
