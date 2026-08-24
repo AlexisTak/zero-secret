@@ -1,6 +1,6 @@
 module github.com/Biscuits-ia/biscuits-shield/apps/admin-api
 
-go 1.23
+go 1.25
 
 require github.com/Biscuits-ia/biscuits-shield/pkg/gen v0.0.0
 
