@@ -559,9 +559,14 @@ préserver la propriété « l'ancreur n'est pas l'écrivain » — un `audit-co
 tronque et n'ancre pas si les deux processus sont confondus. Pas de repli goroutine : implémenté
 directement comme composant séparé dès la première livraison, pas de dette transitoire à dater.
 
-**Q4 — Valeurs de `N` et `T`.** `N = 1000` / `T = 1 h` sont des propositions. La question réelle
-à trancher est l'objectif de service : combien d'événements peut-on accepter de perdre sans
-détection ? La réponse fixe les paramètres, pas l'inverse.
+**Q4 — Valeurs de `N` et `T`. TRANCHÉE (2026-08-24) : `N = 1000`, `T = 1 h`.** Objectif de
+service retenu : « au plus 1 000 événements ou 1 heure d'historique peuvent disparaître d'un
+domaine sans détection », le premier des deux critères atteint déclenchant l'ancrage. Cohérent
+avec l'hypothèse de charge d'ADR-030 Q5 (~50 000 événements/jour) — laisse ~2 000 événements
+tronçonnables dans la fenêtre horaire au pire cas, sans multiplier le coût HSM/volumétrie/appels
+AH qu'imposerait un seuil plus strict (ex. N=100/T=15min, ~14× plus d'ancrages sur les domaines
+peu actifs comme `admin-api`). Par domaine, configurable, plancher de sécurité documenté — à
+recaler sur charge réelle observée (critère de réexamen déjà posé).
 
 **Q5 — Ancrage sur chaîne cassée.** Confirmez-vous qu'un ancrage `outcome: "error"` est émis et
 publié quand `verify_chain` échoue, plutôt qu'un refus d'émettre ? Position défendue ici : oui —
