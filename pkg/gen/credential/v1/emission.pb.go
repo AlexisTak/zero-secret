@@ -8,9 +8,12 @@
 // interne service-à-service (pas une entrée navigateur, donc gRPC, pas HTTP — même distinction
 // déjà posée pour policy.v1/identity.v1 vs contracts/openapi/).
 //
-// credential.issued n'est PAS scellé par ce contrat : aucun pont d'audit Rust<->Go n'existe pour
-// ce composant (même angle mort qu'access-broker/admin-api, reconfirmé explicitement en ADR
-// plutôt que silencieusement répété). Voir docs/architecture.md et l'ADR de ce lot.
+// request_id/subject_id/aal/auth_method (ADR-029) : credential-issuer n'a par ailleurs AUCUN
+// moyen de connaître la requête ou l'identité du demandeur — policy.v1.DecisionResponse ne porte
+// pas de Principal (l'approbateur est déjà vérifié en amont par access-broker, jamais revérifié
+// ici). Ces champs existent uniquement pour construire l'événement credential.issued
+// (contracts/events/audit-event.schema.json : actor requis, decision.request_id requis) — jamais
+// utilisés pour une décision d'autorisation, qui reste entièrement portée par `decision`.
 
 package credentialv1
 
@@ -39,7 +42,15 @@ type EmissionOrder struct {
 	AuthorityDomain string                 `protobuf:"bytes,4,opt,name=authority_domain,json=authorityDomain,proto3" json:"authority_domain,omitempty"`
 	// Décision COMPLÈTE, signée (decision-seal/v1, H4/ADR-019) — c'est elle qui est revérifiée
 	// ici (policy.v1.VerifyDecision), jamais un champ isolé fourni séparément par l'appelant.
-	Decision      *v1.DecisionResponse `protobuf:"bytes,5,opt,name=decision,proto3" json:"decision,omitempty"`
+	Decision *v1.DecisionResponse `protobuf:"bytes,5,opt,name=decision,proto3" json:"decision,omitempty"`
+	// UUID de corrélation, même valeur que celle utilisée par access-broker pour policy.decided —
+	// relie les deux événements d'audit d'une même requête sans dénormaliser la décision (ADR-029).
+	RequestId string `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// Identité du demandeur, jamais vérifiée ici (déjà vérifiée par access-broker, H3) — portée
+	// uniquement pour construire l'événement credential.issued (ADR-029).
+	SubjectId     string  `protobuf:"bytes,7,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
+	Aal           *string `protobuf:"bytes,8,opt,name=aal,proto3,oneof" json:"aal,omitempty"`
+	AuthMethod    *string `protobuf:"bytes,9,opt,name=auth_method,json=authMethod,proto3,oneof" json:"auth_method,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -107,6 +118,34 @@ func (x *EmissionOrder) GetDecision() *v1.DecisionResponse {
 		return x.Decision
 	}
 	return nil
+}
+
+func (x *EmissionOrder) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *EmissionOrder) GetSubjectId() string {
+	if x != nil {
+		return x.SubjectId
+	}
+	return ""
+}
+
+func (x *EmissionOrder) GetAal() string {
+	if x != nil && x.Aal != nil {
+		return *x.Aal
+	}
+	return ""
+}
+
+func (x *EmissionOrder) GetAuthMethod() string {
+	if x != nil && x.AuthMethod != nil {
+		return *x.AuthMethod
+	}
+	return ""
 }
 
 type EmissionResult struct {
@@ -264,14 +303,23 @@ var File_credential_v1_emission_proto protoreflect.FileDescriptor
 
 const file_credential_v1_emission_proto_rawDesc = "" +
 	"\n" +
-	"\x1ccredential/v1/emission.proto\x12\rcredential.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x18policy/v1/decision.proto\"\xcd\x01\n" +
+	"\x1ccredential/v1/emission.proto\x12\rcredential.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x18policy/v1/decision.proto\"\xe0\x02\n" +
 	"\rEmissionOrder\x12\x12\n" +
 	"\x04verb\x18\x01 \x01(\tR\x04verb\x12#\n" +
 	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
 	"resourceId\x12)\n" +
 	"\x10authority_domain\x18\x04 \x01(\tR\x0fauthorityDomain\x127\n" +
-	"\bdecision\x18\x05 \x01(\v2\x1b.policy.v1.DecisionResponseR\bdecision\"\xa1\x01\n" +
+	"\bdecision\x18\x05 \x01(\v2\x1b.policy.v1.DecisionResponseR\bdecision\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x06 \x01(\tR\trequestId\x12\x1d\n" +
+	"\n" +
+	"subject_id\x18\a \x01(\tR\tsubjectId\x12\x15\n" +
+	"\x03aal\x18\b \x01(\tH\x00R\x03aal\x88\x01\x01\x12$\n" +
+	"\vauth_method\x18\t \x01(\tH\x01R\n" +
+	"authMethod\x88\x01\x01B\x06\n" +
+	"\x04_aalB\x0e\n" +
+	"\f_auth_method\"\xa1\x01\n" +
 	"\x0eEmissionResult\x12\x18\n" +
 	"\aallowed\x18\x01 \x01(\bR\aallowed\x12\x18\n" +
 	"\areasons\x18\x02 \x03(\tR\areasons\x12\x19\n" +
@@ -325,6 +373,7 @@ func file_credential_v1_emission_proto_init() {
 	if File_credential_v1_emission_proto != nil {
 		return
 	}
+	file_credential_v1_emission_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

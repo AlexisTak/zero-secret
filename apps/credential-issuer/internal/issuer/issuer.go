@@ -105,12 +105,18 @@ func (iss *Issuer) Emit(ctx context.Context, order EmissionOrder) (Result, error
 	}
 
 	event := IssuedCredentialEvent{
-		EventID:           eventID.String(),
-		DecisionHash:      order.Decision.DecisionHash,
-		PolicyVersion:     order.Decision.PolicyVersion,
-		Reasons:           order.Decision.Reasons,
-		GrantedTTLSeconds: ttlSeconds,
-		LeaseID:           lease.ID,
+		EventID:                eventID.String(),
+		RequestID:              order.RequestID,
+		SubjectID:              order.SubjectID,
+		AAL:                    order.AAL,
+		AuthMethod:             order.AuthMethod,
+		DecisionHash:           order.Decision.DecisionHash,
+		PolicyVersion:          order.Decision.PolicyVersion,
+		Reasons:                order.Decision.Reasons,
+		GrantedTTLSeconds:      ttlSeconds,
+		DecisionSignature:      order.Decision.DecisionSignature,
+		DecisionSignatureKeyID: order.Decision.DecisionSignatureKeyId,
+		LeaseID:                lease.ID,
 	}
 
 	return Result{

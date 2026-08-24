@@ -1,6 +1,7 @@
 # Modèle de menaces — credential-issuer
 
-**Dernière révision** : 2026-08-22 — **Déclencheur** : lot L0.5, avant tout code L2
+**Dernière révision** : 2026-08-24 — **Déclencheur** : câblage sur `audit-collector`
+(`credential.issued`, ADR-029)
 
 ## Périmètre
 
@@ -8,6 +9,13 @@ Interface unique vers OpenBao, la PKI et le HSM. **Seul composant autorisé à d
 HSM.** N'accepte d'ordre que d'un `access-broker` authentifié en mTLS et porteur d'une décision
 signée par le PDP. Génère un credential à durée de vie bornée, jamais persisté au-delà de sa
 propre émission.
+
+**Depuis ADR-029** : chaque émission réussie (succès OpenBao réel, jamais un refus) envoie
+`credential.issued` vers `audit-collector` (réseau normal, même dette de TLS que partout
+ailleurs) — best-effort, panne ou refus métier journalisés, jamais bloquants. `EmissionOrder`
+porte désormais `request_id`/`subject_id`/`aal`/`auth_method` en clair, non signés (trou de
+contrat : `policyv1.DecisionResponse` ne porte ni `request_id` ni `Principal`) — utilisés
+uniquement pour construire l'événement d'audit, jamais pour une décision d'autorisation.
 
 C'est le composant qui manipule effectivement le matériel de confiance final (via `zs-hsm`) —
 sa compromission équivaut à la capacité d'émettre n'importe quel accès, sans passer par le PDP,

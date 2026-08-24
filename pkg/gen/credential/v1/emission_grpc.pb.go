@@ -8,9 +8,12 @@
 // interne service-à-service (pas une entrée navigateur, donc gRPC, pas HTTP — même distinction
 // déjà posée pour policy.v1/identity.v1 vs contracts/openapi/).
 //
-// credential.issued n'est PAS scellé par ce contrat : aucun pont d'audit Rust<->Go n'existe pour
-// ce composant (même angle mort qu'access-broker/admin-api, reconfirmé explicitement en ADR
-// plutôt que silencieusement répété). Voir docs/architecture.md et l'ADR de ce lot.
+// request_id/subject_id/aal/auth_method (ADR-029) : credential-issuer n'a par ailleurs AUCUN
+// moyen de connaître la requête ou l'identité du demandeur — policy.v1.DecisionResponse ne porte
+// pas de Principal (l'approbateur est déjà vérifié en amont par access-broker, jamais revérifié
+// ici). Ces champs existent uniquement pour construire l'événement credential.issued
+// (contracts/events/audit-event.schema.json : actor requis, decision.request_id requis) — jamais
+// utilisés pour une décision d'autorisation, qui reste entièrement portée par `decision`.
 
 package credentialv1
 

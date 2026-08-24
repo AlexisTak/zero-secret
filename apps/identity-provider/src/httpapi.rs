@@ -506,10 +506,11 @@ fn event_type_str(t: AuditEventType) -> &'static str {
         AuditEventType::RecoveryInitiated => "recovery.initiated",
         AuditEventType::QuorumOperation => "quorum.operation",
         AuditEventType::AuditChainVerified => "audit.chain_verified",
-        // identity-provider n'émet jamais cet événement (produit par access-broker après une
-        // décision du PDP, ADR-027) — bras nécessaire pour l'exhaustivité du match, jamais
-        // atteint en pratique.
+        // identity-provider n'émet jamais ces événements (policy.decided : access-broker,
+        // ADR-027 ; credential.issued : credential-issuer, ADR-029) — bras nécessaires pour
+        // l'exhaustivité du match, jamais atteints en pratique.
         AuditEventType::PolicyDecided => "policy.decided",
+        AuditEventType::CredentialIssued => "credential.issued",
     }
 }
 

@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
 	credentialv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/credential/v1"
 	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
 
@@ -64,6 +65,7 @@ func requireEnv(key string) string {
 func main() {
 	addr := envOr("ZS_CI_ADDR", "127.0.0.1:50064")
 	policyEngineAddr := envOr("ZS_CI_POLICY_ENGINE_ADDR", "127.0.0.1:50061")
+	auditCollectorAddr := envOr("ZS_CI_AUDIT_COLLECTOR_ADDR", "127.0.0.1:50065")
 	openBaoAddr := requireEnv("ZS_CI_OPENBAO_ADDR")
 	// Jeton provisoire, signalé (ADR-018) — jamais fixé en dur (règle absolue #1).
 	openBaoToken := requireEnv("ZS_CI_OPENBAO_TOKEN")
@@ -76,6 +78,14 @@ func main() {
 	defer policyConn.Close()
 	policyClient := policyv1.NewPolicyDecisionServiceClient(policyConn)
 
+	auditConn, err := grpc.NewClient(auditCollectorAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "credential-issuer: connexion à %s : %v\n", auditCollectorAddr, err)
+		os.Exit(1)
+	}
+	defer auditConn.Close()
+	auditClient := auditv1.NewAuditCollectionServiceClient(auditConn)
+
 	openBaoClient, err := openbao.NewClient(openbao.Config{Address: openBaoAddr, Token: openBaoToken})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "credential-issuer: échec de la connexion OpenBao : %v\n", err)
@@ -83,7 +93,7 @@ func main() {
 	}
 
 	iss := issuer.New(policyClient, leaseIssuerAdapter{client: openBaoClient}, issuer.NewInMemoryConsumedDecisionStore())
-	api := grpcapi.New(iss)
+	api := grpcapi.New(iss, auditClient)
 
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -94,7 +104,7 @@ func main() {
 	server := grpc.NewServer()
 	credentialv1.RegisterCredentialIssuanceServiceServer(server, api)
 
-	log.Printf("credential-issuer: en écoute sur %s (gRPC en clair vers %s — mTLS hors périmètre)", addr, policyEngineAddr)
+	log.Printf("credential-issuer: en écoute sur %s (gRPC en clair vers %s, %s — mTLS hors périmètre)", addr, policyEngineAddr, auditCollectorAddr)
 	if err := server.Serve(lis); err != nil {
 		fmt.Fprintf(os.Stderr, "credential-issuer: erreur serveur : %v\n", err)
 		os.Exit(1)
