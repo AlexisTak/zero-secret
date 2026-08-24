@@ -589,10 +589,10 @@ ADR-031 → ADR-030. ADR-030 (§Q6/Q9, déjà mis à jour dans ce sens) renvoie 
 séquence de cet ancrage plutôt qu'une date calendaire — cohérent avec la décision déjà actée
 côté ADR-030 dans cette même session.
 
-**Q8 — Correction documentaire.** Validez-vous la correction de `docs/architecture.md` et
-`security/threat-models/audit-collector.md`, qui décrivent un « chaînage Merkle » inexistant ?
-Ce n'est pas cosmétique : un lecteur externe en déduit aujourd'hui une propriété que le code ne
-fournit pas.
+**Q8 — Correction documentaire. TRANCHÉE (2026-08-24) : corrigée.** `docs/architecture.md` et
+`security/threat-models/audit-collector.md` ne décrivent plus un « chaînage Merkle » inexistant
+— remplacé par « chaînage séquentiel (`prev_hash`) », avec renvoi explicite à ADR-031 pour la
+propriété que le chaînage seul ne couvre pas (troncature en queue de chaîne).
 
 **Q9 — Rétention et purge.** Existe-t-il une intention de purge du journal à moyen terme ? Si
 oui, l'interaction purge/ancrage doit être instruite avant l'implémentation, pas après : une
