@@ -20,13 +20,20 @@ artefact signé et attesté.
       zs-webauthn}`, `apps/{access-broker,admin-api,audit-collector,credential-issuer,
       identity-provider,policy-engine}`)
 - [x] `Makefile` fonctionnel : 15 cibles présentes
-- [x] `.gitignore`, `SECURITY.md`, `CODEOWNERS` — pas de `LICENSE` : dépôt propriétaire, réservé
+- [x] `.gitignore`, `SECURITY.md`, `CODEOWNERS`
 - [x] Hooks git : `.githooks/pre-commit`, `scripts/hooks/`
 - **Acceptation** : `make setup && make check` passe sur un dépôt fraîchement cloné.
 - **Correction de bookkeeping** (cette session) : les quatre cases ci-dessus étaient restées
   décochées bien que livrées dans des sessions antérieures — aucun changement de code, seule la
   case reflétait un état obsolète. Vérifié par lecture directe du dépôt, pas par confiance dans
   une session précédente.
+- **Revirement de portée (2026-08-24)** : le dépôt passe de privé/propriétaire à public sous
+  licence `LICENSE` AGPL-3.0 (texte officiel récupéré via l'API licences GitHub, SPDX
+  `agpl-3.0`), décision explicite de l'utilisateur pour débloquer la protection de branche `main`
+  (bloquée en privé sur plan GitHub Free — voir L0.4). `gitleaks detect --log-opts="--all"` relancé
+  sur l'historique complet (50 commits) avant confirmation de ce lot : 1 signalement,
+  `key_label = "zs-decision-seal-v1"` dans `security/crypto-inventory/suites.toml` — faux positif
+  (identifiant de clé HSM, pas une valeur secrète, entropie 3.5). Aucune fuite réelle trouvée.
 
 ### L0.2 — Test d'architecture
 - [x] Test qui échoue si un composant de `apps/` importe un autre composant de `apps/`
@@ -59,12 +66,18 @@ artefact signé et attesté.
 - [x] Exécuteurs éphémères : agents Docker jetables (plugin Docker Pipeline), un conteneur par
       stage. Secret durable : **dérogation documentée** (ADR-005) — clé cosign dans le Jenkins
       Credentials Store, rotation à 90 jours, périmètre limité au stage de signature sur `main`
-- [ ] Branche principale protégée — **bloqué** : dépôt privé + plan GitHub Free renvoie 403
-      sur `branches/main/protection` et sur `rulesets` (« Upgrade to GitHub Pro or make this
-      repository public »). Nécessite un changement de plan GitHub (facturation — décision
-      humaine) ou de rendre le dépôt public. À refaire dès que l'un des deux est tranché.
-      Sans lien avec la bascule Jenkins — c'est un réglage GitHub, indépendant de la plateforme
-      qui exécute la CI.
+- [x] Branche principale protégée (2026-08-24) — débloqué : dépôt passé public (décision
+      explicite de l'utilisateur, voir L0.1), `branches/main/protection` accessible.
+      `required_pull_request_reviews` (`required_approving_review_count: 0` — CODEOWNERS n'a
+      qu'un seul propriétaire, une revue obligatoire l'aurait bloqué lui-même, GitHub interdit
+      l'auto-approbation), `allow_force_pushes: false`, `allow_deletions: false`,
+      `enforce_admins: true`. Pas de `required_status_checks` : Jenkins ne poste aucun status
+      check GitHub à ce jour (`commits/main/status` vide) — à ajouter dès que ce lien existe.
+      **Vérifié réellement, pas déclaré** : un push direct sur `main` a d'abord été accepté avec
+      `enforce_admins: false` (« Bypassed rule violations », le propriétaire du dépôt contourne
+      la règle par défaut) — durci ensuite, un second push direct a été rejeté
+      (`GH006: Protected branch update failed`, commit jamais poussé). Sans lien avec la bascule
+      Jenkins — c'est un réglage GitHub, indépendant de la plateforme qui exécute la CI.
 - **Acceptation** : un secret introduit volontairement dans une branche est bloqué avant fusion.
   Vérifié localement (`gitleaks detect` sur un commit de test, secret détecté, commit annulé) ;
   le stage `détection de secrets` du `Jenkinsfile` reproduit ça sur chaque build.
