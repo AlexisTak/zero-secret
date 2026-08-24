@@ -1,8 +1,7 @@
 # Modèle de menaces — audit-collector
 
-**Dernière révision** : 2026-08-24 — **Déclencheur** : `policy.decided` scellable + câblage
-`access-broker`, ADR-027 (sorti du statut « avant tout code L1.4 » depuis ADR-026 :
-`apps/audit-collector` a maintenant une implémentation réelle)
+**Dernière révision** : 2026-08-24 — **Déclencheur** : câblage `admin-api` (`quorum.operation`,
+ADR-028), suite du câblage `access-broker` (ADR-027)
 
 ## Périmètre
 
@@ -20,13 +19,15 @@ pour tout rejeu (`make replay`) et pour toute preuve devant un tiers (RSSI, CEST
 reçoit un événement brut, calcule `sequence`/`prev_hash` (même requête de tête de chaîne
 qu'`identity-provider`), délègue le scellement à `audit-sealer` par socket Unix colocalisé
 (jamais un port réseau — voir `security/threat-models/audit-sealer.md`), persiste dans
-`audit.events` (rôle `audit_writer`). **`access-broker` est le premier producteur Go câblé**
-(ADR-027) : `policy.decided`, ALLOW et DENY, appelé depuis `internal/httpapi/handler.go` quand le
-PDP a réellement été consulté, best-effort (échec journalisé, ne bloque jamais la réponse HTTP du
-producteur). `admin-api`/`credential-issuer` n'appellent pas encore ce service. Types d'événements
-scellables : parcours WebAuthn + `quorum.operation` (`zs_crypto::audit_seal::EventType`) et,
-depuis ADR-027, `policy.decided`. `credential.issued` reste non scellable, même forme de
-`decision` mais aucun producteur ne l'émet encore.
+`audit.events` (rôle `audit_writer`). **Deux producteurs Go câblés** : `access-broker`
+(ADR-027, `policy.decided`, ALLOW et DENY, appelé depuis `internal/httpapi/handler.go` quand le
+PDP a réellement été consulté) et `admin-api` (ADR-028, `quorum.operation`, un événement par
+porteur distinct réellement vérifié — jamais un événement agrégé, le contrat n'a qu'un seul
+champ `actor` par événement). Les deux best-effort : échec (panne ou refus métier) journalisé,
+ne bloque jamais la réponse HTTP du producteur. `credential-issuer` n'appelle pas encore ce
+service. Types d'événements scellables : parcours WebAuthn + `quorum.operation`
+(`zs_crypto::audit_seal::EventType`) et, depuis ADR-027, `policy.decided`. `credential.issued`
+reste non scellable, même forme de `decision` mais aucun producteur ne l'émet encore.
 
 ## Actifs
 

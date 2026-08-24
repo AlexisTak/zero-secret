@@ -1,6 +1,7 @@
 # Modèle de menaces — admin-api
 
-**Dernière révision** : 2026-08-22 — **Déclencheur** : lot L0.5, avant tout code L2
+**Dernière révision** : 2026-08-24 — **Déclencheur** : câblage sur `audit-collector`
+(`quorum.operation`, ADR-028)
 
 ## Périmètre
 
@@ -9,6 +10,13 @@ critiques.** C'est le plan de contrôle : tolère une indisponibilité brève (c
 plan de données), mais toute compromission ici a un effet différé sur l'ensemble du système
 (une politique modifiée n'a d'impact qu'à la prochaine évaluation, mais cet impact peut être
 large et silencieux).
+
+**Depuis ADR-028** : chaque vérification de quorum ayant au moins un porteur réellement vérifié
+émet un `quorum.operation` par porteur distinct vers `audit-collector` (réseau normal, même
+dette de TLS que partout ailleurs) — best-effort, une panne ou un refus métier sont journalisés
+mais ne bloquent jamais la réponse HTTP. Rien n'est audité pour un refus avant vérification
+(seuil sous le plancher, corps malformé) : sans identité établie, il n'y a personne à qui
+attribuer l'événement.
 
 ## Actifs
 
