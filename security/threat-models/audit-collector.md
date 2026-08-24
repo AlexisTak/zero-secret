@@ -1,14 +1,29 @@
 # Modèle de menaces — audit-collector
 
-**Dernière révision** : 2026-08-22 — **Déclencheur** : lot L0.5, avant tout code L1.4
+**Dernière révision** : 2026-08-24 — **Déclencheur** : pont d'audit Rust↔Go, ADR-026 (sorti du
+statut « avant tout code L1.4 » : `apps/audit-collector` a maintenant une implémentation réelle)
 
 ## Périmètre
 
-Réception, horodatage, chaînage Merkle, signature, exposition d'un journal vérifiable, export
-SIEM. C'est le plan d'observation : découplé du plan de données par une file durable — une
-saturation de l'audit ne dégrade pas l'accès, mais une interruption de l'audit **doit**
-déclencher une alarme (contrainte explicite de `docs/architecture.md`). C'est la source de
-vérité pour tout rejeu (`make replay`) et pour toute preuve devant un tiers (RSSI, CESTI).
+Réception, horodatage, chaînage (`prev_hash` séquentiel, pas encore de Merkle réel — voir
+« Portée actuelle »), scellement via `audit-sealer` (ADR-026), persistance. L'export SIEM et
+l'alarme sur interruption restent hors périmètre de l'implémentation actuelle. C'est le plan
+d'observation : découplé du plan de données par construction — une saturation de l'audit ne
+dégrade pas l'accès, mais une interruption de l'audit **doit** déclencher une alarme (contrainte
+explicite de `docs/architecture.md`, non encore implémentée). C'est la source de vérité prévue
+pour tout rejeu (`make replay`) et pour toute preuve devant un tiers (RSSI, CESTI).
+
+### Portée actuelle (ADR-026) — ce qui existe réellement aujourd'hui
+
+`AuditCollectionService.Record` (gRPC, réseau en clair, même dette de TLS que partout ailleurs)
+reçoit un événement brut, calcule `sequence`/`prev_hash` (même requête de tête de chaîne
+qu'`identity-provider`), délègue le scellement à `audit-sealer` par socket Unix colocalisé
+(jamais un port réseau — voir `security/threat-models/audit-sealer.md`), persiste dans
+`audit.events` (rôle `audit_writer`). **Aucun producteur Go (`access-broker`/`admin-api`/
+`credential-issuer`) n'appelle encore ce service** — infrastructure prête, pas câblée. Seuls les
+types d'événements déjà couverts par `zs_crypto::audit_seal::EventType` (parcours WebAuthn +
+`quorum.operation`) peuvent être scellés ; `policy.decided`/`credential.issued` ne le peuvent pas
+tant que `AuditEventFields` ne porte pas de champ `decision`.
 
 ## Actifs
 
@@ -32,6 +47,13 @@ L'entrée la plus critique est l'événement d'audit lui-même : c'est un flux �
 provenant de tous les autres composants, et la seule barrière avant l'écriture en base est la
 validation de schéma — un défaut ici pourrait laisser passer un événement mal formé qui
 casserait le chaînage en aval.
+
+**État réel du transport (ADR-026)** : `AuditCollectionService.Record` est aujourd'hui du gRPC en
+clair, sans authentification de l'appelant — même dette de TLS déjà assumée partout ailleurs
+dans ce dépôt (L2.2/H3/H4/H5/ADR-022/ADR-023/ADR-025), pas encore le mTLS SPIFFE mentionné plus
+haut comme cible. À réexaminer avec l'ensemble des autres liens gRPC internes dès que SPIFFE/SPIRE
+est câblé. Le lien vers `audit-sealer`, lui, est délibérément un socket Unix, pas un choix de
+dette TLS différée — voir `security/threat-models/audit-sealer.md`.
 
 ## STRIDE
 

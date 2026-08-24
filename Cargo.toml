@@ -3,11 +3,13 @@ resolver = "2"
 members = [
     "apps/identity-provider",
     "apps/policy-engine",
+    "apps/audit-sealer",
     "crates/zs-crypto",
     "crates/zs-webauthn",
     "crates/zs-policy",
     "crates/zs-identity",
     "crates/zs-audit",
+    "crates/zs-audit-sealing",
     "crates/zs-hsm",
 ]
 

@@ -47,8 +47,8 @@ signature_encoding = "raw r||s, hexadécimal minuscule"
 domain_separation = "zero-secret/audit-seal/v1"
 signature_container = "objet {suite, components}, arité imposée par la suite — forme distincte d'identity-assertion (tableau au premier niveau), imposée par contracts/events/audit-event.schema.json, résorption visée en v2 (ADR-013)"
 key_label = "zs-audit-seal-v1"
-adrs = ["ADR-010", "ADR-011", "ADR-013", "ADR-023"]
-notes = "Scellement et vérification réels implémentés (crates/zs-crypto::audit_seal, L1.4b) — opération HSM la plus fréquente du système (une par action métier, règle absolue #9). Premier appelant applicatif réel de seal() : apps/identity-provider/src/httpapi.rs (H5, ADR-023)."
+adrs = ["ADR-010", "ADR-011", "ADR-013", "ADR-023", "ADR-026"]
+notes = "Scellement et vérification réels implémentés (crates/zs-crypto::audit_seal, L1.4b) — opération HSM la plus fréquente du système (une par action métier, règle absolue #9). Premier appelant applicatif réel de seal() : apps/identity-provider/src/httpapi.rs (H5, ADR-023). Second appelant, second HSM/pool distinct d'identity-provider (même clé zs-audit-seal-v1, ouverture séparée) : apps/audit-sealer (ADR-026), pont Rust<->Go — sert Seal/HashPrevious sur socket Unix uniquement, jamais un port réseau, seul point d'entrée cryptographique pour les événements construits côté Go."
 
 [[suite]]
 id = "decision-binding/v1"
