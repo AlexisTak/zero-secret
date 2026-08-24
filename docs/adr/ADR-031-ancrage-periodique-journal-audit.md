@@ -543,11 +543,14 @@ partenaire retenu, les modalités contractuelles (droit d'accès en écriture, d
 pérennité de l'engagement au-delà d'une mission ponctuelle), et un mécanisme de repli si le
 partenaire cesse d'assurer ce rôle (le registre existant ne doit pas devenir orphelin).
 
-**Q2 — Autorité d'horodatage RFC 3161.** Validez-vous le principe d'un appel réseau sortant vers
-une AH qualifiée eIDAS (règles absolues n°10 et validation explicite) ? Si oui, quel
-prestataire, quel budget, et acceptez-vous que son indisponibilité dégrade l'ancrage en
-Git-seul avec alarme, jamais en blocage ? Si non, le mécanisme fonctionne avec Git seul — mais
-perd la preuve d'antériorité opposable, ce qui affaiblit le dossier de qualification.
+**Q2 — Autorité d'horodatage RFC 3161. TRANCHÉE (2026-08-24) sur le principe : oui.**
+L'indisponibilité de l'AH dégrade l'ancrage en Git-seul avec alarme, jamais en blocage —
+confirmé, cohérent avec la règle « refus par défaut » qui porte sur l'octroi d'accès, pas sur la
+production de preuve (voir Q5). Choix du prestataire et budget **différés**, même pattern que
+la Q2 d'ADR-030 pour les fournisseurs HSM : le porteur du projet les instruira séparément, hors
+du périmètre de cet ADR. Cet ADR ne peut passer à « accepté » que sur les points qu'il tranche
+lui-même ; le choix du prestataire reste une action de suivi distincte, à consigner ici une fois
+faite (règle absolue n°10 : licence/gouvernance du prestataire à documenter à ce moment-là).
 
 **Q3 — Composant séparé `apps/audit-anchor` ou goroutine d'`audit-collector` ?**
 Recommandation : composant séparé, seule forme qui préserve la propriété « l'ancreur n'est pas
