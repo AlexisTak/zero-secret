@@ -9,7 +9,8 @@ Rédige un ADR pour : **$ARGUMENTS**
 Avant d'écrire :
 1. Liste `docs/adr/` pour trouver le prochain numéro et vérifier qu'aucun ADR existant ne couvre
    ou ne contredit ce sujet. S'il en existe un, propose de le remplacer plutôt que d'en ajouter un.
-2. Relis les principes P1–P10 et le chapitre 3 (cadre normatif) du plan de développement.
+2. Relis les ADR existants pertinents et, si le sujet touche un composant précis, son modèle de
+   menaces (`security/threat-models/`) et les exigences correspondantes de `docs/backlog.md`.
 
 Crée `docs/adr/ADR-NNN-titre-en-kebab-case.md` avec exactement cette structure :
 
@@ -30,8 +31,8 @@ Situation, contrainte, exigence normative applicable. Cite la référence
 (au moins deux options réellement envisagées ; une option unique n'est pas une décision)
 
 ## Décision
-Option retenue et justification, avec référence explicite aux principes P1–P10
-et aux référentiels du chapitre 3.
+Option retenue et justification, avec référence explicite aux règles absolues du `CLAUDE.md`
+concernées, aux ADR antérieurs pertinents, et aux référentiels normatifs cités en Contexte.
 
 ## Conséquences
 Positives, négatives, effet sur la surface d'attaque, sur la charge d'exploitation,

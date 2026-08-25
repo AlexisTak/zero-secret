@@ -4,9 +4,9 @@ Infrastructure d'accès sans secrets statiques : identités cryptographiques (FI
 moteur de politiques, credentials éphémères JIT.
 
 **Documents de référence** (lire avant toute décision d'architecture) :
-- `docs/plan-dev.pdf` — plan de développement, version 1.0 du 22/08/2026
 - `docs/adr/` — décisions d'architecture actées
 - `security/threat-models/` — modèles de menaces STRIDE par composant
+- `docs/backlog.md` — exigences (`R`/`L`) et critères d'acceptation
 
 Ce code est destiné à être audité par des tiers (RSSI, CESTI, red team). Toute contribution
 doit être lisible et justifiable par quelqu'un qui n'a jamais parlé à son auteur.

@@ -3,7 +3,7 @@
 **Statut** : accepté
 **Date** : 2026-08-24
 **Décideurs** : responsable technique
-**Remplace** : [ADR-005](ADR-005-jenkins-remplace-github-actions.md)
+**Remplace** : ADR-005 (fichier retiré du dépôt)
 
 ## Contexte
 
