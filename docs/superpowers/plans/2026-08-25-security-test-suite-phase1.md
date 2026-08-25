@@ -848,18 +848,32 @@ git commit -m "test(security): admin-api — matrice API, non-fuite d'erreurs, f
 
 ---
 
-### Task 5: `access-broker` — business-logic (habilitation cross-domain, mass assignment)
+### Task 5: `access-broker` — business-logic (intégrité de la décision, mass assignment)
+
+**IMPORTANT — lu depuis le code réel (pas dans la version initiale de ce plan) :**
+`apps/access-broker/internal/httpapi/handler_test.go` existe déjà et définit au niveau du package
+`fakeIdentityClient`, `fakePolicyClient`, `fakeCredentialClient`, `fakeAuditClient` (avec
+`valid bool`/`subjectID`/`aal`/`authMethod`/`err` pour `fakeIdentityClient`, `response
+*policyv1.DecisionResponse` pour `fakePolicyClient`, etc. — signatures ci-dessous) ainsi que
+`fixedTime()` et `validBody() AccessRequestBody`. **Ce fichier de tâche réutilise ces types
+existants et n'en redéclare aucun** — les redéclarer provoquerait une erreur de compilation
+(« redeclared in this block »).
 
 **Files:**
 - Create: `apps/access-broker/internal/httpapi/security_report_test.go`
 - Create: `apps/access-broker/internal/httpapi/security_business_logic_test.go`
 
 **Interfaces:**
-- Consumes: `New(identityClient, credentialClient, auditClient, b *broker.Broker) *API`,
-  `Handler(si ServerInterface) http.Handler`, `broker.New(policyClient policyv1.PolicyDecisionServiceClient, identityClient identityv1.AssertionVerificationServiceClient) *broker.Broker`,
-  `AccessRequestBody{Approvals *[]Approval, ExpectedAuthorityDomain, Justification string, Posture *Posture, Resource Resource, SourceNetwork *string, TicketRef, Verb string}`,
-  `Resource{Attributes *map[string]string, AuthorityDomain, Id, Type string}`,
-  `Decision{Allowed bool, DecisionHash *[]byte, LeaseDurationSeconds *int, LeaseId *string, PolicyVersion *string, Reasons []string}`.
+- Consumes (déjà définis dans `handler_test.go`, même package, ne pas redéclarer) :
+  `fakeIdentityClient{valid bool, subjectID, aal, authMethod string, err error}` (méthode
+  `VerifyAssertion` ignore le contenu de l'assertion présentée, ne renvoie que la réponse
+  configurée — ne peut donc pas distinguer deux assertions différentes),
+  `fakePolicyClient{response *policyv1.DecisionResponse}`,
+  `fakeCredentialClient{response *credentialv1.EmissionResult, err error, called bool, lastReq *credentialv1.EmissionOrder}`,
+  `fakeAuditClient{called bool, lastReq *auditv1.RawEvent, err error, rejected bool, reason string}`,
+  `validBody() AccessRequestBody` (corps nominal avec `Approvals` déjà rempli),
+  `New(identityClient, credentialClient, auditClient, b *broker.Broker) *API`,
+  `Handler(si ServerInterface) http.Handler`, `broker.New(policyClient, identityClient)`.
 - Produces: `securityFinding`/`writeSecurityReport` réutilisés par Task 6 (même module).
 
 - [ ] **Step 1: Écrire `security_report_test.go` (identique à Task 2, écrit `access-broker.json`)**
@@ -912,126 +926,41 @@ func writeSecurityReport(t *testing.T, findings []securityFinding) {
 
 - [ ] **Step 2: Écrire `security_business_logic_test.go`**
 
+Un seul test, réutilisant intégralement les doublures et `validBody()` déjà définis dans
+`handler_test.go` (même package) — ne redéclare rien.
+
 ```go
 package httpapi
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"google.golang.org/grpc"
-
-	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
-	credentialv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/credential/v1"
-	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
 	policyv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1"
 
 	"github.com/AlexisTak/biscuits-shield/apps/access-broker/internal/broker"
 )
 
-// fakePolicyClient : même doublure que apps/access-broker/internal/broker/broker_test.go —
-// dupliquée ici (package différent, internal), pas exportée par broker_test.go.
-type fakePolicyClient struct {
-	policyv1.PolicyDecisionServiceClient
-	response *policyv1.DecisionResponse
-}
-
-func (f *fakePolicyClient) Decide(ctx context.Context, in *policyv1.DecisionRequest, opts ...grpc.CallOption) (*policyv1.DecisionResponse, error) {
-	return f.response, nil
-}
-
-// fakeCallerIdentityClient vérifie l'assertion du DEMANDEUR (en-tête X-Identity-Assertion) — le
-// point d'entrée réellement testé ici. Ignore l'entrée si aucune réponse configurée (déjà refusé
-// par défaut, comme fakeIdentityClient dans handler_test.go).
-type fakeCallerIdentityClient struct {
-	responses map[string]*identityv1.VerifyAssertionResponse
-	lastReq   *identityv1.VerifyAssertionRequest
-}
-
-func (f *fakeCallerIdentityClient) VerifyAssertion(ctx context.Context, in *identityv1.VerifyAssertionRequest, opts ...grpc.CallOption) (*identityv1.VerifyAssertionResponse, error) {
-	f.lastReq = in
-	if resp, ok := f.responses[string(in.Assertion)]; ok {
-		return resp, nil
-	}
-	return &identityv1.VerifyAssertionResponse{Valid: false, Reason: "assertion_de_test_inconnue"}, nil
-}
-
-type noopAuditClient struct {
-	auditv1.AuditCollectionServiceClient
-}
-
-func (noopAuditClient) Record(ctx context.Context, in *auditv1.RawEvent, opts ...grpc.CallOption) (*auditv1.RecordResult, error) {
-	return &auditv1.RecordResult{Accepted: true, EventId: "evt-test"}, nil
-}
-
-// TestSecurityAssertionRejeteeParIdentityProviderNeContourneJamaisLeBroker vérifie le câblage :
-// si identity-provider (via VerifyAssertion) refuse l'assertion du demandeur — le cas réel d'une
-// assertion scellée pour un autre authority_domain, vérifié CÔTÉ identity-provider, hors de
-// portée d'un test avec doublure ici (Phase 2, voir tests/security/README.md) — access-broker ne
-// doit JAMAIS construire de requête PDP ni déclencher d'émission de credential. C'est la garantie
-// que ce module peut réellement offrir sans Postgres/HSM réels.
-func TestSecurityAssertionRejeteeParIdentityProviderNeContourneJamaisLeBroker(t *testing.T) {
-	callerIdentity := &fakeCallerIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
-		// Aucune réponse pour "assertion-domaine-etranger" : simule le refus qu'identity-provider
-		// rendrait pour une assertion scellée sur un autre authority_domain.
-	}}
-	policyClient := &fakePolicyClient{response: &policyv1.DecisionResponse{Effect: policyv1.Effect_EFFECT_ALLOW}}
-	b := broker.New(policyClient, &fakeCallerIdentityClient{})
-	audit := &noopAuditClient{}
-	var credentialClient credentialv1.CredentialIssuanceServiceClient // nil : Emit ne doit jamais être appelé ici
-
-	srv := httptest.NewServer(Handler(New(callerIdentity, credentialClient, audit, b)))
-	defer srv.Close()
-
-	body, _ := json.Marshal(AccessRequestBody{
-		Verb:                    "db.connect",
-		Resource:                Resource{Type: "Database", Id: "db-prod", AuthorityDomain: "corp.eu-west"},
-		TicketRef:               "INC-1",
-		Justification:           "test",
-		ExpectedAuthorityDomain: "corp.eu-west",
-	})
-	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/access-requests", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Identity-Assertion", "assertion-domaine-etranger")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("erreur inattendue : %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("attendu 401 quand identity-provider refuse l'assertion du demandeur, reçu %d", resp.StatusCode)
-	}
-	if policyClient.response != nil && callerIdentity.lastReq == nil {
-		t.Fatal("VerifyAssertion aurait dû être appelée avant tout autre traitement")
-	}
-}
-
 // TestSecurityChampsDecisionSupplementairesIgnores confirme qu'un client ne peut jamais imposer
-// decision_hash/max_ttl/policy_version dans le corps de la requête — AccessRequestBody n'a pas ces
-// champs (confirmé par contracts/openapi/access-broker.yaml), et json.NewDecoder n'utilise pas
-// DisallowUnknownFields (confirmé par grep — absent de tout le dépôt) : le décodeur les ignore
-// silencieusement. La réponse ne doit refléter QUE ce que policy-engine a signé.
+// decision_hash/policy_version/allowed dans le corps de la requête pour falsifier une décision —
+// AccessRequestBody n'expose pas ces champs (contracts/openapi/access-broker.yaml), et
+// json.NewDecoder n'utilise pas DisallowUnknownFields (confirmé par grep, absent de tout le
+// dépôt) : le décodeur les ignore silencieusement. La réponse ne doit refléter QUE ce que
+// policy-engine a signé (ici via fakePolicyClient, déjà défini dans handler_test.go).
 func TestSecurityChampsDecisionSupplementairesIgnores(t *testing.T) {
-	callerIdentity := &fakeCallerIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
-		"assertion-legitime": {Valid: true, SubjectId: "sub-1", Aal: "AAL3", AuthMethod: "webauthn/device-bound"},
-	}}
-	policyClient := &fakePolicyClient{response: &policyv1.DecisionResponse{
+	identity := &fakeIdentityClient{valid: true, subjectID: "sub-demandeur", aal: "AAL3", authMethod: "webauthn/device-bound"}
+	credential := &fakeCredentialClient{}
+	policy := &fakePolicyClient{response: &policyv1.DecisionResponse{
 		Effect:        policyv1.Effect_EFFECT_DENY,
 		Reasons:       []string{"politique_refusee"},
 		DecisionHash:  []byte{0xAA, 0xBB},
 		PolicyVersion: "decision-binding/v1:reelle",
 	}}
-	b := broker.New(policyClient, &fakeCallerIdentityClient{})
-	audit := &noopAuditClient{}
-	var credentialClient credentialv1.CredentialIssuanceServiceClient
-
-	srv := httptest.NewServer(Handler(New(callerIdentity, credentialClient, audit, b)))
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(Handler(New(identity, credential, audit, broker.New(policy, identity))))
 	defer srv.Close()
 
 	// Corps JSON brut avec des champs qu'AccessRequestBody n'expose pas — tentative de mass
@@ -1075,14 +1004,12 @@ func TestSecurityChampsDecisionSupplementairesIgnores(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Lancer les deux tests**
+- [ ] **Step 3: Lancer le test**
 
-Run: `cd apps/access-broker && go test ./internal/httpapi/... -run TestSecurity -v`
-Expected: `PASS` pour les deux (`TestSecurityAssertionRejeteeParIdentityProviderNeContourneJamaisLeBroker`,
-`TestSecurityChampsDecisionSupplementairesIgnores`). Si l'un échoue, lire précisément le message
-avant de modifier quoi que ce soit — ce module ne doit changer que si le test révèle une vraie
-divergence avec ce que `handler.go` fait réellement (relire le fichier avant de conclure à un bug
-de test).
+Run: `cd apps/access-broker && go test ./internal/httpapi/... -run TestSecurityChampsDecisionSupplementairesIgnores -v`
+Expected: `PASS`. Si le test échoue, lire précisément le message avant de modifier quoi que ce
+soit — ce module ne doit changer que si le test révèle une vraie divergence avec ce que
+`handler.go` fait réellement (relire le fichier avant de conclure à un bug de test).
 
 - [ ] **Step 4: Commit**
 
@@ -1101,8 +1028,11 @@ git commit -m "test(security): access-broker — câblage refus d'assertion, non
 - Create: `apps/access-broker/internal/httpapi/fuzz_test.go`
 
 **Interfaces:**
-- Consumes: `securityFinding`, `writeSecurityReport` (Task 5), doublures `fakeCallerIdentityClient`,
-  `fakePolicyClient`, `noopAuditClient` (Task 5, même package).
+- Consumes: `securityFinding`, `writeSecurityReport` (Task 5). Réutilise les doublures existantes
+  de `handler_test.go` — `fakeIdentityClient{valid, subjectID, aal, authMethod, err}`,
+  `fakePolicyClient{response}`, `fakeCredentialClient{response, err, called, lastReq}`,
+  `fakeAuditClient{called, lastReq, err, rejected, reason}` — même contrainte que Task 5, ne rien
+  redéclarer.
 
 - [ ] **Step 1: Écrire `security_api_test.go`**
 
@@ -1118,8 +1048,6 @@ import (
 	"strings"
 	"testing"
 
-	credentialv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/credential/v1"
-	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
 	policyv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1"
 
 	"github.com/AlexisTak/biscuits-shield/apps/access-broker/internal/broker"
@@ -1127,17 +1055,15 @@ import (
 
 // TestSecurityMatriceEntreesMalformeesAccessBroker — même patron que admin-api Task 4, adapté à
 // POST /v1/access-requests. En-tête X-Identity-Assertion manquant/vide fait partie de la matrice
-// (headers inhabituels).
+// (headers inhabituels). Effect DENY partout : évite de déclencher l'émission de credential, hors
+// périmètre de cette matrice.
 func TestSecurityMatriceEntreesMalformeesAccessBroker(t *testing.T) {
-	callerIdentity := &fakeCallerIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
-		"assertion-legitime": {Valid: true, SubjectId: "sub-1", Aal: "AAL3"},
-	}}
-	policyClient := &fakePolicyClient{response: &policyv1.DecisionResponse{Effect: policyv1.Effect_EFFECT_DENY}}
-	b := broker.New(policyClient, &fakeCallerIdentityClient{})
-	audit := &noopAuditClient{}
-	var credentialClient credentialv1.CredentialIssuanceServiceClient
+	identity := &fakeIdentityClient{valid: true, subjectID: "sub-1", aal: "AAL3"}
+	credential := &fakeCredentialClient{}
+	policy := &fakePolicyClient{response: &policyv1.DecisionResponse{Effect: policyv1.Effect_EFFECT_DENY}}
+	audit := &fakeAuditClient{}
 
-	srv := httptest.NewServer(Handler(New(callerIdentity, credentialClient, audit, b)))
+	srv := httptest.NewServer(Handler(New(identity, credential, audit, broker.New(policy, identity))))
 	defer srv.Close()
 
 	longString := strings.Repeat("a", 5*1024*1024)
@@ -1193,6 +1119,17 @@ func TestSecurityMatriceEntreesMalformeesAccessBroker(t *testing.T) {
 	if len(findings) > 0 {
 		writeSecurityReport(t, findings)
 	}
+}
+
+// mustJSON : doublure locale à ce module (package httpapi d'access-broker) — le mustJSON de
+// admin-api (Task 4) vit dans un module Go séparé, non importable ici (même contrainte de
+// visibilité internal/ que securityFinding/writeSecurityReport, voir Task 5 Step 1).
+func mustJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err) // uniquement dans la construction de fixtures de test, jamais atteignable en production
+	}
+	return b
 }
 ```
 
