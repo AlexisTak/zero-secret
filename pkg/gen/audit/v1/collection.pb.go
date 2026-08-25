@@ -215,8 +215,8 @@ const file_audit_v1_collection_proto_rawDesc = "" +
 	"\bevent_id\x18\x03 \x01(\tR\aeventId\x12\x1a\n" +
 	"\bsequence\x18\x04 \x01(\x04R\bsequence2N\n" +
 	"\x16AuditCollectionService\x124\n" +
-	"\x06Record\x12\x12.audit.v1.RawEvent\x1a\x16.audit.v1.RecordResultB\xa1\x01\n" +
-	"\fcom.audit.v1B\x0fCollectionProtoP\x01Z?github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1;auditv1\xa2\x02\x03AXX\xaa\x02\bAudit.V1\xca\x02\bAudit\\V1\xe2\x02\x14Audit\\V1\\GPBMetadata\xea\x02\tAudit::V1b\x06proto3"
+	"\x06Record\x12\x12.audit.v1.RawEvent\x1a\x16.audit.v1.RecordResultB\x9f\x01\n" +
+	"\fcom.audit.v1B\x0fCollectionProtoP\x01Z=github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1;auditv1\xa2\x02\x03AXX\xaa\x02\bAudit.V1\xca\x02\bAudit\\V1\xe2\x02\x14Audit\\V1\\GPBMetadata\xea\x02\tAudit::V1b\x06proto3"
 
 var (
 	file_audit_v1_collection_proto_rawDescOnce sync.Once
