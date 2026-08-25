@@ -1,7 +1,8 @@
 # ADR-032 — Socle ML-DSA-65 partagé pour les suites hybrides (zs-crypto, zs-hsm)
 
-**Statut** : proposé — ne pas passer à « accepté » avant arbitrage des questions ouvertes en fin
-de document.
+**Statut** : proposé — QS1 à QS9 toutes tranchées (2026-08-25). Ne peut pas passer à « accepté »
+avant QS10 : exige une mesure de latence réelle (`crates/zs-crypto/CLAUDE.md`), pas une décision
+de principe.
 **Date** : 2026-08-24
 **Auteurs** : instruction `referent-crypto`, à relire par le porteur du projet.
 **Dépendances d'ordre** : doit être accepté **avant** ADR-030 (`audit-seal/v2`). Indépendant
@@ -453,66 +454,61 @@ c'est un argument pour ne pas la laisser dormir.
 
 ## Questions ouvertes — arbitrage humain requis avant « Statut : accepté »
 
-**QS1 — Le socle impose-t-il `CKM_ML_DSA` pur à toute suite, ou l'outille-t-il seulement ?**
-Recommandation : imposer (§2). L'énumération `SigningMechanism` ne reçoit que `MlDsa65` ; ajouter
-`HashMlDsa65Sha256` exigerait un nouvel ADR. Argument contraire à peser : `decision-seal` et
-`identity-assertion` héritent d'un choix instruit au regard des contraintes d'`audit-seal`, qui
-manipule les documents les plus volumineux.
+**QS1 — Le socle impose-t-il `CKM_ML_DSA` pur à toute suite, ou l'outille-t-il seulement ?
+TRANCHÉE (2026-08-25) : imposé (§2).** L'énumération `SigningMechanism` ne reçoit que `MlDsa65` ;
+ajouter `HashMlDsa65Sha256` exigerait un nouvel ADR. Argument contraire pesé et retenu malgré tout
+: `decision-seal` et `identity-assertion` héritent d'un choix instruit au regard des contraintes
+d'`audit-seal`, qui manipule les documents les plus volumineux.
 
-**QS2 — Forme exacte du point d'entrée de signature sur message dans `zs-hsm`.**
-Option (i) : méthode distincte `sign_message(key, mechanism, message)` à côté de `sign_digest`,
-appariements croisés refusés explicitement. Option (ii) : entrée typée
-`SigningInput::{Digest(&[u8]), Message(&[u8])}` sur un point d'entrée unique, rendant
-l'appariement vérifiable par le compilateur. (ii) est plus sûr structurellement, (i) préserve la
-surface existante et n'oblige aucun appelant ECDSA à changer. Recommandation : (i) pour limiter
-la rupture, avec refus explicite testé dans les deux sens — mais (ii) est défendable et se
-décide maintenant, pas après.
+**QS2 — Forme exacte du point d'entrée de signature sur message dans `zs-hsm`. TRANCHÉE
+(2026-08-25) : option (i).** Méthode distincte `sign_message(key, mechanism, message)` à côté de
+`sign_digest`, appariements croisés refusés explicitement — limite la rupture, préserve la
+surface existante, n'oblige aucun appelant ECDSA à changer. Option (ii) (entrée typée
+`SigningInput::{Digest(&[u8]), Message(&[u8])}`) pesée et écartée : plus sûre structurellement
+mais rupture d'API plus large que nécessaire ici. Refus croisé à tester explicitement dans les
+deux sens.
 
-**QS3 — Type de clé publique retourné par `zs-hsm`.**
-`PublicKeyDer(Vec<u8>)` documente un encodage SEC1 non compressé et porte un nom déjà imprécis.
-Faut-il le remplacer par un type portant explicitement son encodage (`Sec1Uncompressed` /
-`MlDsaRaw`) ? Cela éviterait que `accept_verifying_key` soit le seul endroit qui sache de quoi il
-s'agit, au prix d'une rupture d'API supplémentaire. Recommandation : oui, mais c'est un choix à
-valider.
+**QS3 — Type de clé publique retourné par `zs-hsm`. TRANCHÉE (2026-08-25) : remplacer
+`PublicKeyDer(Vec<u8>)` par un type portant explicitement son encodage.** `Sec1Uncompressed` /
+`MlDsaRaw` plutôt qu'un nom déjà imprécis qui ne documente pas l'encodage — évite que
+`accept_verifying_key` soit le seul endroit à savoir de quoi il s'agit. Rupture d'API assumée.
 
 **QS4 — Migration de Q1, Q2, Q3, Q4 d'ADR-030 vers ce socle, et réécriture d'ADR-030 selon le
-tableau §9.** En particulier Q2 (démarche fournisseurs HSM sur `CKM_ML_DSA` et visa ANSSI) : elle
-concerne les trois suites et non `audit-seal` seule. Confirmer que ces questions déjà tranchées
-sont reprises ici sans être re-litigées, et qu'ADR-030 sera amendé avant son passage à
+tableau §9. TRANCHÉE (2026-08-25) : confirmé.** En particulier Q2 (démarche fournisseurs HSM sur
+`CKM_ML_DSA` et visa ANSSI) concerne les trois suites et non `audit-seal` seule — ces questions
+déjà tranchées sont reprises ici sans être re-litigées. ADR-030 sera amendé avant son passage à
 « accepté ».
 
 **QS5 — Kryoptic : ADR de dépendance dédié inclus ici ou séparé ? Remplacement ou complément de
-SoftHSM2 en dev et en CI ?** La règle absolue #10 exige l'instruction licence / maintenance / CVE
-/ gouvernance. Recommandation : ADR de dépendance séparé (Kryoptic est un outil, pas une décision
-de suite), et complément de SoftHSM2 d'abord, remplacement après vérification de parité sur les
-suites v1.
+SoftHSM2 en dev et en CI ? TRANCHÉE (2026-08-25) : ADR de dépendance séparé, complément
+d'abord.** Kryoptic est un outil, pas une décision de suite — mérite son propre ADR (règle
+absolue #10 : licence / maintenance / CVE / gouvernance à instruire dans ce document dédié).
+Complément de SoftHSM2 d'abord, remplacement envisageable seulement après vérification de parité
+sur les suites v1.
 
-**QS6 — Représentation CBOM d'un socle qui n'est pas une suite.**
-Option A : normaliser des champs supplémentaires dans chaque entrée `[[suite]]` (`hybrid`,
-`components`, `hsm_mechanisms`, `key_labels`, `foundation_adr`) — aucun changement d'outillage.
-Option B : introduire une entité de niveau mécanisme dans `suites.toml` et
-`tools/generate-cbom.sh`, plus fidèle au modèle CycloneDX 1.6 (`cryptographic-asset` de type
-`algorithm`) et plus lisible pour un auditeur. Recommandation : A maintenant, B si un auditeur
-externe le demande.
+**QS6 — Représentation CBOM d'un socle qui n'est pas une suite. TRANCHÉE (2026-08-25) : option
+A.** Champs supplémentaires normalisés dans chaque entrée `[[suite]]` (`hybrid`, `components`,
+`hsm_mechanisms`, `key_labels`, `foundation_adr`) — aucun changement d'outillage. Option B
+(entité de niveau mécanisme dans `suites.toml` et `tools/generate-cbom.sh`, plus fidèle au modèle
+CycloneDX 1.6) différée : à reconsidérer si un auditeur externe la demande explicitement.
 
 **QS7 — Un socle jumeau pour ML-KEM-768 (`channel-kex/v2`) est-il à planifier dès maintenant, ou
-à laisser dormir jusqu'à ce qu'un consommateur existe ?** Recommandation : le laisser dormir.
+à laisser dormir jusqu'à ce qu'un consommateur existe ? TRANCHÉE (2026-08-25) : laissé dormir.**
 `channel-kex/v2` n'a aucun consommateur instruit ; l'inclure ici diluerait le socle sans
-bénéfice. Mais la décision de ne pas le faire mérite d'être écrite.
+bénéfice. Décision consciente de ne pas le faire, consignée ici plutôt qu'implicite.
 
 **QS8 — `decision-seal/v2` est absent des « Cibles post-quantiques » de
-`crates/zs-crypto/CLAUDE.md`**, alors que `suites.toml` porte déjà `successor =
-"decision-seal/v2"` sur `decision-seal/v1` et que ce socle la vise explicitement. Faut-il
-l'ajouter à la liste des cibles dans le même mouvement ? Recommandation : oui — un socle qui vise
-trois suites alors que la doctrine du crate n'en déclare que deux est une incohérence qu'un
-auditeur relèvera.
+`crates/zs-crypto/CLAUDE.md`, alors que `suites.toml` porte déjà `successor =
+"decision-seal/v2"` sur `decision-seal/v1` et que ce socle la vise explicitement. TRANCHÉE
+(2026-08-25) : ajoutée.** Un socle qui vise trois suites alors que la doctrine du crate n'en
+déclare que deux est une incohérence qu'un auditeur relèverait — à corriger dans
+`crates/zs-crypto/CLAUDE.md` avant l'acceptation de cet ADR.
 
-**QS9 — `authenticator-proof/v2` (ML-DSA-44/65, COSE -48/-49) relève-t-il de ce socle ?**
-Position : non pour la partie HSM et hybridation (nous sommes vérificateur, pas émetteur ;
-exception documentée à l'invariant 5, ADR-006), oui pour la partie vérification (même
-`aws-lc-rs`, mêmes vecteurs ACVP/Wycheproof, même principe de garde de longueur de clé publique
-par type). Confirmer ce partage, ou décider que `authenticator-proof/v2` sera instruit
-entièrement à part.
+**QS9 — `authenticator-proof/v2` (ML-DSA-44/65, COSE -48/-49) relève-t-il de ce socle ? TRANCHÉE
+(2026-08-25) : partage confirmé.** Non pour la partie HSM et hybridation (nous sommes
+vérificateur, pas émetteur ; exception documentée à l'invariant 5, ADR-006), oui pour la partie
+vérification (même `aws-lc-rs`, mêmes vecteurs ACVP/Wycheproof, même principe de garde de
+longueur de clé publique par type).
 
 **QS10 — Le socle doit-il exiger un premier jeu de mesures de latence (§7) avant son propre
 passage à « accepté »**, ou ce prérequis appartient-il uniquement à ADR-030 ? Recommandation :

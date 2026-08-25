@@ -1,7 +1,9 @@
 # ADR-031 — Ancrage périodique du journal d'audit (`audit.chain_verified`)
 
-**Statut** : proposé — ne pas passer à « accepté » avant arbitrage des questions ouvertes en fin
-de document.
+**Statut** : proposé — Q3, Q5, Q6, Q7, Q8, Q10 tranchées (2026-08-25) ; Q1 et Q2 tranchées sur le
+principe, reste à instruire hors périmètre de cet ADR (partenaire pour Q1, prestataire/budget
+pour Q2). Ne peut pas passer à « accepté » avant instruction de Q1/Q2 et arbitrage de Q4
+(valeurs N/T) et Q9 (politique de purge).
 **Date** : 2026-08-24
 **Auteurs** : instruction `referent-crypto`, à relire par le porteur du projet.
 **Lève** : la réserve posée par ADR-013 §« `audit.chain_verified` : type scellable, pas de
@@ -543,49 +545,47 @@ partenaire retenu, les modalités contractuelles (droit d'accès en écriture, d
 pérennité de l'engagement au-delà d'une mission ponctuelle), et un mécanisme de repli si le
 partenaire cesse d'assurer ce rôle (le registre existant ne doit pas devenir orphelin).
 
-**Q2 — Autorité d'horodatage RFC 3161.** Validez-vous le principe d'un appel réseau sortant vers
-une AH qualifiée eIDAS (règles absolues n°10 et validation explicite) ? Si oui, quel
-prestataire, quel budget, et acceptez-vous que son indisponibilité dégrade l'ancrage en
-Git-seul avec alarme, jamais en blocage ? Si non, le mécanisme fonctionne avec Git seul — mais
-perd la preuve d'antériorité opposable, ce qui affaiblit le dossier de qualification.
+**Q2 — Autorité d'horodatage RFC 3161. TRANCHÉE SUR LE PRINCIPE (2026-08-25) : oui, appel réseau
+sortant vers une AH qualifiée eIDAS, avec repli Git-seul + alarme si indisponible, jamais de
+blocage.** Reste à instruire avant l'implémentation, hors périmètre de cet ADR : le prestataire
+retenu et le budget.
 
-**Q3 — Composant séparé `apps/audit-anchor` ou goroutine d'`audit-collector` ?**
-Recommandation : composant séparé, seule forme qui préserve la propriété « l'ancreur n'est pas
-l'écrivain ». Le repli (goroutine + pool lecture seule) est acceptable à titre transitoire mais
-doit être daté, pas ouvert.
+**Q3 — Composant séparé `apps/audit-anchor` ou goroutine d'`audit-collector` ? TRANCHÉE
+(2026-08-25) : composant séparé.** Seule forme qui préserve la propriété « l'ancreur n'est pas
+l'écrivain ». Le repli (goroutine + pool lecture seule) resterait acceptable à titre transitoire
+mais devrait être daté, pas ouvert — non retenu ici faute de nécessité.
 
 **Q4 — Valeurs de `N` et `T`.** `N = 1000` / `T = 1 h` sont des propositions. La question réelle
 à trancher est l'objectif de service : combien d'événements peut-on accepter de perdre sans
 détection ? La réponse fixe les paramètres, pas l'inverse.
 
-**Q5 — Ancrage sur chaîne cassée.** Confirmez-vous qu'un ancrage `outcome: "error"` est émis et
-publié quand `verify_chain` échoue, plutôt qu'un refus d'émettre ? Position défendue ici : oui —
-refuser produirait un silence, c'est-à-dire le résultat recherché par l'adversaire. C'est une
-exception explicite au « refus par défaut », qui porte sur l'octroi d'accès et non sur la
-production de preuve : elle doit être validée consciemment.
+**Q5 — Ancrage sur chaîne cassée. TRANCHÉE (2026-08-25) : oui, un ancrage `outcome: "error"` est
+émis et publié quand `verify_chain` échoue, plutôt qu'un refus d'émettre.** Refuser produirait un
+silence, c'est-à-dire le résultat recherché par l'adversaire. Exception consciente au « refus par
+défaut », qui porte sur l'octroi d'accès et non sur la production de preuve.
 
-**Q6 — Forme de `publications`.** Tableau borné à 4 dès maintenant (recommandé : reproduit le
-pari gagnant du conteneur `signature` à N composantes d'ADR-012/013, où anticiper a évité une
-rupture de contrat) ou objet unique quitte à modifier le contrat plus tard ?
+**Q6 — Forme de `publications`. TRANCHÉE (2026-08-25) : tableau borné à 4 dès maintenant.**
+Reproduit le pari gagnant du conteneur `signature` à N composantes d'ADR-012/013, où anticiper a
+évité une rupture de contrat plus tard.
 
-**Q7 — Antériorité vis-à-vis d'ADR-030.** Confirmez-vous l'ordre ADR-031 → ADR-030, avec le
-point 7 de la Décision proposée d'ADR-030 réécrit par renvoi à
-`anchor.reason = "suite_transition"` ? Cela clôt Q6 d'ADR-030 et tranche sa Q9 en faveur de la
+**Q7 — Antériorité vis-à-vis d'ADR-030. TRANCHÉE (2026-08-25) : ordre ADR-031 → ADR-030
+confirmé.** Le point 7 de la Décision proposée d'ADR-030 est réécrit par renvoi à
+`anchor.reason = "suite_transition"` — clôt Q6 d'ADR-030 et tranche sa Q9 en faveur de la
 séquence.
 
-**Q8 — Correction documentaire.** Validez-vous la correction de `docs/architecture.md` et
-`security/threat-models/audit-collector.md`, qui décrivent un « chaînage Merkle » inexistant ?
-Ce n'est pas cosmétique : un lecteur externe en déduit aujourd'hui une propriété que le code ne
-fournit pas.
+**Q8 — Correction documentaire. TRANCHÉE (2026-08-25) : correction validée.**
+`docs/architecture.md` et `security/threat-models/audit-collector.md` décrivent un « chaînage
+Merkle » inexistant — pas cosmétique, un lecteur externe en déduit aujourd'hui une propriété que
+le code ne fournit pas. À corriger avant l'acceptation de cet ADR.
 
 **Q9 — Rétention et purge.** Existe-t-il une intention de purge du journal à moyen terme ? Si
 oui, l'interaction purge/ancrage doit être instruite avant l'implémentation, pas après : une
 purge légitime est indiscernable d'une troncature pour la procédure de vérification §3.
 
-**Q10 — Premier ancrage.** Faut-il ancrer rétroactivement les chaînes existantes dès la mise en
-service (un premier ancrage par domaine, `previous_anchor` omis, couvrant tout l'historique déjà
-écrit) ? Recommandation : oui, immédiatement — cela borne définitivement la fenêtre non protégée
-à ce qui existe aujourd'hui.
+**Q10 — Premier ancrage. TRANCHÉE (2026-08-25) : oui, immédiatement.** Ancrage rétroactif des
+chaînes existantes dès la mise en service (un premier ancrage par domaine, `previous_anchor`
+omis, couvrant tout l'historique déjà écrit) — borne définitivement la fenêtre non protégée à ce
+qui existe aujourd'hui.
 
 Sources normatives citées : [ANSSI — FAQ cryptographie post-quantique](https://cyber.gouv.fr/cryptographie-post-quantique-faq),
 [ANSSI — services de confiance eIDAS](https://cyber.gouv.fr/reglementation/reglementation-identite-confiance-numerique/securite-echanges-voie-electronique/reglement-eidas/services-de-confiance/),

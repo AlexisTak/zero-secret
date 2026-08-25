@@ -50,6 +50,8 @@ channel-kex/v1         → X25519
 channel-kex/v2         → X25519 + ML-KEM-768            (hybride, cible)
 identity-assertion/v1  → ECDSA P-256                    (émission, via zs-hsm — ADR-007)
 identity-assertion/v2  → ECDSA P-256 + ML-DSA-65        (hybride, cible)
+decision-seal/v1       → ECDSA P-256                    (ADR-019)
+decision-seal/v2       → ECDSA P-256 + ML-DSA-65        (hybride, cible — ADR-032 QS8)
 authenticator-proof/v1 → ES256 (COSE -7) + EdDSA (COSE -8)   (vérification seule — ADR-006)
 authenticator-proof/v2 → + ML-DSA-44/65 (COSE -48/-49)  (cible, dès parc matériel disponible)
 ```
