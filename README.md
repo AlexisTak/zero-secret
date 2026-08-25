@@ -1,8 +1,7 @@
 # biscuits-shield — zero-secret
 
 Infrastructure d'accès sans secrets statiques : identités cryptographiques (FIDO2/WebAuthn),
-moteur de politiques, credentials éphémères juste-à-temps (JIT). Porté par **Biscuits IA**,
-association loi 1901, comme prototype d'expérimentation destiné à l'écosystème institutionnel
+moteur de politiques, credentials éphémères juste-à-temps (JIT). prototype d'expérimentation destiné à l'écosystème institutionnel
 français de cybersécurité (administrations, opérateurs, CESTI).
 
 > Nous ne demandons pas que cette architecture soit adoptée sur la seule foi de notre
@@ -50,7 +49,7 @@ moment de la connexion, avec une durée de vie bornée.
 
 ## Pourquoi ce dépôt existe
 
-Biscuits IA a développé ce prototype pour le proposer à l'évaluation d'une entité publique
+J'ai développé ce prototype pour le proposer à l'évaluation d'une entité publique
 volontaire — une expérimentation pilote, pas un produit fini. Le dépôt est construit pour être
 **audité par des tiers qui n'ont jamais parlé à ses auteurs** : RSSI, CESTI, red team. Cette
 contrainte façonne tout le reste — voir [Méthode](#méthode-et-garanties) plus bas.
