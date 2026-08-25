@@ -22,6 +22,7 @@ setup: ## Dépendances, SoftHSM2, hooks git, outillage
 	go install golang.org/x/vuln/cmd/govulncheck@latest || true
 	go install github.com/zricethezav/gitleaks/v8@latest || true
 	go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest || true
+	go install github.com/open-policy-agent/opa@latest || true
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest || true
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest || true
 	git config core.hooksPath .githooks
@@ -56,14 +57,11 @@ test: ## Unitaires + propriété + politiques
 	# `|| true` conservé tel quel : rendre l'étape bloquante suppose de provisionner le CLI
 	# Cedar dans .github/workflows/ci.yml — changement de CI, validation humaine explicite requise.
 	bash tools/cedar-test.sh || true
-	# policies/platform n'existe pas encore : Rego plateforme non commencé (audit.md §5.2).
-	# Message explicite plutôt qu'un `|| true` qui masquerait aussi une vraie régression Rego
-	# le jour où le dossier existera.
-	@if [ -d policies/platform ]; then \
-		opa test policies/platform policies/tests -v; \
-	else \
-		echo "policies/platform absent — Rego plateforme non implémenté, voir audit.md §5.2"; \
-	fi
+	# Conformité plateforme (Rego/OPA) : policies/platform/ + policies/tests/platform/.
+	# Étape bloquante et sans garde conditionnelle — audit.md §5.2 est traité. Un `|| true` ici
+	# masquerait une régression de politique, ce qui est exactement le défaut signalé.
+	# Le CLI OPA doit être présent : https://openpolicyagent.org/docs/latest/#running-opa
+	opa test policies/platform policies/tests -v
 
 test-crypto: ## Vecteurs Wycheproof, conformité WebAuthn, intégration PKCS#11 (H1, ADR-011)
 	# `--features conformance` retiré (audit.md §3.2) : aucun des deux crates ne déclare cette

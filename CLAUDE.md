@@ -4,9 +4,19 @@ Infrastructure d'accès sans secrets statiques : identités cryptographiques (FI
 moteur de politiques, credentials éphémères JIT. Porté par Biscuits IA (association loi 1901).
 
 **Documents de référence** (lire avant toute décision d'architecture) :
-- `docs/plan-dev.pdf` — plan de développement, version 1.0 du 22/08/2026
 - `docs/adr/` — décisions d'architecture actées
 - `security/threat-models/` — modèles de menaces STRIDE par composant
+- `docs/backlog.md` — exigences (`R`/`L`) et critères d'acceptation
+
+**Document de contexte produit** (pitch, pas une source d'exigences techniques) :
+- `docs/Proposition_Technique_Biscuits_IA.pdf` — proposition d'expérimentation, problème visé,
+  scénarios de menace illustratifs, phasage de déploiement envisagé. Utile pour comprendre
+  l'intention et l'audience (écosystème institutionnel français), pas pour trancher une décision
+  d'architecture — aucun principe numéroté ni cadre normatif détaillé dedans, ce n'est pas ce
+  document qu'un ADR doit citer.
+
+`docs/plan_dev.pdf` (plan de développement détaillé, distinct du document ci-dessus) n'existe pas
+dans le dépôt actuellement.
 
 Ce code est destiné à être audité par des tiers (RSSI, CESTI, red team). Toute contribution
 doit être lisible et justifiable par quelqu'un qui n'a jamais parlé à son auteur.
