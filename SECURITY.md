@@ -6,7 +6,7 @@ vulnérabilité signalée est traitée sérieusement, y compris sur du code enco
 
 ## Signaler une vulnérabilité
 
-**Ne pas ouvrir d'issue publique.** Envoyer un rapport à swetoksy@gmail.com avec :
+**Ne pas ouvrir d'issue publique.** Envoyer un rapport à alexis_gallard@outlook.fr avec :
 
 - une description de la vulnérabilité et son impact ;
 - les étapes de reproduction, ou un correctif proposé le cas échéant ;
