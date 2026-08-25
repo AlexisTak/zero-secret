@@ -163,8 +163,14 @@ if [[ ! -f "$compose_file" ]]; then
 fi
 
 # Aucun port ne doit être publié sur autre chose que 127.0.0.1 — un bind 0.0.0.0 exposerait
-# Postgres/OpenBao au réseau local en environnement de dev.
-if grep -nE '"[0-9]+:[0-9]+"' "$compose_file" | grep -vE '127\.0\.0\.1:'; then
+# Postgres/OpenBao au réseau local en environnement de dev. Les entrées réelles de compose.dev.yml
+# sont au format "host_ip:host_port:container_port" (ex. "127.0.0.1:5432:5432") — un motif qui
+# n'exige que deux groupes de chiffres séparés par ":" ne matche jamais ce format à trois segments
+# (les points de l'IP cassent le motif) et laisserait passer silencieusement un bind 0.0.0.0.
+# On cherche donc toute entrée de liste entre guillemets contenant un motif ":<port>" et on
+# rejette celles qui ne commencent pas par "127.0.0.1:" juste après le guillemet — couvre aussi
+# la forme "port:port" sans IP explicite, qui bind sur 0.0.0.0 par défaut avec Docker/Podman Compose.
+if grep -nE '^\s*-\s*"' "$compose_file" | grep -E ':[0-9]+(:[0-9]+)?"' | grep -v '"127\.0\.0\.1:'; then
   echo "check_compose_dev: port publié sans préfixe 127.0.0.1: (voir ci-dessus)" >&2
   fail=1
 fi
@@ -242,6 +248,15 @@ var severityRank = map[string]int{
 	"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4,
 }
 
+// rank renvoie le rang de tri d'une sévérité — une valeur non reconnue (fichier de rapport
+// malformé) est triée après INFO, jamais confondue avec CRITICAL (zero value de la map).
+func rank(severity string) int {
+	if r, ok := severityRank[severity]; ok {
+		return r
+	}
+	return len(severityRank)
+}
+
 func main() {
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "usage: aggregate <dossier-output>")
@@ -256,6 +271,7 @@ func main() {
 	}
 
 	var all []finding
+	parsedFiles := 0
 	for _, e := range entries {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			continue
@@ -271,15 +287,16 @@ func main() {
 			os.Exit(1)
 		}
 		all = append(all, findings...)
+		parsedFiles++
 	}
 
 	sort.SliceStable(all, func(i, j int) bool {
-		return severityRank[all[i].Severity] < severityRank[all[j].Severity]
+		return rank(all[i].Severity) < rank(all[j].Severity)
 	})
 
 	fmt.Println("# Rapport de sécurité — Phase 1")
 	fmt.Println()
-	fmt.Printf("%d finding(s) sur %d fichier(s) de rapport.\n\n", len(all), len(entries))
+	fmt.Printf("%d finding(s) sur %d fichier(s) de rapport.\n\n", len(all), parsedFiles)
 	for _, f := range all {
 		blocking := "bloquant"
 		if !f.Blocking {
@@ -340,9 +357,13 @@ func TestSecurityAggregateTrieParSeveriteEtFusionnePlusieursFichiers(t *testing.
 		{ID: "RATE-1", Severity: "MEDIUM", Component: "admin-api", Blocking: false},
 		{ID: "CRIT-1", Severity: "CRITICAL", Component: "access-broker", Blocking: true},
 	})
+	// Fichier non-JSON dans le même dossier (reflète .gitignore, réellement présent dans
+	// tests/security/report/output/ en usage réel) — doit être ignoré par le compte de fichiers,
+	// pas seulement par le parsing.
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.json\n"), 0o644); err != nil {
+		t.Fatalf("écriture .gitignore : %v", err)
+	}
 
-	self, err := os.Executable()
-	_ = self
 	out, err := exec.Command("go", "run", ".", dir).CombinedOutput()
 	if err != nil {
 		t.Fatalf("aggregate a échoué : %v\n%s", err, out)
@@ -1177,11 +1198,18 @@ git commit -m "test(security): access-broker — matrice API, non-fuite d'erreur
 - Create: `apps/audit-collector/internal/collector/security_report_test.go`
 - Create: `apps/audit-collector/internal/collector/security_injection_test.go`
 
+**IMPORTANT — lu depuis le code réel :** `apps/audit-collector/internal/collector/collector_test.go`
+existe déjà et définit au niveau du package `fakeSealer{sealCalls int, sealErr error, sealedOut
+[]byte, hashOut []byte, lastSealReq *auditv1.SealRequest}` (méthodes `Seal`/`HashPrevious` déjà
+implémentées) et `fakeStore{head store.ChainHead, headErr error, appendErr error, appendedIn
+*store.AppendInput}` (une seule capture, pas une liste — `appendedIn` est écrasé à chaque appel,
+suffisant ici car chaque sous-test crée un `fakeStore` neuf). **Ce fichier de tâche réutilise ces
+types et n'en redéclare aucun.**
+
 **Interfaces:**
-- Consumes: `collector.New(sealer auditv1.AuditSealingServiceClient, st collector.Store) *Collector`,
-  `collector.Store` interface (`ChainHead(ctx, authorityDomain) (store.ChainHead, error)`,
-  `Append(ctx, store.AppendInput) error`) — implémenter une doublure locale `fakeStore` qui capture
-  les valeurs reçues sans toucher Postgres.
+- Consumes (déjà définis dans `collector_test.go`, même package, ne pas redéclarer) :
+  `collector.New(sealer auditv1.AuditSealingServiceClient, st Store) *Collector`, `fakeSealer`,
+  `fakeStore` (ci-dessus), `validRawEvent() *auditv1.RawEvent`.
 
 - [ ] **Step 1: Écrire `security_report_test.go` (identique aux tâches 2 et 5, écrit `audit-collector.json`)**
 
@@ -1231,14 +1259,12 @@ func writeSecurityReport(t *testing.T, findings []securityFinding) {
 
 - [ ] **Step 2: Écrire `security_injection_test.go`**
 
-Signatures confirmées par lecture de `apps/audit-collector/internal/collector/collector.go:60-133`,
-`apps/audit-collector/internal/store/store.go:41-78` et
-`pkg/gen/audit/v1/sealing_grpc.pb.go:49-50` : `Record` appelle d'abord `c.store.ChainHead(...)`,
-puis **toujours** `c.sealer.Seal(...)` avant `c.store.Append(...)` — la doublure du sealer doit
-donc implémenter `Seal` (pas seulement l'interface vide), sinon l'appel panique sur une méthode nil
-avant même d'atteindre `Append`. Avec un `fakeStore.ChainHead` retournant `PrevSealedBytes: nil`
-(valeur zéro), `HashPrevious` n'est jamais appelé (branche `if head.PrevSealedBytes != nil`,
-`collector.go:67`) — pas besoin de l'implémenter.
+Réutilise `fakeSealer{sealedOut: []byte(...)}` et `fakeStore{}` (zéro valeur — `head` zéro donne
+`NextSequence: 0, PrevSealedBytes: nil`, donc `HashPrevious` n'est jamais appelé, cohérent avec
+les tests existants du même fichier). `fakeStore.ChainHead` ignore son argument `authorityDomain`
+(retourne toujours `f.head`) — la preuve que le payload traverse intact passe donc uniquement par
+`appendedIn.AuthorityDomain`, alimenté par `raw.GetAuthorityDomain()` dans `Record`
+(`collector.go:87,113`), ce qui suffit à la garantie recherchée.
 
 ```go
 package collector
@@ -1247,48 +1273,15 @@ import (
 	"context"
 	"testing"
 
-	"google.golang.org/grpc"
-
 	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
-
-	"github.com/AlexisTak/biscuits-shield/apps/audit-collector/internal/store"
 )
-
-// fakeStore capture les valeurs reçues par ChainHead/Append sans toucher Postgres — confirme que
-// les requêtes réelles de internal/store/store.go (déjà paramétrées $1…$12, vérifié par lecture
-// le 2026-08-25) reçoivent bien les payloads en paramètres opaques, jamais concaténés ailleurs
-// dans le chemin collector avant d'atteindre le store.
-type fakeStore struct {
-	lastAuthorityDomain string
-	appendCalls         []store.AppendInput
-}
-
-func (f *fakeStore) ChainHead(ctx context.Context, authorityDomain string) (store.ChainHead, error) {
-	f.lastAuthorityDomain = authorityDomain
-	return store.ChainHead{NextSequence: 1, PrevSealedBytes: nil}, nil
-}
-
-func (f *fakeStore) Append(ctx context.Context, in store.AppendInput) error {
-	f.appendCalls = append(f.appendCalls, in)
-	return nil
-}
-
-// fakeSealer implémente Seal (appelé systématiquement par Record, collector.go:82) — renvoie des
-// octets scellés factices constants, suffisants pour que Record atteigne store.Append.
-type fakeSealer struct {
-	auditv1.AuditSealingServiceClient
-}
-
-func (fakeSealer) Seal(ctx context.Context, in *auditv1.SealRequest, opts ...grpc.CallOption) (*auditv1.SealResponse, error) {
-	return &auditv1.SealResponse{SealedBytes: []byte("scelle-de-test")}, nil
-}
 
 // TestSecurityPayloadInjectionSQLTraverseCommeValeurOpaque envoie des payloads d'injection SQL
 // classiques dans authority_domain — le champ qui atteint directement la requête paramétrée
-// `WHERE authority_domain = $1` (internal/store/store.go:49) et `VALUES ($1,…,$12)` (:95). Avec un
-// fakeStore, on confirme que le Collector transmet la chaîne TELLE QUELLE à ChainHead et à
-// AppendInput.AuthorityDomain (aucune concaténation, aucune interprétation avant le store) — la
-// garantie structurelle du paramétrage $1 est ainsi couverte sans exécuter Postgres.
+// `WHERE authority_domain = $1` (internal/store/store.go:49) et `VALUES ($1,…,$12)` (:95). Avec le
+// fakeStore existant (collector_test.go), on confirme que le Collector transmet la chaîne TELLE
+// QUELLE à AppendInput.AuthorityDomain (aucune concaténation, aucune interprétation avant le
+// store) — la garantie structurelle du paramétrage $1 est ainsi couverte sans exécuter Postgres.
 func TestSecurityPayloadInjectionSQLTraverseCommeValeurOpaque(t *testing.T) {
 	payloads := []string{
 		`' OR '1'='1`,
@@ -1299,27 +1292,22 @@ func TestSecurityPayloadInjectionSQLTraverseCommeValeurOpaque(t *testing.T) {
 
 	for _, payload := range payloads {
 		t.Run(payload, func(t *testing.T) {
-			fs := &fakeStore{}
-			c := New(fakeSealer{}, fs)
+			sealer := &fakeSealer{sealedOut: []byte("scelle-de-test")}
+			st := &fakeStore{}
+			c := New(sealer, st)
 
-			result, err := c.Record(context.Background(), &auditv1.RawEvent{
-				AuthorityDomain: payload,
-				EventType:       "authentication.succeeded",
-				Actor:           &auditv1.Actor{SubjectId: "sub-1", Kind: "human"},
-				Outcome:         "success",
-			})
+			raw := validRawEvent()
+			raw.AuthorityDomain = payload
+
+			result, err := c.Record(context.Background(), raw)
 			if err != nil {
 				t.Fatalf("Record ne doit jamais renvoyer d'erreur de transport pour ce payload : %v", err)
 			}
 			if !result.Accepted {
 				t.Fatalf("Record doit accepter l'événement (le payload n'est pas un event_type/outcome invalide) : reason=%q", result.Reason)
 			}
-
-			if fs.lastAuthorityDomain != payload {
-				t.Fatalf("ChainHead doit recevoir le payload tel quel : attendu %q, obtenu %q", payload, fs.lastAuthorityDomain)
-			}
-			if len(fs.appendCalls) != 1 || fs.appendCalls[0].AuthorityDomain != payload {
-				t.Fatalf("Append doit recevoir AppendInput.AuthorityDomain = %q tel quel, obtenu %+v", payload, fs.appendCalls)
+			if st.appendedIn == nil || st.appendedIn.AuthorityDomain != payload {
+				t.Fatalf("Append doit recevoir AppendInput.AuthorityDomain = %q tel quel, obtenu %+v", payload, st.appendedIn)
 			}
 		})
 	}
@@ -1349,14 +1337,12 @@ git commit -m "test(security): audit-collector — confirmation injection SQL (p
 **Interfaces:**
 - Consumes: `createApp(config: ServerConfig)`, `ServerConfig{origin, identityProvider, accessBroker, adminApi, expectedAuthorityDomain, sessionTtlSeconds, publicDir}` — même construction que
   `apps/console-web/src/server.test.ts` (fakes HTTP en process, `listenEphemeral`).
+  Constructeurs confirmés par lecture de `clients/identity-provider.ts:37-38`,
+  `clients/access-broker.ts:27-28`, `clients/admin-api.ts:30-31` : les trois prennent un unique
+  argument `baseUrl: string` — `new HttpIdentityProviderClient(baseUrl)`,
+  `new HttpAccessBrokerClient(baseUrl)`, `new HttpAdminApiClient(baseUrl)`.
 
-- [ ] **Step 1: Lire `apps/console-web/src/clients/identity-provider.ts` pour le constructeur exact du client**
-
-Le fichier `server.test.ts` importe `HttpIdentityProviderClient`, `HttpAccessBrokerClient`,
-`HttpAdminApiClient` — lire leurs constructeurs (`new Http...Client(baseUrl)` vraisemblablement)
-pour construire un `ServerConfig` minimal valide. Ne pas deviner la signature.
-
-- [ ] **Step 2: Écrire `security.test.ts`**
+- [ ] **Step 1: Écrire `security.test.ts`**
 
 ```typescript
 // Tests de sécurité console-web — même patron que server.test.ts (vrai serveur HTTP, pas de faux
@@ -1468,14 +1454,12 @@ test("TestSecuritySession: cookie de session forgé (mauvaise longueur) est refu
 });
 ```
 
-- [ ] **Step 3: Compiler et lancer**
+- [ ] **Step 2: Compiler et lancer**
 
 Run: `cd apps/console-web && npm run build && node --test "dist/**/security.test.js"`
-Expected: 5 tests `PASS`. Si `HttpIdentityProviderClient`/`HttpAccessBrokerClient`/`HttpAdminApiClient`
-exigent des arguments de constructeur différents de `new Http...Client(deadUrl)`, corriger selon la
-signature réelle lue au Step 1 — ne pas contourner en modifiant `server.ts`.
+Expected: 5 tests `PASS`.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add apps/console-web/src/security.test.ts
