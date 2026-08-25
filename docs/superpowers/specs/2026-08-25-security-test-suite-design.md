@@ -30,7 +30,7 @@ pour celle-ci »).
 | Business logic | **Applicable** | Rejeu d'assertion scellée, falsification TTL/decision_hash |
 | Race conditions | **Applicable, partiellement en process** | Store de challenge WebAuthn testable sans `make up` |
 | Secrets / dépendances | **Déjà couvert** | `make audit` (cargo-audit, cargo-deny, govulncheck, gitleaks) en CI (`dependency-analysis`) — pas de doublon |
-| Régression | **Applicable — bug connu** | `audit.md` §3.1 : panic réseau `apps/policy-engine/src/lib.rs:159-160` |
+| Régression | **Déjà corrigé** | `audit.md` §3.1 : panic réseau — corrigé depuis l'audit (`apps/policy-engine/src/lib.rs:124-132`), test `decision_fields_refuse_annee_hors_plage_au_lieu_de_paniquer` déjà présent et vert. Vérifié par exécution le 2026-08-25. Rien à faire. |
 
 ### Contrainte d'environnement
 
@@ -47,9 +47,11 @@ itération.
 1. **Tiers d'exécution** : `security:quick` = handler-level uniquement, exécutable en CI sans
    infrastructure. `security:full`/`security:load` = squelette Phase 2, documenté, nécessite
    `make up`, exécution manuelle.
-2. **Bug `policy-engine` (audit.md §3.1)** : test de régression écrit d'abord (échoue, reproduit
-   le crash), puis correctif appliqué (déjà prescrit par l'audit : propager l'erreur au lieu de
-   `.expect()`), test validé ensuite.
+2. **Bug `policy-engine` (audit.md §3.1)** : **déjà corrigé et testé** dans le dépôt (constaté le
+   2026-08-25, après la date de l'audit) — `apps/policy-engine/src/lib.rs:124-132` traduit déjà
+   l'échec en `valid: false`, et `decision_fields_refuse_annee_hors_plage_au_lieu_de_paniquer`
+   (`lib.rs:278-292`) passe (`cargo test -p policy-engine --lib`). Aucune tâche d'implémentation :
+   uniquement noté dans le rapport final comme finding déjà clos, avec preuve d'exécution.
 3. **Découpage** : Phase 1 = scaffold + auth + authorization + api + injection (confirmatoire) +
    business-logic (partie testable en process) + race-conditions (partie testable en process) +
    rate-limit (constat documenté, non bloquant) + régression + rapport + CI `security:quick`.
@@ -138,9 +140,15 @@ tous deux déjà documentés dans l'architecture/l'audit comme limites assumées
 - **injection/** : payloads SQL classiques et encodés injectés dans les champs qui atteignent
   `audit-collector` (`authority_domain`, champs d'événement) et dans le contexte évalué par
   `policy-engine`/Cedar — confirme le paramétrage plutôt que de chercher un exploit inexistant.
-- **business-logic/** : réutilisation d'une assertion scellée (header `X-Identity-Assertion`) sur
-  deux requêtes distinctes à `access-broker`, tentative de fournir un `max_ttl`/`decision_hash`
-  côté client au lieu de celui calculé par `policy-engine`.
+- **business-logic/** : une assertion scellée pour `authority_domain` A ne doit jamais être
+  acceptée par `access-broker` sur une requête ciblant `authority_domain` B (`ExpectedAuthorityDomain`
+  doit être vérifié par `VerifyAssertion`, pas seulement transmis) ; un champ `decision_hash` ou
+  `max_ttl` ajouté par le client dans le corps `AccessRequestBody` (mass assignment) doit être
+  silencieusement ignoré — la réponse `Decision` ne doit refléter que ce que `policy-engine` a
+  signé (`decision.Signed`), jamais une valeur soumise par l'appelant. Note : la réutilisation d'une
+  assertion valide sur plusieurs requêtes *dans sa fenêtre de validité* est un comportement voulu
+  (credential éphémère à durée bornée, pas à usage unique) — testé comme cas nominal, pas comme
+  vulnérabilité.
 - **race-conditions/** : deux goroutines consomment concurremment le même challenge WebAuthn — un
   seul doit réussir (testable en process, store réel, sans `make up`).
 - **rate-limit/** : rafale de requêtes vers un endpoint non authentifié
@@ -153,15 +161,13 @@ tous deux déjà documentés dans l'architecture/l'audit comme limites assumées
 - **infrastructure/** : contrôles statiques sur `deploy/compose.dev.yml` (pas de bind non-loopback,
   pas de conteneur privilégié hors `softhsm-init` déjà justifié).
 
-### Régression `policy-engine` (audit.md §3.1)
+### Régression `policy-engine` (audit.md §3.1) — déjà close
 
-`apps/policy-engine/tests/security_regression.rs` :
-1. Appel `verify_decision` avec `issued_at.seconds = i64::MAX` puis une valeur négative de grande
-   amplitude — reproduit le panic actuel (`.expect()` à `lib.rs:160`).
-2. Correctif appliqué : `decision_fields` renvoie `Result`, `verify_decision` traduit l'échec en
-   `VerifyDecisionResponse { valid: false, reason: "issued_at_invalide" }`, cohérent avec le
-   traitement déjà appliqué aux cas `decision_absente`/`issued_at_absent` du même fichier.
-3. Test validé après correctif — verrouille la régression.
+Constatée close le 2026-08-25 : `apps/policy-engine/src/lib.rs:124-132` traduit déjà l'échec de
+`decision_fields` en `VerifyDecisionResponse { valid: false, reason: "issued_at_invalide" }`, et
+`decision_fields_refuse_annee_hors_plage_au_lieu_de_paniquer` (`lib.rs:278-292`) reproduit
+`i64::MAX`/`i64::MIN` et passe (`cargo test -p policy-engine --lib` → `ok`). Aucune tâche
+d'implémentation ; simplement noté dans le rapport final avec preuve d'exécution.
 
 ## CI / Makefile
 
@@ -169,7 +175,6 @@ Nouvelles cibles, à la suite des cibles existantes :
 ```
 security-quick: ## Tests de sécurité handler-level — CI, rapide, pas d'infra requise
 	cd tests/security && go test ./... -race
-	cargo test -p zs-policy --test security_regression
 
 security-full: ## Suite complète contre l'environnement local — make up requis
 	@echo "Phase 2 — nécessite make up, voir tests/security/README.md"
