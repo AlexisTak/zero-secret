@@ -31,3 +31,9 @@ p256 = { version = "0.13", features = ["ecdsa"] }
 # contracts/events/audit-event.schema.json. default-features désactivées : notre schéma n'a
 # aucune référence distante ($ref http), pas besoin de reqwest/TLS pour un validateur local.
 jsonschema = { version = "0.50", default-features = false }
+# Vecteurs de test ECDSA P-256 officiels (Project Wycheproof, Google/C2SP), dev-only — jamais
+# dans le chemin de production. Comble l'absence signalée par audit.md §3.2 : `make test-crypto`
+# n'exécutait aucun vecteur de conformité externe. Apache-2.0, déjà autorisée par deny.toml.
+# `default-features = false` + `ecdsa` seul : nos suites n'utilisent que ECDSA P-256, pas les
+# autres familles (RSA, AEAD, EdDSA...) que le crate couvre par ailleurs.
+wycheproof = { version = "0.6.0", default-features = false, features = ["ecdsa"] }

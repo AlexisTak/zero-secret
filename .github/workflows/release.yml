@@ -1,0 +1,82 @@
+name: release
+
+# Déclenché sur tag `v*`. Répond à audit.md §5.5 : le SBOM/CBOM du job `sbom-cbom` de ci.yml est
+# un artefact GitHub Actions à rétention 90 jours — insuffisant pour le CRA, qui exige de pouvoir
+# produire le SBOM d'une version publiée au-delà de cette fenêtre. Ce workflow attache SBOM/CBOM
+# (et les binaires + attestation de provenance) à la release GitHub elle-même, dont la rétention
+# suit celle de la version, pas un délai fixe.
+#
+# `GITHUB_TOKEN` : jeton éphémère généré par l'exécution, jamais un secret stocké (règle absolue
+# #1 — même principe que la signature keyless de `ci.yml`, ADR-033).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  GO_VERSION: "1.25"
+
+permissions:
+  contents: write # création de la release et upload des assets
+  id-token: write # attestation de provenance signée keyless (Sigstore/Fulcio via OIDC)
+  attestations: write
+
+jobs:
+  release:
+    name: build + SBOM/CBOM + release GitHub
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: protoc (zs-policy/zs-identity le compilent via build.rs, ADR-004)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev
+
+      - name: build binaires Rust
+        run: cargo build --release -p identity-provider -p policy-engine -p audit-sealer
+
+      - name: build binaires Go
+        run: |
+          mkdir -p bin
+          for app in access-broker admin-api audit-collector credential-issuer; do
+            (cd "apps/$app" && go build -o "../../bin/$app" .)
+          done
+
+      - name: SBOM + CBOM
+        run: |
+          cargo install --locked cargo-cyclonedx
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+          bash tools/collect-sbom.sh
+          bash tools/generate-cbom.sh > security/crypto-inventory/cbom.json
+
+      - uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            target/release/identity-provider
+            target/release/policy-engine
+            target/release/audit-sealer
+            bin/access-broker
+            bin/admin-api
+            bin/audit-collector
+            bin/credential-issuer
+
+      - name: publie la release avec binaires + SBOM + CBOM
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            target/release/identity-provider \
+            target/release/policy-engine \
+            target/release/audit-sealer \
+            bin/access-broker \
+            bin/admin-api \
+            bin/audit-collector \
+            bin/credential-issuer \
+            security/sbom/rust/*.json \
+            security/sbom/go/*.json \
+            security/crypto-inventory/cbom.json
