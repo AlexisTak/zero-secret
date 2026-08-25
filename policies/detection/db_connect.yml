@@ -23,7 +23,7 @@ description: >-
 references:
   - policies/access/db_connect.cedar
   - docs/adr/ADR-003-moteur-de-politiques.md
-author: Biscuits IA
+author: Alexis Gallard
 date: 2026-08-23
 logsource:
   product: zero-secret
@@ -51,7 +51,7 @@ description: >-
   policies/tests/db_connect/cases.json — ici vu depuis le SIEM.
 references:
   - policies/tests/db_connect/cases.json
-author: Biscuits IA
+author: Alexis Gallard
 date: 2026-08-23
 correlation:
   type: event_count
@@ -76,7 +76,7 @@ description: >-
   pas par accident une base d'un autre domaine. Une seule occurrence justifie une revue.
 references:
   - policies/access/db_connect_guardrails.cedar
-author: Biscuits IA
+author: Alexis Gallard
 date: 2026-08-23
 logsource:
   product: zero-secret
@@ -103,7 +103,7 @@ description: >-
 references:
   - policies/access/db_connect_guardrails.cedar
   - contracts/proto/policy/v1/decision.proto
-author: Biscuits IA
+author: Alexis Gallard
 date: 2026-08-23
 logsource:
   product: zero-secret
@@ -130,7 +130,7 @@ description: >-
   cette règle aveugle.
 references:
   - contracts/proto/policy/v1/decision.proto
-author: Biscuits IA
+author: Alexis Gallard
 date: 2026-08-23
 logsource:
   product: zero-secret

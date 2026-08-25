@@ -10,9 +10,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
+	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
 
-	"github.com/Biscuits-ia/biscuits-shield/apps/audit-collector/internal/collector"
+	"github.com/AlexisTak/biscuits-shield/apps/audit-collector/internal/collector"
 )
 
 type API struct {

@@ -10,7 +10,7 @@ syntax = "proto3";
 
 package policy.v1;
 
-option go_package = "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1;policyv1";
+option go_package = "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1;policyv1";
 
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";

@@ -1,9 +1,9 @@
-module github.com/Biscuits-ia/biscuits-shield/apps/credential-issuer
+module github.com/AlexisTak/biscuits-shield/apps/credential-issuer
 
 go 1.25
 
 require (
-	github.com/Biscuits-ia/biscuits-shield/pkg/gen v0.0.0
+	github.com/AlexisTak/biscuits-shield/pkg/gen v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/openbao/openbao/api/v2 v2.6.0
 	google.golang.org/grpc v1.83.1
@@ -33,4 +33,4 @@ require (
 
 // pkg/gen n'est jamais publié (module interne au monorepo) — résolu localement, même patron
 // qu'apps/access-broker (L2.3).
-replace github.com/Biscuits-ia/biscuits-shield/pkg/gen => ../../pkg/gen
+replace github.com/AlexisTak/biscuits-shield/pkg/gen => ../../pkg/gen

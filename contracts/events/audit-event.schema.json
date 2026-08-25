@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://biscuits-ia.fr/zero-secret/contracts/events/audit-event/v1",
+  "$id": "https://alexisgallard.fr/zero-secret/contracts/events/audit-event/v1",
   "title": "Événement d'audit — v1",
   "description": "Événement du journal vérifiable. Sérialisation canonique obligatoire avant chaînage et signature : deux sérialisations d'un même événement doivent être identiques bit à bit, sinon la chaîne devient invérifiable. Toute évolution de ce schéma casse la vérifiabilité de l'historique et exige un ADR.",
   "type": "object",

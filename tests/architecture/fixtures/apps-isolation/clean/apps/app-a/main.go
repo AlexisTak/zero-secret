@@ -2,7 +2,7 @@
 package main
 
 import (
-	_ "github.com/Biscuits-ia/biscuits-shield/pkg/zstelemetry"
+	_ "github.com/AlexisTak/biscuits-shield/pkg/zstelemetry"
 )
 
 func main() {}

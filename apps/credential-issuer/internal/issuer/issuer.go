@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
+	policyv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1"
 )
 
 // Note : identity.v1 (H3, VerifyAssertion) n'est pas utilisé ici — l'approbateur a déjà été

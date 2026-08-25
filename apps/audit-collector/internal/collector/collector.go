@@ -18,9 +18,9 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
+	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
 
-	"github.com/Biscuits-ia/biscuits-shield/apps/audit-collector/internal/store"
+	"github.com/AlexisTak/biscuits-shield/apps/audit-collector/internal/store"
 )
 
 // chainRoot est la racine de chaîne (32 octets nuls) — même convention que zs_audit::CHAIN_ROOT

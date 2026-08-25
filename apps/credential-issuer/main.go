@@ -17,13 +17,13 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
-	credentialv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/credential/v1"
-	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
+	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
+	credentialv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/credential/v1"
+	policyv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1"
 
-	"github.com/Biscuits-ia/biscuits-shield/apps/credential-issuer/internal/grpcapi"
-	"github.com/Biscuits-ia/biscuits-shield/apps/credential-issuer/internal/issuer"
-	"github.com/Biscuits-ia/biscuits-shield/apps/credential-issuer/internal/openbao"
+	"github.com/AlexisTak/biscuits-shield/apps/credential-issuer/internal/grpcapi"
+	"github.com/AlexisTak/biscuits-shield/apps/credential-issuer/internal/issuer"
+	"github.com/AlexisTak/biscuits-shield/apps/credential-issuer/internal/openbao"
 )
 
 // leaseIssuerAdapter satisfait issuer.LeaseIssuer en enveloppant *openbao.Client — les deux

@@ -16,7 +16,7 @@ import (
 	"context"
 	"fmt"
 
-	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
 )
 
 // MinimumThreshold est le plancher imposé par ce module, non contournable par un paramètre

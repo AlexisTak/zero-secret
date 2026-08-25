@@ -10,10 +10,10 @@ import (
 
 	"google.golang.org/grpc"
 
-	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
-	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
+	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
 
-	"github.com/Biscuits-ia/biscuits-shield/apps/admin-api/internal/quorum"
+	"github.com/AlexisTak/biscuits-shield/apps/admin-api/internal/quorum"
 )
 
 type fakeIdentityClient struct {

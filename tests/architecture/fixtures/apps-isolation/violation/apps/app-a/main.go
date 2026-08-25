@@ -2,7 +2,7 @@
 package main
 
 import (
-	_ "github.com/Biscuits-ia/biscuits-shield/apps/app-b"
+	_ "github.com/AlexisTak/biscuits-shield/apps/app-b"
 )
 
 func main() {}

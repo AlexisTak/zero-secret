@@ -915,7 +915,7 @@ const file_policy_v1_decision_proto_rawDesc = "" +
 	"\x15PolicyDecisionService\x12A\n" +
 	"\x06Decide\x12\x1a.policy.v1.DecisionRequest\x1a\x1b.policy.v1.DecisionResponse\x12U\n" +
 	"\x0eVerifyDecision\x12 .policy.v1.VerifyDecisionRequest\x1a!.policy.v1.VerifyDecisionResponseB\xa6\x01\n" +
-	"\rcom.policy.v1B\rDecisionProtoP\x01ZAgithub.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1;policyv1\xa2\x02\x03PXX\xaa\x02\tPolicy.V1\xca\x02\tPolicy\\V1\xe2\x02\x15Policy\\V1\\GPBMetadata\xea\x02\n" +
+	"\rcom.policy.v1B\rDecisionProtoP\x01ZAgithub.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1;policyv1\xa2\x02\x03PXX\xaa\x02\tPolicy.V1\xca\x02\tPolicy\\V1\xe2\x02\x15Policy\\V1\\GPBMetadata\xea\x02\n" +
 	"Policy::V1b\x06proto3"
 
 var (

@@ -1,9 +1,9 @@
-module github.com/Biscuits-ia/biscuits-shield/apps/access-broker
+module github.com/AlexisTak/biscuits-shield/apps/access-broker
 
 go 1.25
 
 require (
-	github.com/Biscuits-ia/biscuits-shield/pkg/gen v0.0.0
+	github.com/AlexisTak/biscuits-shield/pkg/gen v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/oapi-codegen/runtime v1.7.0
 	google.golang.org/grpc v1.83.1
@@ -20,4 +20,4 @@ require (
 
 // pkg/gen n'est jamais publié (module interne au monorepo) — résolu localement, pas via un
 // registre. Même patron nécessaire pour tout futur composant apps/ qui importera pkg/gen.
-replace github.com/Biscuits-ia/biscuits-shield/pkg/gen => ../../pkg/gen
+replace github.com/AlexisTak/biscuits-shield/pkg/gen => ../../pkg/gen

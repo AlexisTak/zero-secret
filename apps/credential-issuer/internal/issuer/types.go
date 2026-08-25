@@ -7,7 +7,7 @@ package issuer
 import (
 	"time"
 
-	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
+	policyv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1"
 )
 
 // EmissionOrder est l'entrée du parcours d'émission — pas encore reçue via un contrat réseau

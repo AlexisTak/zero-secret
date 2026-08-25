@@ -16,11 +16,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
-	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
+	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
 
-	"github.com/Biscuits-ia/biscuits-shield/apps/admin-api/internal/httpapi"
-	"github.com/Biscuits-ia/biscuits-shield/apps/admin-api/internal/quorum"
+	"github.com/AlexisTak/biscuits-shield/apps/admin-api/internal/httpapi"
+	"github.com/AlexisTak/biscuits-shield/apps/admin-api/internal/quorum"
 )
 
 func envOr(key, fallback string) string {

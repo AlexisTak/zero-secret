@@ -10,7 +10,7 @@ syntax = "proto3";
 
 package audit.v1;
 
-option go_package = "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1;auditv1";
+option go_package = "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1;auditv1";
 
 import "audit/v1/sealing.proto";
 

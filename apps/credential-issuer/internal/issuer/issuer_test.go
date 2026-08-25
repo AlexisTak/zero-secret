@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 
-	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
+	policyv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1"
 )
 
 // fakePolicyClient satisfait policyv1.PolicyDecisionServiceClient — seule VerifyDecision est

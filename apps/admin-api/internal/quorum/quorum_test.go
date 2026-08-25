@@ -7,7 +7,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
 )
 
 // fakeClient répond selon l'octet de l'assertion (convention de test simple : assertion[0]
