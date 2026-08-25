@@ -1,9 +1,8 @@
 # ADR-031 — Ancrage périodique du journal d'audit (`audit.chain_verified`)
 
-**Statut** : proposé — Q3, Q5, Q6, Q7, Q8, Q10 tranchées (2026-08-25) ; Q1 et Q2 tranchées sur le
-principe, reste à instruire hors périmètre de cet ADR (partenaire pour Q1, prestataire/budget
-pour Q2). Ne peut pas passer à « accepté » avant instruction de Q1/Q2 et arbitrage de Q4
-(valeurs N/T) et Q9 (politique de purge).
+**Statut** : proposé — Q1-Q10 toutes tranchées (2026-08-24). Une action de suivi reste ouverte
+hors du périmètre de ce document : choix du prestataire d'horodatage RFC 3161 et de son budget
+(Q2, différé au porteur du projet, même pattern que la Q2 d'ADR-030 pour les fournisseurs HSM).
 **Date** : 2026-08-24
 **Auteurs** : instruction `referent-crypto`, à relire par le porteur du projet.
 **Lève** : la réserve posée par ADR-013 §« `audit.chain_verified` : type scellable, pas de
@@ -545,47 +544,69 @@ partenaire retenu, les modalités contractuelles (droit d'accès en écriture, d
 pérennité de l'engagement au-delà d'une mission ponctuelle), et un mécanisme de repli si le
 partenaire cesse d'assurer ce rôle (le registre existant ne doit pas devenir orphelin).
 
-**Q2 — Autorité d'horodatage RFC 3161. TRANCHÉE SUR LE PRINCIPE (2026-08-25) : oui, appel réseau
-sortant vers une AH qualifiée eIDAS, avec repli Git-seul + alarme si indisponible, jamais de
-blocage.** Reste à instruire avant l'implémentation, hors périmètre de cet ADR : le prestataire
-retenu et le budget.
+**Q2 — Autorité d'horodatage RFC 3161. TRANCHÉE (2026-08-24) sur le principe : oui.**
+L'indisponibilité de l'AH dégrade l'ancrage en Git-seul avec alarme, jamais en blocage —
+confirmé, cohérent avec la règle « refus par défaut » qui porte sur l'octroi d'accès, pas sur la
+production de preuve (voir Q5). Choix du prestataire et budget **différés**, même pattern que
+la Q2 d'ADR-030 pour les fournisseurs HSM : le porteur du projet les instruira séparément, hors
+du périmètre de cet ADR. Cet ADR ne peut passer à « accepté » que sur les points qu'il tranche
+lui-même ; le choix du prestataire reste une action de suivi distincte, à consigner ici une fois
+faite (règle absolue n°10 : licence/gouvernance du prestataire à documenter à ce moment-là).
 
 **Q3 — Composant séparé `apps/audit-anchor` ou goroutine d'`audit-collector` ? TRANCHÉE
-(2026-08-25) : composant séparé.** Seule forme qui préserve la propriété « l'ancreur n'est pas
-l'écrivain ». Le repli (goroutine + pool lecture seule) resterait acceptable à titre transitoire
-mais devrait être daté, pas ouvert — non retenu ici faute de nécessité.
+(2026-08-24) : composant séparé.** `apps/audit-anchor` (Go, nouveau binaire), rôle PostgreSQL
+`audit_reader` strictement en lecture seule, jamais d'`INSERT`. Retenu explicitement pour
+préserver la propriété « l'ancreur n'est pas l'écrivain » — un `audit-collector` compromis
+tronque et n'ancre pas si les deux processus sont confondus. Pas de repli goroutine : implémenté
+directement comme composant séparé dès la première livraison, pas de dette transitoire à dater.
 
-**Q4 — Valeurs de `N` et `T`.** `N = 1000` / `T = 1 h` sont des propositions. La question réelle
-à trancher est l'objectif de service : combien d'événements peut-on accepter de perdre sans
-détection ? La réponse fixe les paramètres, pas l'inverse.
+**Q4 — Valeurs de `N` et `T`. TRANCHÉE (2026-08-24) : `N = 1000`, `T = 1 h`.** Objectif de
+service retenu : « au plus 1 000 événements ou 1 heure d'historique peuvent disparaître d'un
+domaine sans détection », le premier des deux critères atteint déclenchant l'ancrage. Cohérent
+avec l'hypothèse de charge d'ADR-030 Q5 (~50 000 événements/jour) — laisse ~2 000 événements
+tronçonnables dans la fenêtre horaire au pire cas, sans multiplier le coût HSM/volumétrie/appels
+AH qu'imposerait un seuil plus strict (ex. N=100/T=15min, ~14× plus d'ancrages sur les domaines
+peu actifs comme `admin-api`). Par domaine, configurable, plancher de sécurité documenté — à
+recaler sur charge réelle observée (critère de réexamen déjà posé).
 
-**Q5 — Ancrage sur chaîne cassée. TRANCHÉE (2026-08-25) : oui, un ancrage `outcome: "error"` est
-émis et publié quand `verify_chain` échoue, plutôt qu'un refus d'émettre.** Refuser produirait un
-silence, c'est-à-dire le résultat recherché par l'adversaire. Exception consciente au « refus par
-défaut », qui porte sur l'octroi d'accès et non sur la production de preuve.
+**Q5 — Ancrage sur chaîne cassée. TRANCHÉE (2026-08-24) : émis et publié, jamais refusé.** Un
+ancrage `outcome: "error"` est produit et publié dans le registre externe même quand
+`verify_chain` échoue, plutôt qu'un refus d'émettre. Validé consciemment comme **exception
+explicite** au « refus par défaut » du projet : cette règle absolue porte sur l'octroi d'accès,
+pas sur la production de preuve — refuser d'émettre un ancrage produirait un silence, exactement
+le résultat que rechercherait un adversaire ayant tronqué la chaîne. L'échec de `verify_chain`
+déclenche une alarme en plus de l'ancrage `outcome: "error"`, jamais un blocage silencieux de
+l'ancrage lui-même.
 
-**Q6 — Forme de `publications`. TRANCHÉE (2026-08-25) : tableau borné à 4 dès maintenant.**
-Reproduit le pari gagnant du conteneur `signature` à N composantes d'ADR-012/013, où anticiper a
-évité une rupture de contrat plus tard.
+**Q6 — Forme de `publications`. TRANCHÉE (2026-08-24) : tableau borné à 4, comme déjà proposé en
+§4.** Confirme le format du contrat déjà rédigé (`"maxItems": 4`) — reproduit le pari gagnant du
+conteneur `signature` à N composantes d'ADR-012/013, où anticiper la cardinalité a évité une
+rupture de contrat ultérieure. Accueille un registre supplémentaire (ex. reçu SCITT, option (e)
+en veille) sans jamais modifier `contracts/events/audit-event.schema.json` de nouveau.
 
-**Q7 — Antériorité vis-à-vis d'ADR-030. TRANCHÉE (2026-08-25) : ordre ADR-031 → ADR-030
-confirmé.** Le point 7 de la Décision proposée d'ADR-030 est réécrit par renvoi à
-`anchor.reason = "suite_transition"` — clôt Q6 d'ADR-030 et tranche sa Q9 en faveur de la
-séquence.
+**Q7 — Antériorité vis-à-vis d'ADR-030. TRANCHÉE (2026-08-24) : confirmée.** Ordre
+ADR-031 → ADR-030. ADR-030 (§Q6/Q9, déjà mis à jour dans ce sens) renvoie à
+`anchor.reason = "suite_transition"` pour son événement charnière, et `T` s'y définit comme la
+séquence de cet ancrage plutôt qu'une date calendaire — cohérent avec la décision déjà actée
+côté ADR-030 dans cette même session.
 
-**Q8 — Correction documentaire. TRANCHÉE (2026-08-25) : correction validée.**
-`docs/architecture.md` et `security/threat-models/audit-collector.md` décrivent un « chaînage
-Merkle » inexistant — pas cosmétique, un lecteur externe en déduit aujourd'hui une propriété que
-le code ne fournit pas. À corriger avant l'acceptation de cet ADR.
+**Q8 — Correction documentaire. TRANCHÉE (2026-08-24) : corrigée.** `docs/architecture.md` et
+`security/threat-models/audit-collector.md` ne décrivent plus un « chaînage Merkle » inexistant
+— remplacé par « chaînage séquentiel (`prev_hash`) », avec renvoi explicite à ADR-031 pour la
+propriété que le chaînage seul ne couvre pas (troncature en queue de chaîne).
 
-**Q9 — Rétention et purge.** Existe-t-il une intention de purge du journal à moyen terme ? Si
-oui, l'interaction purge/ancrage doit être instruite avant l'implémentation, pas après : une
-purge légitime est indiscernable d'une troncature pour la procédure de vérification §3.
+**Q9 — Rétention et purge. TRANCHÉE (2026-08-24) : aucune purge prévue à ce jour.** Rétention
+indéfinie du journal tant qu'aucune politique de purge n'est instruite. L'interaction
+ancrage/purge reste explicitement hors périmètre de ce document (voir « Hors périmètre ») — dès
+qu'une politique de purge est envisagée, elle doit être instruite par un ADR dédié qui traite
+spécifiquement cette interaction avant toute implémentation, pas après : une purge légitime
+resterait sinon indiscernable d'une troncature pour la procédure de vérification §3.
 
-**Q10 — Premier ancrage. TRANCHÉE (2026-08-25) : oui, immédiatement.** Ancrage rétroactif des
-chaînes existantes dès la mise en service (un premier ancrage par domaine, `previous_anchor`
-omis, couvrant tout l'historique déjà écrit) — borne définitivement la fenêtre non protégée à ce
-qui existe aujourd'hui.
+**Q10 — Premier ancrage. TRANCHÉE (2026-08-24) : ancrage rétroactif immédiat.** Un premier
+ancrage par domaine d'autorité, `previous_anchor` omis, couvrant tout l'historique déjà écrit à
+la mise en service. Borne définitivement la fenêtre non protégée à ce qui existe aujourd'hui —
+tout report aurait continué à agrandir la portion d'historique définitivement tronçonnable sans
+détection.
 
 Sources normatives citées : [ANSSI — FAQ cryptographie post-quantique](https://cyber.gouv.fr/cryptographie-post-quantique-faq),
 [ANSSI — services de confiance eIDAS](https://cyber.gouv.fr/reglementation/reglementation-identite-confiance-numerique/securite-echanges-voie-electronique/reglement-eidas/services-de-confiance/),

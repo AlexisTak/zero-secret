@@ -30,7 +30,7 @@ saturation de l'audit ne dégrade pas l'accès ; une interruption de l'audit dé
 | `policy-engine` | Rust | PDP. Évalue une requête contre les politiques, rend une décision motivée. Sans état, déterministe, rejouable hors ligne. **Aucun appel réseau pendant l'évaluation.** |
 | `access-broker` | Go | Parcours JIT : motif, ticket ITSM, approbation, appel PDP, déclenchement d'émission, expiration, révocation. |
 | `credential-issuer` | Go | Interface unique vers OpenBao, la PKI et le HSM. **Seul composant autorisé à dialoguer avec le HSM.** |
-| `audit-collector` | Go | Réception, horodatage, chaînage séquentiel (`prev_hash`), signature, exposition d'un journal vérifiable, export SIEM. |
+| `audit-collector` | Go | Réception, horodatage, chaînage séquentiel (`prev_hash`, ancrage périodique — ADR-031), signature, exposition d'un journal vérifiable, export SIEM. |
 | `admin-api` | Go | Administration des politiques, identités, approbations. Quorum sur les opérations critiques. |
 | `console-web` | TypeScript | Interface. **Aucune logique de sécurité côté client.** |
 
