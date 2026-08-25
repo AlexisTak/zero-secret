@@ -1,3 +1,3 @@
-module github.com/Biscuits-ia/biscuits-shield/apps/app-b
+module github.com/AlexisTak/biscuits-shield/apps/app-b
 
 go 1.25

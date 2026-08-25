@@ -1,4 +1,4 @@
-module github.com/Biscuits-ia/biscuits-shield/pkg/gen
+module github.com/AlexisTak/biscuits-shield/pkg/gen
 
 go 1.25
 

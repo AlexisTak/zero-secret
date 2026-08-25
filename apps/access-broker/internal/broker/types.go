@@ -8,7 +8,7 @@ package broker
 import (
 	"time"
 
-	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
+	policyv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1"
 )
 
 // MaxJustificationLength borne Context.justification, déjà documentée dans decision.proto mais

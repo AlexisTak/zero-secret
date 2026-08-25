@@ -1,7 +1,7 @@
 # Politique de sécurité
 
-zero-secret est un prototype d'infrastructure d'accès sans secrets statiques, porté par
-Biscuits IA (association loi 1901). Il est destiné à être audité par des tiers ; toute
+zero-secret est un prototype d'infrastructure d'accès sans secrets statiques, développé par
+Alexis Gallard. Il est destiné à être audité par des tiers ; toute
 vulnérabilité signalée est traitée sérieusement, y compris sur du code encore en lot L0.
 
 ## Signaler une vulnérabilité

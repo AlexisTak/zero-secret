@@ -20,11 +20,11 @@ import (
 
 	"github.com/google/uuid"
 
-	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
-	credentialv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/credential/v1"
-	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
+	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
+	credentialv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/credential/v1"
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
 
-	"github.com/Biscuits-ia/biscuits-shield/apps/access-broker/internal/broker"
+	"github.com/AlexisTak/biscuits-shield/apps/access-broker/internal/broker"
 )
 
 type API struct {

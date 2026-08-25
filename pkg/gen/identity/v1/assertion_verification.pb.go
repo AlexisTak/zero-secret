@@ -192,7 +192,7 @@ const file_identity_v1_assertion_verification_proto_rawDesc = "" +
 	"\x0eaudit_event_id\x18\x06 \x01(\tR\fauditEventId2|\n" +
 	"\x1cAssertionVerificationService\x12\\\n" +
 	"\x0fVerifyAssertion\x12#.identity.v1.VerifyAssertionRequest\x1a$.identity.v1.VerifyAssertionResponseB\xc1\x01\n" +
-	"\x0fcom.identity.v1B\x1aAssertionVerificationProtoP\x01ZEgithub.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1;identityv1\xa2\x02\x03IXX\xaa\x02\vIdentity.V1\xca\x02\vIdentity\\V1\xe2\x02\x17Identity\\V1\\GPBMetadata\xea\x02\fIdentity::V1b\x06proto3"
+	"\x0fcom.identity.v1B\x1aAssertionVerificationProtoP\x01ZEgithub.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1;identityv1\xa2\x02\x03IXX\xaa\x02\vIdentity.V1\xca\x02\vIdentity\\V1\xe2\x02\x17Identity\\V1\\GPBMetadata\xea\x02\fIdentity::V1b\x06proto3"
 
 var (
 	file_identity_v1_assertion_verification_proto_rawDescOnce sync.Once

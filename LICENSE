@@ -631,7 +631,7 @@ the "copyright" line and a pointer to where the full notice is found.
 
     zero-secret — infrastructure d'accès sans secrets statiques (identités FIDO2/WebAuthn,
     politiques Cedar/Rego, credentials éphémères JIT)
-    Copyright (C) 2026  Biscuits IA (association loi 1901)
+    Copyright (C) 2026  Alexis Gallard
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published

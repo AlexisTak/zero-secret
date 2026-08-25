@@ -13,12 +13,12 @@ import (
 
 	"google.golang.org/grpc"
 
-	auditv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/audit/v1"
-	credentialv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/credential/v1"
-	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
-	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
+	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
+	credentialv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/credential/v1"
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
+	policyv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1"
 
-	"github.com/Biscuits-ia/biscuits-shield/apps/access-broker/internal/broker"
+	"github.com/AlexisTak/biscuits-shield/apps/access-broker/internal/broker"
 )
 
 // Doublures locales — même patron que internal/broker (aucune crypto fabriquée côté Go).

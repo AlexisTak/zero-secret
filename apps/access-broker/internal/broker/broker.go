@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
-	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
+	policyv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

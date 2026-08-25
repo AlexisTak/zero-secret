@@ -9,8 +9,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	identityv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/identity/v1"
-	policyv1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
+	policyv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1"
 )
 
 // fakePolicyClient / fakeIdentityClient : doublures locales, aucun réseau. Un test Go ne peut ni

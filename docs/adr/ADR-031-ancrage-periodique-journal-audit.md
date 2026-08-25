@@ -536,9 +536,9 @@ délibéré d'importer un analyseur CMS.
 
 **Q1 — Hébergement du registre externe. TRANCHÉE (2026-08-24) : un tiers externe à
 l'association (RSSI ou CESTI partenaire).** Le dépôt Git de publication est administré par une
-organisation ou une personne extérieure à Biscuits IA, sans accès à l'infrastructure du système
+organisation ou une personne extérieure à Alexis Gallard, sans accès à l'infrastructure du système
 (PostgreSQL compris). C'est la séparation la plus forte disponible pour la propriété recherchée :
-même un accès administrateur système complet chez Biscuits IA ne donne aucun contrôle sur le
+même un accès administrateur système complet chez Alexis Gallard ne donne aucun contrôle sur le
 registre externe. Reste à instruire avant l'implémentation, hors périmètre de cet ADR : le nom du
 partenaire retenu, les modalités contractuelles (droit d'accès en écriture, disponibilité,
 pérennité de l'engagement au-delà d'une mission ponctuelle), et un mécanisme de repli si le

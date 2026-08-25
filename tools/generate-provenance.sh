@@ -31,16 +31,16 @@ jq -n \
 		"predicateType": "https://slsa.dev/provenance/v1",
 		"predicate": {
 			"buildDefinition": {
-				"buildType": "https://biscuits-ia.fr/zero-secret/jenkins-pipeline/v1",
+				"buildType": "https://alexisgallard.fr/zero-secret/jenkins-pipeline/v1",
 				"externalParameters": {
 					"jenkinsfile": "Jenkinsfile"
 				},
 				"resolvedDependencies": [
-					{ "uri": ("git+https://github.com/Biscuits-ia/biscuits-shield@" + $commit) }
+					{ "uri": ("git+https://github.com/AlexisTak/biscuits-shield@" + $commit) }
 				]
 			},
 			"runDetails": {
-				"builder": { "id": "https://biscuits-ia.fr/zero-secret/jenkins" },
+				"builder": { "id": "https://alexisgallard.fr/zero-secret/jenkins" },
 				"metadata": {
 					"invocationId": $buildUrl,
 					"buildNumber": $buildNumber

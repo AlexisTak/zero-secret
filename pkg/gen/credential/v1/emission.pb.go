@@ -18,7 +18,7 @@
 package credentialv1
 
 import (
-	v1 "github.com/Biscuits-ia/biscuits-shield/pkg/gen/policy/v1"
+	v1 "github.com/AlexisTak/biscuits-shield/pkg/gen/policy/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
@@ -331,7 +331,7 @@ const file_credential_v1_emission_proto_rawDesc = "" +
 	"\x19CredentialIssuanceService\x12C\n" +
 	"\x04Emit\x12\x1c.credential.v1.EmissionOrder\x1a\x1d.credential.v1.EmissionResult\x12E\n" +
 	"\x06Revoke\x12\x1c.credential.v1.RevokeRequest\x1a\x1d.credential.v1.RevokeResponseB\xc2\x01\n" +
-	"\x11com.credential.v1B\rEmissionProtoP\x01ZIgithub.com/Biscuits-ia/biscuits-shield/pkg/gen/credential/v1;credentialv1\xa2\x02\x03CXX\xaa\x02\rCredential.V1\xca\x02\rCredential\\V1\xe2\x02\x19Credential\\V1\\GPBMetadata\xea\x02\x0eCredential::V1b\x06proto3"
+	"\x11com.credential.v1B\rEmissionProtoP\x01ZIgithub.com/AlexisTak/biscuits-shield/pkg/gen/credential/v1;credentialv1\xa2\x02\x03CXX\xaa\x02\rCredential.V1\xca\x02\rCredential\\V1\xe2\x02\x19Credential\\V1\\GPBMetadata\xea\x02\x0eCredential::V1b\x06proto3"
 
 var (
 	file_credential_v1_emission_proto_rawDescOnce sync.Once

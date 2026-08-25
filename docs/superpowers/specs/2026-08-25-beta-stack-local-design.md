@@ -12,7 +12,7 @@ d'implémentation.
 1. **Ce document** — stack complet fonctionnel en local, une commande (`make up`), aucune
    infrastructure externe.
 2. **Différé, hors périmètre de ce document** — packaging pour un déploiement pilote accessible à
-   un tiers (établissement public volontaire, cf. `docs/Proposition_Technique_Biscuits_IA.pdf`).
+   un tiers (établissement public volontaire).
    Réutilisera les images construites ici, mais implique en plus de l'hébergement réel, des
    manifestes de déploiement (quadlets/OpenTofu), et potentiellement un HSM matériel.
 

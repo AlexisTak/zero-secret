@@ -1,7 +1,7 @@
 # zero-secret — Instructions projet
 
 Infrastructure d'accès sans secrets statiques : identités cryptographiques (FIDO2/WebAuthn),
-moteur de politiques, credentials éphémères JIT. Porté par Biscuits IA (association loi 1901).
+moteur de politiques, credentials éphémères JIT.
 
 **Documents de référence** (lire avant toute décision d'architecture) :
 - `docs/plan-dev.pdf` — plan de développement, version 1.0 du 22/08/2026
