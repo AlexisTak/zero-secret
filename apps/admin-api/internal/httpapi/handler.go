@@ -74,13 +74,16 @@ const delaiVerification = 5 * time.Second
 // immobilisait alors un goroutine jusqu'a deconnexion du client.
 const delaiEvaluation = 25 * time.Second
 
-// delaiAudit borne les envois d'audit, sur un budget PROPRE et detache de celui de l'evaluation.
+// delaiAudit borne CHAQUE envoi d'audit pris isolement, sur un budget detache de celui de
+// l'evaluation.
 //
-// Partager un budget unique entre evaluation et audit donnait a l'appelant un levier de
-// suppression de trace : en choisissant le nombre d'assertions (jusqu'a maxAssertions, verifiees
-// en serie), il consommait presque tout le budget, et les envois d'audit — best-effort par
-// conception — echouaient sur contexte expire. L'operation critique aboutissait alors en 200 sans
-// qu'aucun quorum.operation n'atteigne audit-collector, ce qu'interdit la regle absolue #9.
+// Deux pieges evites, tous deux du meme genre : un budget partage avec l'evaluation, puis un
+// budget unique partage entre les N+1 envois. Dans les deux cas l'appelant garde le levier — il
+// choisit le nombre de porteurs, donc le nombre d'appels sortants en serie — et epuise le budget
+// avant le dernier envoi. Les evenements perdus sont alors ceux de la fin de lot, l'operation
+// critique aboutissant malgre tout en 200 : suppression de trace pilotee par l'attaquant, ce
+// qu'interdit la regle absolue #9. Un budget PAR EVENEMENT supprime ce levier : le cout d'un envoi
+// ne depend plus de ce qui a ete envoye avant.
 const delaiAudit = 5 * time.Second
 
 type API struct {
@@ -99,8 +102,9 @@ type API struct {
 	// Budgets portes par l'instance plutot que lus depuis les constantes : les tests les
 	// raccourcissent pour exercer les chemins de depassement sans attendre les valeurs de
 	// production. Champs non exportes, initialises par New — jamais une variable globale mutable.
-	delaiEvaluation time.Duration
-	delaiAudit      time.Duration
+	delaiVerification time.Duration
+	delaiEvaluation   time.Duration
+	delaiAudit        time.Duration
 }
 
 func New(
@@ -114,6 +118,7 @@ func New(
 		identityClient:          identityClient,
 		auditClient:             auditClient,
 		expectedAuthorityDomain: expectedAuthorityDomain,
+		delaiVerification:       delaiVerification,
 		delaiEvaluation:         delaiEvaluation,
 		delaiAudit:              delaiAudit,
 	}
@@ -195,14 +200,28 @@ func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId s
 	// quorum.VerifyQuorum panique si threshold < MinimumThreshold (erreur de configuration de
 	// l'appelant, par construction — voir ADR-021) : sur une requête HTTP non fiable, cette
 	// panique doit devenir un refus explicite (400), jamais un crash du processus.
+	// Le plancher est verifie ICI, explicitement, avant d'appeler le module : quorum.VerifyQuorum
+	// panique sous le plancher (erreur de configuration de l'appelant par construction, ADR-021),
+	// et se reposer sur cette panique pour produire un refus metier revenait a confondre un refus
+	// attendu avec un defaut interne.
+	if body.Threshold < quorum.MinimumThreshold {
+		writeError(w, http.StatusBadRequest, "seuil_de_quorum_invalide")
+		return
+	}
+
 	result, err := verifyQuorumRecovered(ctx, a.verifier, body)
 	if err != nil {
-		// Deux causes distinctes, deux refus distincts — et jamais err.Error() dans la reponse :
-		// le message enveloppe par le module quorum contient l'adresse d'identity-provider et le
-		// code gRPC exact, exactement ce que writeParamError et refusAppelant s'interdisent.
-		var seuil panicError
-		if errors.As(err, &seuil) {
-			writeError(w, http.StatusBadRequest, "seuil_de_quorum_invalide")
+		// Jamais err.Error() dans la reponse : le message enveloppe par le module quorum contient
+		// l'adresse d'identity-provider et le code gRPC exact.
+		//
+		// Une panique atteignant ce point n'est PLUS un seuil invalide (verifie au-dessus) : c'est
+		// un defaut interne. La journaliser est indispensable — sans trace serveur, un attaquant
+		// qui trouverait une entree faisant paniquer le module disposerait d'un oracle silencieux,
+		// distinguable par son seul code de statut, pour iterer en production.
+		var interne panicError
+		if errors.As(err, &interne) {
+			log.Printf("admin-api: panique interne lors de l'évaluation du quorum (opération %s) : %v", operationId, interne.v)
+			writeError(w, http.StatusInternalServerError, "defaut_interne")
 			return
 		}
 		writeError(w, http.StatusBadGateway, "verification_des_porteurs_indisponible")
@@ -216,14 +235,17 @@ func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId s
 	// renvoye est celui des porteurs reellement independants de celui qui declenche.
 	result, initiateurEtaitPorteur := excludeInitiator(result, caller.SubjectId, body.Threshold)
 
-	// WithoutCancel : l'audit ne doit pas heriter de l'echeance — ni du reste — du budget
+	// WithoutCancel : l'audit ne doit heriter ni de l'echeance ni de l'annulation du budget
 	// d'evaluation, sinon un appelant qui epuise ce budget supprime la trace de l'operation qu'il
 	// vient de reussir. Il herite en revanche des valeurs du contexte de requete (tracage).
-	ctxAudit, annulerAudit := context.WithTimeout(context.WithoutCancel(r.Context()), a.delaiAudit)
-	defer annulerAudit()
+	ctxAudit := context.WithoutCancel(r.Context())
 
-	a.recordQuorumOperation(ctxAudit, operationId, a.expectedAuthorityDomain, result)
+	// L'initiateur est audite EN PREMIER : son evenement est le seul a porter qui a declenche
+	// l'operation, son niveau d'authentification et l'eventuelle exclusion. Le placer en fin de
+	// lot en faisait la premiere victime d'un budget epuise — l'information la plus precieuse
+	// perdue en premier.
 	a.recordQuorumInitiator(ctxAudit, operationId, a.expectedAuthorityDomain, caller, result, initiateurEtaitPorteur)
+	a.recordQuorumOperation(ctxAudit, operationId, a.expectedAuthorityDomain, result)
 
 	writeJSON(w, http.StatusOK, QuorumResult{
 		Reached:          result.Reached,
@@ -248,7 +270,10 @@ func (a *API) recordQuorumOperation(ctx context.Context, operationID, authorityD
 	}
 
 	for _, subjectID := range result.DistinctSubjects {
-		res, err := a.auditClient.Record(ctx, &auditv1.RawEvent{
+		// Budget PAR evenement : partage entre les N envois, il serait de nouveau fonction du
+		// nombre de porteurs, donc d'une quantite choisie par l'appelant.
+		ctxEvenement, annuler := context.WithTimeout(ctx, a.delaiAudit)
+		res, err := a.auditClient.Record(ctxEvenement, &auditv1.RawEvent{
 			AuthorityDomain: authorityDomain,
 			EventType:       "quorum.operation",
 			Actor: &auditv1.Actor{
@@ -261,6 +286,7 @@ func (a *API) recordQuorumOperation(ctx context.Context, operationID, authorityD
 			},
 			Outcome: outcome,
 		})
+		annuler()
 		if err != nil {
 			log.Printf("admin-api: échec de l'envoi de quorum.operation à audit-collector (opération %s, porteur %s) : %v", operationID, subjectID, err)
 			continue
@@ -301,7 +327,7 @@ func (a *API) verifyCaller(ctx context.Context, assertion []byte, enTeteBrut str
 		return nil, &refusAppelant{http.StatusUnauthorized, "assertion_de_lappelant_malformee"}
 	}
 
-	ctx, annuler := context.WithTimeout(ctx, delaiVerification)
+	ctx, annuler := context.WithTimeout(ctx, a.delaiVerification)
 	defer annuler()
 
 	resp, err := a.identityClient.VerifyAssertion(ctx, &identityv1.VerifyAssertionRequest{
@@ -375,7 +401,10 @@ func (a *API) recordQuorumInitiator(ctx context.Context, operationID, authorityD
 		evenement.Context = &auditv1.Context{Justification: &motif}
 	}
 
-	res, err := a.auditClient.Record(ctx, evenement)
+	ctxEvenement, annuler := context.WithTimeout(ctx, a.delaiAudit)
+	defer annuler()
+
+	res, err := a.auditClient.Record(ctxEvenement, evenement)
 	if err != nil {
 		log.Printf("admin-api: échec de l'envoi de quorum.operation (initiateur %s, opération %s) : %v", caller.SubjectId, operationID, err)
 		return

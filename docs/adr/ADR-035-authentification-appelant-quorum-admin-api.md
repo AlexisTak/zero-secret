@@ -132,7 +132,11 @@ par `quorum` — dont 5 s pour l'appelant seul. Sans cette borne, un vérificate
 l'attaquant qui contrôle les deux bouts, immobilisait un goroutine jusqu'à déconnexion du client,
 sur le composant même qui porte le chemin d'une révocation d'urgence.
 
-**Audit** : 5 s sur un contexte obtenu par `context.WithoutCancel`, détaché du précédent. Un budget
+**Audit** : 5 s **par événement**, sur un contexte obtenu par `context.WithoutCancel`, détaché du
+précédent. Par événement et non par lot : un budget unique partagé entre les N+1 envois
+séquentiels redeviendrait fonction du nombre de porteurs, donc d'une quantité choisie par
+l'appelant, et les derniers événements du lot seraient perdus. L'initiateur est audité **en
+premier** — son événement est le seul à porter qui a déclenché l'opération. Un budget
 unique partagé entre évaluation et audit donnait à l'appelant un levier de suppression de trace :
 en choisissant le nombre d'assertions, donc la latence cumulée, il consommait presque tout le
 budget et les envois d'audit — best-effort par conception — échouaient sur contexte expiré.

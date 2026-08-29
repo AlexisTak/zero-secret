@@ -466,8 +466,10 @@ func TestSecurityPorteursLentsSontBornes(t *testing.T) {
 	if resp.StatusCode != http.StatusBadGateway {
 		t.Fatalf("attendu 502 sur porteurs muets, obtenu %d", resp.StatusCode)
 	}
-	if ecoule > 5*time.Second {
-		t.Fatalf("le budget d'evaluation n'a pas borne la verification des porteurs : %s", ecoule)
+	// Borne serree, rapportee au budget injecte : une borne de plusieurs secondes passerait avec
+	// un budget defaillant et ne prouverait rien.
+	if maximum := 10 * api.delaiEvaluation; ecoule > maximum {
+		t.Fatalf("le budget d'evaluation n'a pas borne la verification des porteurs : %s (maximum %s)", ecoule, maximum)
 	}
 
 	var erreur Error
@@ -488,10 +490,13 @@ type auditObservateurDeContexte struct {
 	auditv1.AuditCollectionServiceClient
 	erreursDeContexte []error
 	budgetsRestants   []time.Duration
+	sujets            []string
+	attente           time.Duration
 }
 
 func (f *auditObservateurDeContexte) Record(ctx context.Context, in *auditv1.RawEvent, opts ...grpc.CallOption) (*auditv1.RecordResult, error) {
-	f.erreursDeContexte = append(f.erreursDeContexte, ctx.Err())
+	// L'echeance est relevee AVANT toute attente simulee : mesurer apres reviendrait a compter le
+	// sommeil de la doublure dans le budget observe, et le test mesurerait son propre artefact.
 	echeance, ok := ctx.Deadline()
 	if !ok {
 		// Aucune echeance : l'audit partirait sans borne, ce que le test doit signaler.
@@ -499,6 +504,13 @@ func (f *auditObservateurDeContexte) Record(ctx context.Context, in *auditv1.Raw
 	} else {
 		f.budgetsRestants = append(f.budgetsRestants, time.Until(echeance))
 	}
+	if in.Actor != nil {
+		f.sujets = append(f.sujets, in.Actor.SubjectId)
+	}
+	if f.attente > 0 {
+		time.Sleep(f.attente)
+	}
+	f.erreursDeContexte = append(f.erreursDeContexte, ctx.Err())
 	return &auditv1.RecordResult{Accepted: true, EventId: "evt-test"}, nil
 }
 
@@ -690,5 +702,123 @@ func TestSecurityEncodageNonCanoniqueDeLassertionEstRefuse(t *testing.T) {
 				t.Fatalf("attendu 401 pour un encodage non canonique, obtenu %d", resp.StatusCode)
 			}
 		})
+	}
+}
+
+// TestSecurityInitiateurEstAuditeEnPremier : son evenement est le seul a porter QUI a declenche
+// l'operation, son niveau d'authentification et l'eventuelle exclusion. Place en fin de lot, il
+// etait la premiere victime d'un budget epuise — l'information la plus precieuse perdue en premier.
+func TestSecurityInitiateurEstAuditeEnPremier(t *testing.T) {
+	audit := &auditObservateurDeContexte{}
+	identity := doublurePorteursValides(reponseAppelantValide())
+	api := New(quorum.New(identity), identity, audit, domaineDeTest)
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if len(audit.sujets) == 0 {
+		t.Fatal("aucun evenement d'audit emis")
+	}
+	if audit.sujets[0] != "sub-initiateur" {
+		t.Fatalf("l'evenement de l'initiateur doit etre emis en premier, ordre obtenu : %v", audit.sujets)
+	}
+}
+
+// TestSecurityBudgetDauditEstParEvenement : partage entre les N+1 envois, le budget redevenait
+// fonction du nombre de porteurs — donc d'une quantite choisie par l'appelant, qui epuisait le lot
+// avant le dernier envoi. Chaque envoi doit disposer de son propre budget, quel que soit le temps
+// consomme par les precedents.
+func TestSecurityBudgetDauditEstParEvenement(t *testing.T) {
+	// Chaque envoi consomme plus que le budget d'un seul : avec un budget de lot, le deuxieme
+	// evenement partirait deja sur un contexte expire.
+	audit := &auditObservateurDeContexte{attente: 60 * time.Millisecond}
+	identity := doublurePorteursValides(reponseAppelantValide())
+	api := New(quorum.New(identity), identity, audit, domaineDeTest)
+	api.delaiAudit = 100 * time.Millisecond
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	// 1 initiateur + 2 porteurs, tous emis, aucun sur contexte expire.
+	if len(audit.erreursDeContexte) != 3 {
+		t.Fatalf("attendu 3 evenements (initiateur + 2 porteurs), obtenu %d", len(audit.erreursDeContexte))
+	}
+	for i, err := range audit.erreursDeContexte {
+		if err != nil {
+			t.Fatalf("evenement %d emis sur contexte expire (%v) : le budget d'audit est partage entre les envois", i, err)
+		}
+	}
+	for i, restant := range audit.budgetsRestants {
+		if restant < api.delaiAudit/2 {
+			t.Fatalf("evenement %d dispose de %s seulement : le budget n'est pas remis a zero par envoi", i, restant)
+		}
+	}
+}
+
+// TestSecurityAppelantMuetEstBorne retablit la couverture du chemin « appelant qui ne repond
+// jamais », retiree lors du remplacement du test de delai. Budget injecte, donc pas d'attente
+// reelle de plusieurs secondes.
+func TestSecurityAppelantMuetEstBorne(t *testing.T) {
+	identity := identityLent{}
+	api := New(quorum.New(identity), identity, &fakeAuditClient{}, domaineDeTest)
+	api.delaiVerification = 150 * time.Millisecond
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	debut := time.Now()
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+	ecoule := time.Since(debut)
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("attendu 502 sur appelant muet, obtenu %d", resp.StatusCode)
+	}
+	if maximum := 10 * api.delaiVerification; ecoule > maximum {
+		t.Fatalf("le budget de verification de l'appelant n'a pas borne l'appel : %s (maximum %s)", ecoule, maximum)
+	}
+}
+
+// TestSecurityPaniqueInterneNestPasUnRefusMetier : une panique du module quorum sur un chemin
+// autre que le seuil est un defaut interne, pas un « seuil invalide ». La renvoyer comme un refus
+// metier donnait a l'attaquant un oracle silencieux — statut distinct, aucune trace serveur.
+func TestSecurityPaniqueInterneNestPasUnRefusMetier(t *testing.T) {
+	srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
+
+	// Seuil sous le plancher : desormais refuse explicitement AVANT le module, donc sans passer par
+	// le rattrapage de panique.
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions:              [][]byte{[]byte("assertion-porteur-a")},
+		Threshold:               1,
+		ExpectedAuthorityDomain: domaineDeTest,
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("un seuil sous le plancher reste un refus metier 400, obtenu %d", resp.StatusCode)
+	}
+	var erreur Error
+	if err := json.NewDecoder(resp.Body).Decode(&erreur); err != nil {
+		t.Fatalf("reponse illisible : %v", err)
+	}
+	if erreur.Reason != "seuil_de_quorum_invalide" {
+		t.Fatalf("motif attendu seuil_de_quorum_invalide, obtenu %q", erreur.Reason)
 	}
 }
