@@ -83,11 +83,16 @@ audit: ## cargo-audit, cargo-deny, govulncheck, gitleaks
 	gitleaks detect --no-banner --redact
 
 security-quick: ## Tests de sécurité handler-level + fonctions pures — CI, rapide, pas d'infra requise
-	$(call go-each,go test ./... -race -run 'TestSecurity|FuzzSecurity')
-	cargo test -p identity-provider --lib security_
-	cd apps/console-web && npm run build && node --test "dist/**/security.test.js"
+# Les trois premières recettes sont préfixées par '-' : un test de sécurité qui échoue est le
+# signal attendu (régression ADR-021, cf. tests/security/README.md), et make doit malgré tout
+# atteindre l'agrégateur — sans quoi la cible produit un rouge sans le rapport qui le justifie.
+# Le rouge est rétabli en dernière recette, à partir du rapport lui-même.
+	-$(call go-each,go test ./... -race -run 'TestSecurity|FuzzSecurity')
+	-cargo test -p identity-provider --lib security_
+	-cd apps/console-web && npm run build && node --test "dist/**/security.test.js"
 	bash tests/security/infrastructure/check_compose_dev.sh
 	cd tests/security/report/aggregate && go run . ../output
+	@! grep -rq '"blocking": true' tests/security/report/output/ 2>/dev/null || { echo "security-quick: finding(s) bloquant(s) dans le rapport ci-dessus — refus"; exit 1; }
 
 security-full: ## Suite complète contre l'environnement local — make up requis (Postgres + SoftHSM2)
 	@echo "Phase 2 — nécessite make up, voir tests/security/README.md"
