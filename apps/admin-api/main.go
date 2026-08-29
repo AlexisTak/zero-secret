@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -64,7 +65,19 @@ func main() {
 	api := httpapi.New(verifier, identityClient, auditClient, expectedAuthorityDomain)
 
 	log.Printf("admin-api: en écoute sur %s (gRPC en clair vers %s, %s — mTLS hors périmètre)", httpAddr, identityAddr, auditCollectorAddr)
-	if err := http.ListenAndServe(httpAddr, httpapi.NewHandler(api)); err != nil {
+	// Timeouts explicites : http.ListenAndServe seul n'en pose aucun, et un handler lent — ou une
+	// connexion tenue ouverte par un client hostile — immobilise alors un goroutine sans borne.
+	// Convention Go du projet (timeout sur tout appel sortant) appliquee au sens entrant.
+	serveur := &http.Server{
+		Addr:              httpAddr,
+		Handler:           httpapi.NewHandler(api),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	if err := serveur.ListenAndServe(); err != nil {
 		fmt.Fprintf(os.Stderr, "admin-api: erreur serveur HTTP : %v\n", err)
 		os.Exit(1)
 	}

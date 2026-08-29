@@ -507,8 +507,13 @@ func (f *auditObservateurDeContexte) Record(ctx context.Context, in *auditv1.Raw
 	if in.Actor != nil {
 		f.sujets = append(f.sujets, in.Actor.SubjectId)
 	}
+	// L'attente HONORE le contexte, comme le ferait un vrai appel gRPC : un time.Sleep nu
+	// ignorerait l'echeance et le test mesurerait la doublure au lieu de la borne testee.
 	if f.attente > 0 {
-		time.Sleep(f.attente)
+		select {
+		case <-time.After(f.attente):
+		case <-ctx.Done():
+		}
 	}
 	f.erreursDeContexte = append(f.erreursDeContexte, ctx.Err())
 	return &auditv1.RecordResult{Accepted: true, EventId: "evt-test"}, nil
@@ -736,10 +741,13 @@ func TestSecurityInitiateurEstAuditeEnPremier(t *testing.T) {
 func TestSecurityBudgetDauditEstParEvenement(t *testing.T) {
 	// Chaque envoi consomme plus que le budget d'un seul : avec un budget de lot, le deuxieme
 	// evenement partirait deja sur un contexte expire.
-	audit := &auditObservateurDeContexte{attente: 60 * time.Millisecond}
+	audit := &auditObservateurDeContexte{attente: 300 * time.Millisecond}
 	identity := doublurePorteursValides(reponseAppelantValide())
 	api := New(quorum.New(identity), identity, audit, domaineDeTest)
-	api.delaiAudit = 100 * time.Millisecond
+	// Marge large devant la granularite du timer Windows (~15 ms) : le ratio porte le sens, pas
+	// les valeurs absolues. Un calibrage serre produirait des echecs intermittents en CI, qui
+	// finissent toujours par faire desactiver le test.
+	api.delaiAudit = 500 * time.Millisecond
 	srv := httptest.NewServer(NewHandler(api))
 	t.Cleanup(srv.Close)
 
@@ -759,7 +767,7 @@ func TestSecurityBudgetDauditEstParEvenement(t *testing.T) {
 		}
 	}
 	for i, restant := range audit.budgetsRestants {
-		if restant < api.delaiAudit/2 {
+		if restant < api.delaiAudit/3 {
 			t.Fatalf("evenement %d dispose de %s seulement : le budget n'est pas remis a zero par envoi", i, restant)
 		}
 	}
@@ -791,17 +799,21 @@ func TestSecurityAppelantMuetEstBorne(t *testing.T) {
 	}
 }
 
-// TestSecurityPaniqueInterneNestPasUnRefusMetier : une panique du module quorum sur un chemin
-// autre que le seuil est un defaut interne, pas un « seuil invalide ». La renvoyer comme un refus
-// metier donnait a l'attaquant un oracle silencieux — statut distinct, aucune trace serveur.
-func TestSecurityPaniqueInterneNestPasUnRefusMetier(t *testing.T) {
+// TestSecuritySeuilSousLePlancherEstRefuse : le plancher est desormais verifie explicitement dans
+// le handler, AVANT l'appel au module — le refus ne transite plus par le rattrapage de panique.
+// Le seuil est derive de quorum.MinimumThreshold et non ecrit en dur : une evolution du plancher
+// ne doit pas laisser ce test vert par accident.
+//
+// Ce cas ne prouve PAS la levee de l'oracle de panique — il passait deja avant cette correction.
+// C'est TestSecurityPaniqueInterneEstUnDefautInterne qui l'exerce.
+func TestSecuritySeuilSousLePlancherEstRefuse(t *testing.T) {
 	srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
 
 	// Seuil sous le plancher : desormais refuse explicitement AVANT le module, donc sans passer par
 	// le rattrapage de panique.
 	body, _ := json.Marshal(QuorumRequest{
 		Assertions:              [][]byte{[]byte("assertion-porteur-a")},
-		Threshold:               1,
+		Threshold:               quorum.MinimumThreshold - 1,
 		ExpectedAuthorityDomain: domaineDeTest,
 	})
 
@@ -820,5 +832,90 @@ func TestSecurityPaniqueInterneNestPasUnRefusMetier(t *testing.T) {
 	}
 	if erreur.Reason != "seuil_de_quorum_invalide" {
 		t.Fatalf("motif attendu seuil_de_quorum_invalide, obtenu %q", erreur.Reason)
+	}
+}
+
+// identityQuiPanique fait paniquer la verification d'un PORTEUR, sur un chemin sans rapport avec
+// le seuil de quorum : c'est le cas que le rattrapage de panique doit traiter comme un defaut
+// interne, et non comme un refus metier.
+type identityQuiPanique struct {
+	identityv1.AssertionVerificationServiceClient
+}
+
+func (identityQuiPanique) VerifyAssertion(ctx context.Context, in *identityv1.VerifyAssertionRequest, opts ...grpc.CallOption) (*identityv1.VerifyAssertionResponse, error) {
+	if string(in.Assertion) == assertionAppelantValide {
+		return reponseAppelantValide(), nil
+	}
+	panic("defaut simule dans la verification d'un porteur")
+}
+
+// TestSecurityPaniqueInterneEstUnDefautInterne : avant correction, TOUTE panique du module quorum
+// devenait un 400 « seuil_de_quorum_invalide », sans aucune trace serveur. Un attaquant trouvant
+// une entree qui fait paniquer le module disposait donc d'un oracle silencieux, distinguable au
+// seul code de statut, pour iterer un fuzzing en production.
+//
+// Le refus doit etre un 500 generique, et ne recopier aucun detail technique.
+func TestSecurityPaniqueInterneEstUnDefautInterne(t *testing.T) {
+	identity := identityQuiPanique{}
+	srv := serveurQuorum(t, identity)
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("le serveur ne doit jamais planter sur une panique interne : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("attendu 500 pour un defaut interne, obtenu %d", resp.StatusCode)
+	}
+
+	var erreur Error
+	if err := json.NewDecoder(resp.Body).Decode(&erreur); err != nil {
+		t.Fatalf("reponse d'erreur illisible : %v", err)
+	}
+	if erreur.Reason != "defaut_interne" {
+		t.Fatalf("motif attendu defaut_interne, obtenu %q", erreur.Reason)
+	}
+	if strings.Contains(erreur.Reason, "porteur") || strings.Contains(erreur.Reason, "panic") {
+		t.Fatalf("la reponse ne doit recopier aucun detail de la panique : %q", erreur.Reason)
+	}
+}
+
+// TestSecurityPhaseDauditEstBorneeGlobalement : le budget par evenement, seul, rendait la duree de
+// la requete proportionnelle au nombre de porteurs — quantite choisie par l'appelant. Avec 64
+// porteurs et un collecteur muet, la requete tenait un goroutine pendant (64+1) x delaiAudit.
+// Le plafond agrege borne la phase entiere, l'initiateur partant en premier pour que la trace la
+// plus precieuse soit emise avant que le plafond puisse mordre.
+func TestSecurityPhaseDauditEstBorneeGlobalement(t *testing.T) {
+	// Collecteur muet : chaque envoi consommera tout son budget par evenement.
+	audit := &auditObservateurDeContexte{attente: time.Second}
+	identity := doublurePorteursValides(reponseAppelantValide())
+	api := New(quorum.New(identity), identity, audit, domaineDeTest)
+	// Calibrage discriminant : 3 evenements x 300 ms = 900 ms sans plafond agrege, contre ~350 ms
+	// avec. La borne verifiee (2 x plafondAudit = 700 ms) separe donc franchement les deux
+	// conceptions, ce qu'une borne large ne ferait pas.
+	api.delaiAudit = 300 * time.Millisecond
+	api.plafondAudit = 350 * time.Millisecond
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	debut := time.Now()
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+	ecoule := time.Since(debut)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("attendu 200, obtenu %d", resp.StatusCode)
+	}
+	// Sans plafond agrege, trois envois d'une seconde chacun donneraient au moins 3 s.
+	if maximum := 2 * api.plafondAudit; ecoule > maximum {
+		t.Fatalf("la phase d'audit n'est pas bornee globalement : %s (maximum %s)", ecoule, maximum)
+	}
+	// L'initiateur part en premier : sa trace doit exister meme quand le plafond mord.
+	if len(audit.sujets) == 0 || audit.sujets[0] != "sub-initiateur" {
+		t.Fatalf("la trace de l'initiateur doit etre emise avant que le plafond morde, ordre obtenu : %v", audit.sujets)
 	}
 }

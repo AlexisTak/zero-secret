@@ -25,6 +25,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"slices"
@@ -86,6 +87,19 @@ const delaiEvaluation = 25 * time.Second
 // ne depend plus de ce qui a ete envoye avant.
 const delaiAudit = 5 * time.Second
 
+// plafondAudit borne la phase d'audit PRISE DANS SON ENSEMBLE, en plus du budget par evenement.
+//
+// Les deux bornes sont necessaires et repondent a deux menaces opposees. Sans budget par
+// evenement, l'appelant epuise le lot et supprime les dernieres traces (repudiation). Sans
+// plafond agrege, la duree de la requete devient proportionnelle au nombre de porteurs qu'il
+// choisit — jusqu'a (maxAssertions + 1) x delaiAudit — et immobilise un goroutine sur le
+// composant qui porte le chemin de revocation d'urgence (deni de service).
+//
+// L'arbitrage entre les deux est rendu acceptable par l'ORDRE : l'initiateur part en premier,
+// donc la trace la plus precieuse est emise avant que le plafond puisse mordre. Un depassement
+// est journalise, jamais silencieux.
+const plafondAudit = 15 * time.Second
+
 type API struct {
 	verifier *quorum.Verifier
 	// identityClient verifie l'assertion de l'APPELANT. C'est le meme service que celui utilise
@@ -105,6 +119,7 @@ type API struct {
 	delaiVerification time.Duration
 	delaiEvaluation   time.Duration
 	delaiAudit        time.Duration
+	plafondAudit      time.Duration
 }
 
 func New(
@@ -121,6 +136,7 @@ func New(
 		delaiVerification:       delaiVerification,
 		delaiEvaluation:         delaiEvaluation,
 		delaiAudit:              delaiAudit,
+		plafondAudit:            plafondAudit,
 	}
 }
 
@@ -220,7 +236,15 @@ func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId s
 		// distinguable par son seul code de statut, pour iterer en production.
 		var interne panicError
 		if errors.As(err, &interne) {
-			log.Printf("admin-api: panique interne lors de l'évaluation du quorum (opération %s) : %v", operationId, interne.v)
+			// %q sur une valeur TRONQUEE : le message d'une panique venue de la pile gRPC peut
+			// contenir tout ou partie de la requete serialisee, donc des assertions d'identite.
+			// Les journaux ne contiennent jamais de credential (convention du projet), et %q
+			// neutralise les sauts de ligne — sans quoi un contenu choisi injecterait des lignes
+			// dans un journal ligne-oriente.
+			log.Printf(
+				"admin-api: panique interne lors de l'évaluation du quorum (opération %s), valeur de type %T : %q",
+				operationId, interne.v, tronque(fmt.Sprint(interne.v), maxOctetsPaniqueJournalisee),
+			)
 			writeError(w, http.StatusInternalServerError, "defaut_interne")
 			return
 		}
@@ -238,7 +262,8 @@ func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId s
 	// WithoutCancel : l'audit ne doit heriter ni de l'echeance ni de l'annulation du budget
 	// d'evaluation, sinon un appelant qui epuise ce budget supprime la trace de l'operation qu'il
 	// vient de reussir. Il herite en revanche des valeurs du contexte de requete (tracage).
-	ctxAudit := context.WithoutCancel(r.Context())
+	ctxAudit, annulerAudit := context.WithTimeout(context.WithoutCancel(r.Context()), a.plafondAudit)
+	defer annulerAudit()
 
 	// L'initiateur est audite EN PREMIER : son evenement est le seul a porter qui a declenche
 	// l'operation, son niveau d'authentification et l'eventuelle exclusion. Le placer en fin de
@@ -272,7 +297,7 @@ func (a *API) recordQuorumOperation(ctx context.Context, operationID, authorityD
 	for _, subjectID := range result.DistinctSubjects {
 		// Budget PAR evenement : partage entre les N envois, il serait de nouveau fonction du
 		// nombre de porteurs, donc d'une quantite choisie par l'appelant.
-		ctxEvenement, annuler := context.WithTimeout(ctx, a.delaiAudit)
+		ctxEvenement, annuler := context.WithTimeout(ctx, a.budgetParEvenement())
 		res, err := a.auditClient.Record(ctxEvenement, &auditv1.RawEvent{
 			AuthorityDomain: authorityDomain,
 			EventType:       "quorum.operation",
@@ -295,6 +320,20 @@ func (a *API) recordQuorumOperation(ctx context.Context, operationID, authorityD
 			log.Printf("admin-api: quorum.operation refusé par audit-collector (opération %s, porteur %s) : %s", operationID, subjectID, res.Reason)
 		}
 	}
+}
+
+// budgetParEvenement renvoie le budget d'un envoi d'audit, en refusant la valeur zero.
+//
+// Un delaiAudit nul produirait un contexte DEJA expire : aucun evenement emis, et une reponse 200
+// malgre tout — perte de trace totale et silencieuse, exactement le mode de defaillance que ce
+// composant cherche a fermer. La construction par New ne peut pas produire zero, mais un litteral
+// &API{...} intra-paquet le pourrait : le repli sur la constante est un garde-fou structurel, pas
+// une correction de bug connu.
+func (a *API) budgetParEvenement() time.Duration {
+	if a.delaiAudit <= 0 {
+		return delaiAudit
+	}
+	return a.delaiAudit
 }
 
 // refusAppelant porte le couple statut/motif d'un refus d'authentification — jamais le detail
@@ -401,7 +440,7 @@ func (a *API) recordQuorumInitiator(ctx context.Context, operationID, authorityD
 		evenement.Context = &auditv1.Context{Justification: &motif}
 	}
 
-	ctxEvenement, annuler := context.WithTimeout(ctx, a.delaiAudit)
+	ctxEvenement, annuler := context.WithTimeout(ctx, a.budgetParEvenement())
 	defer annuler()
 
 	res, err := a.auditClient.Record(ctxEvenement, evenement)
@@ -435,6 +474,17 @@ func excludeInitiator(result quorum.Result, initiateur string, threshold int) (q
 	}, exclu
 }
 
+// maxOctetsPaniqueJournalisee borne ce qui est recopie d'une valeur de panique dans le journal.
+const maxOctetsPaniqueJournalisee = 200
+
+// tronque coupe une chaine a n octets, en signalant la coupe.
+func tronque(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…(tronqué)"
+}
+
 func verifyQuorumRecovered(ctx context.Context, v *quorum.Verifier, body QuorumRequest) (result quorum.Result, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -450,7 +500,10 @@ func verifyQuorumRecovered(ctx context.Context, v *quorum.Verifier, body QuorumR
 
 type panicError struct{ v any }
 
-func (e panicError) Error() string { return "seuil_de_quorum_invalide" }
+// Le plancher de quorum etant desormais verifie explicitement AVANT l'appel au module, ce type ne
+// represente plus jamais un seuil invalide mais un defaut interne. Le message le dit : laisser
+// "seuil_de_quorum_invalide" ferait conclure a tort a un refus metier a la premiere relecture.
+func (e panicError) Error() string { return "panique interne du module quorum" }
 
 func errPanic(v any) error { return panicError{v: v} }
 

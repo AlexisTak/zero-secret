@@ -132,8 +132,16 @@ par `quorum` — dont 5 s pour l'appelant seul. Sans cette borne, un vérificate
 l'attaquant qui contrôle les deux bouts, immobilisait un goroutine jusqu'à déconnexion du client,
 sur le composant même qui porte le chemin d'une révocation d'urgence.
 
-**Audit** : 5 s **par événement**, sur un contexte obtenu par `context.WithoutCancel`, détaché du
-précédent. Par événement et non par lot : un budget unique partagé entre les N+1 envois
+**Audit** : 5 s **par événement**, plus un **plafond agrégé de 15 s** sur la phase entière, sur un
+contexte obtenu par `context.WithoutCancel`, détaché du précédent.
+
+Les deux bornes répondent à deux menaces opposées, et l'une sans l'autre en rouvre une. Sans
+budget par événement, l'appelant épuise le lot et supprime les dernières traces (répudiation).
+Sans plafond agrégé, la durée de la requête devient proportionnelle au nombre de porteurs qu'il
+choisit — jusqu'à `(64+1) × 5 s` — et immobilise un goroutine sur le composant qui porte le chemin
+de révocation d'urgence (déni de service). L'arbitrage est rendu acceptable par l'**ordre** :
+l'initiateur part en premier, donc la trace la plus précieuse est émise avant que le plafond
+puisse mordre. Par événement et non par lot : un budget unique partagé entre les N+1 envois
 séquentiels redeviendrait fonction du nombre de porteurs, donc d'une quantité choisie par
 l'appelant, et les derniers événements du lot seraient perdus. L'initiateur est audité **en
 premier** — son événement est le seul à porter qui a déclenché l'opération. Un budget
