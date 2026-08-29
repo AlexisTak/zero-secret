@@ -96,8 +96,14 @@ const delaiAudit = 5 * time.Second
 // composant qui porte le chemin de revocation d'urgence (deni de service).
 //
 // L'arbitrage entre les deux est rendu acceptable par l'ORDRE : l'initiateur part en premier,
-// donc la trace la plus precieuse est emise avant que le plafond puisse mordre. Un depassement
-// est journalise, jamais silencieux.
+// donc la trace la plus precieuse est emise avant que le plafond puisse mordre.
+//
+// Le plafond ne supprime pas la perte de trace, il la borne et la rend visible : les porteurs
+// restants au moment ou il mord n'ont pas d'evenement. C'est un risque ACCEPTE et date
+// (SEC-ADMIN-API-AUDIT-001, security/threat-models/admin-api.md), pas une propriete garantie. Le
+// depassement produit une ligne de journal explicite indiquant combien d'evenements ont ete
+// abandonnes — sans quoi un exploitant ne peut pas distinguer un plafond atteint d'une panne du
+// collecteur.
 const plafondAudit = 15 * time.Second
 
 type API struct {
@@ -243,7 +249,11 @@ func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId s
 			// dans un journal ligne-oriente.
 			log.Printf(
 				"admin-api: panique interne lors de l'évaluation du quorum (opération %s), valeur de type %T : %q",
-				operationId, interne.v, tronque(fmt.Sprint(interne.v), maxOctetsPaniqueJournalisee),
+				// %.Nv borne le formatage LUI-MEME : formater puis tronquer materialiserait
+				// d'abord la valeur entiere, dont la taille suit celle d'une entree choisie par
+				// l'appelant (jusqu'a maxOctetsCorps).
+				operationId, interne.v,
+				tronque(fmt.Sprintf("%.*v", maxOctetsPaniqueJournalisee, interne.v), maxOctetsPaniqueJournalisee),
 			)
 			writeError(w, http.StatusInternalServerError, "defaut_interne")
 			return
@@ -262,7 +272,7 @@ func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId s
 	// WithoutCancel : l'audit ne doit heriter ni de l'echeance ni de l'annulation du budget
 	// d'evaluation, sinon un appelant qui epuise ce budget supprime la trace de l'operation qu'il
 	// vient de reussir. Il herite en revanche des valeurs du contexte de requete (tracage).
-	ctxAudit, annulerAudit := context.WithTimeout(context.WithoutCancel(r.Context()), a.plafondAudit)
+	ctxAudit, annulerAudit := context.WithTimeout(context.WithoutCancel(r.Context()), a.plafondParPhase())
 	defer annulerAudit()
 
 	// L'initiateur est audite EN PREMIER : son evenement est le seul a porter qui a declenche
@@ -294,7 +304,19 @@ func (a *API) recordQuorumOperation(ctx context.Context, operationID, authorityD
 		outcome = "success"
 	}
 
-	for _, subjectID := range result.DistinctSubjects {
+	for i, subjectID := range result.DistinctSubjects {
+		// Plafond atteint : on sort en le disant UNE fois. Continuer produirait un echec generique
+		// par porteur restant — indiscernable d'une panne d'audit-collector pour l'exploitant qui
+		// enquete sur une trace manquante, et jusqu'a maxAssertions lignes de journal par requete,
+		// soit une amplification de journal pilotee par l'appelant.
+		if err := ctx.Err(); err != nil {
+			log.Printf(
+				"admin-api: plafond d'audit dépassé (opération %s) : %d événement(s) de porteur non émis sur %d (%v)",
+				operationID, len(result.DistinctSubjects)-i, len(result.DistinctSubjects), err,
+			)
+			return
+		}
+
 		// Budget PAR evenement : partage entre les N envois, il serait de nouveau fonction du
 		// nombre de porteurs, donc d'une quantite choisie par l'appelant.
 		ctxEvenement, annuler := context.WithTimeout(ctx, a.budgetParEvenement())
@@ -334,6 +356,26 @@ func (a *API) budgetParEvenement() time.Duration {
 		return delaiAudit
 	}
 	return a.delaiAudit
+}
+
+// plafondParPhase renvoie le plafond de la phase d'audit, avec le meme garde-fou que
+// budgetParEvenement — et pour la meme raison, un cran plus haut : un plafond nul produit un
+// contexte deja expire dont TOUS les ctxEvenement derivent, donc zero evenement emis et une
+// reponse 200 malgre tout. Poser le garde d'un cote et pas de l'autre laissait le mode de
+// defaillance intact, simplement deplace.
+//
+// L'invariant plafond >= budget est impose ici : un plafond inferieur au budget d'un seul envoi
+// rendrait ce budget structurellement inatteignable, et le premier evenement partirait deja
+// contraint.
+func (a *API) plafondParPhase() time.Duration {
+	plafond := a.plafondAudit
+	if plafond <= 0 {
+		plafond = plafondAudit
+	}
+	if budget := a.budgetParEvenement(); plafond < budget {
+		return budget
+	}
+	return plafond
 }
 
 // refusAppelant porte le couple statut/motif d'un refus d'authentification — jamais le detail

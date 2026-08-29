@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -869,15 +870,23 @@ func TestSecurityPaniqueInterneEstUnDefautInterne(t *testing.T) {
 		t.Fatalf("attendu 500 pour un defaut interne, obtenu %d", resp.StatusCode)
 	}
 
+	// Le CORPS BRUT est inspecte, pas le champ Reason : chercher un fragment de panique dans une
+	// valeur dont l'egalite a "defaut_interne" vient d'etre affirmee ne verifie rien.
+	brut, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("lecture du corps : %v", err)
+	}
 	var erreur Error
-	if err := json.NewDecoder(resp.Body).Decode(&erreur); err != nil {
+	if err := json.Unmarshal(brut, &erreur); err != nil {
 		t.Fatalf("reponse d'erreur illisible : %v", err)
 	}
 	if erreur.Reason != "defaut_interne" {
 		t.Fatalf("motif attendu defaut_interne, obtenu %q", erreur.Reason)
 	}
-	if strings.Contains(erreur.Reason, "porteur") || strings.Contains(erreur.Reason, "panic") {
-		t.Fatalf("la reponse ne doit recopier aucun detail de la panique : %q", erreur.Reason)
+	for _, fragment := range []string{"porteur", "panic", "defaut simule", "goroutine", ".go:"} {
+		if strings.Contains(string(brut), fragment) {
+			t.Fatalf("la reponse recopie un detail de la panique (%q) : %s", fragment, brut)
+		}
 	}
 }
 
@@ -917,5 +926,34 @@ func TestSecurityPhaseDauditEstBorneeGlobalement(t *testing.T) {
 	// L'initiateur part en premier : sa trace doit exister meme quand le plafond mord.
 	if len(audit.sujets) == 0 || audit.sujets[0] != "sub-initiateur" {
 		t.Fatalf("la trace de l'initiateur doit etre emise avant que le plafond morde, ordre obtenu : %v", audit.sujets)
+	}
+}
+
+// TestSecurityPlafondNulNeSupprimePasLaudit : le garde-fou de valeur nulle avait ete pose sur le
+// budget par evenement mais pas sur le plafond, alors que la meme justification s'applique un cran
+// plus haut. Un plafond nul produit un contexte deja expire dont TOUS les contextes d'evenement
+// derivent : zero evenement emis, reponse 200 — le mode de defaillance que ce composant cherche a
+// fermer, simplement deplace.
+func TestSecurityPlafondNulNeSupprimePasLaudit(t *testing.T) {
+	audit := &auditObservateurDeContexte{}
+	identity := doublurePorteursValides(reponseAppelantValide())
+	api := New(quorum.New(identity), identity, audit, domaineDeTest)
+	api.plafondAudit = 0 // valeur qu'un litteral &API{...} intra-paquet pourrait produire
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if len(audit.erreursDeContexte) == 0 {
+		t.Fatal("un plafond nul ne doit jamais supprimer l'audit : aucun evenement emis")
+	}
+	for i, err := range audit.erreursDeContexte {
+		if err != nil {
+			t.Fatalf("evenement %d emis sur contexte deja expire (%v) : le plafond nul n'a pas ete rattrape", i, err)
+		}
 	}
 }
