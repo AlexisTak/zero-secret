@@ -3,15 +3,18 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
 
+	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
 	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
 
 	"github.com/AlexisTak/biscuits-shield/apps/admin-api/internal/quorum"
@@ -422,11 +425,35 @@ func (identityLent) VerifyAssertion(ctx context.Context, in *identityv1.VerifyAs
 	return nil, ctx.Err()
 }
 
-// TestSecurityVerificateurLentEstTraiteCommeUnePanne : une lenteur indistinguable d'une panne doit
-// produire le meme refus qu'une panne (regle absolue #2). Sans echeance, ce test ne terminerait
-// jamais dans le temps imparti au paquet.
-func TestSecurityVerificateurLentEstTraiteCommeUnePanne(t *testing.T) {
-	srv := serveurQuorum(t, identityLent{})
+// identityLentPourPorteurs repond immediatement pour l'assertion de l'APPELANT et bloque sur
+// toutes les autres : c'est le chemin qu'un budget pose sur le seul appelant laissait sans
+// echeance, et donc celui qu'il faut exercer.
+type identityLentPourPorteurs struct {
+	identityv1.AssertionVerificationServiceClient
+	appelant []byte
+}
+
+func (f identityLentPourPorteurs) VerifyAssertion(ctx context.Context, in *identityv1.VerifyAssertionRequest, opts ...grpc.CallOption) (*identityv1.VerifyAssertionResponse, error) {
+	if string(in.Assertion) == string(f.appelant) {
+		return reponseAppelantValide(), nil
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// TestSecurityPorteursLentsSontBornes exerce le chemin reellement corrige : appelant rapide,
+// porteurs muets. Avant la correction, seule la verification de l'appelant avait une echeance ;
+// les jusqu'a 64 verifications de porteurs, faites en serie, partaient avec un contexte nu et
+// immobilisaient un goroutine jusqu'a deconnexion du client.
+//
+// Le refus est un 502 generique : le message d'erreur du module quorum contient l'adresse
+// d'identity-provider et le code gRPC, il ne doit jamais atteindre le client.
+func TestSecurityPorteursLentsSontBornes(t *testing.T) {
+	identity := identityLentPourPorteurs{appelant: []byte(assertionAppelantValide)}
+	api := New(quorum.New(identity), identity, &fakeAuditClient{}, domaineDeTest)
+	api.delaiEvaluation = 200 * time.Millisecond
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
 
 	debut := time.Now()
 	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
@@ -434,12 +461,95 @@ func TestSecurityVerificateurLentEstTraiteCommeUnePanne(t *testing.T) {
 		t.Fatalf("erreur inattendue : %v", err)
 	}
 	defer resp.Body.Close()
+	ecoule := time.Since(debut)
 
 	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("attendu 502 sur verificateur muet, obtenu %d", resp.StatusCode)
+		t.Fatalf("attendu 502 sur porteurs muets, obtenu %d", resp.StatusCode)
 	}
-	if ecoule := time.Since(debut); ecoule > delaiTraitement {
-		t.Fatalf("le refus doit survenir dans le budget de la requete (%s), obtenu %s", delaiTraitement, ecoule)
+	if ecoule > 5*time.Second {
+		t.Fatalf("le budget d'evaluation n'a pas borne la verification des porteurs : %s", ecoule)
+	}
+
+	var erreur Error
+	if err := json.NewDecoder(resp.Body).Decode(&erreur); err != nil {
+		t.Fatalf("reponse d'erreur illisible : %v", err)
+	}
+	if erreur.Reason != "verification_des_porteurs_indisponible" {
+		t.Fatalf("motif attendu verification_des_porteurs_indisponible, obtenu %q", erreur.Reason)
+	}
+	if strings.Contains(erreur.Reason, "rpc error") || strings.Contains(erreur.Reason, "127.0.0.1") {
+		t.Fatalf("la reponse ne doit jamais recopier le message interne : %q", erreur.Reason)
+	}
+}
+
+// auditObservateurDeContexte capture l'etat du contexte au moment de chaque envoi : c'est la seule
+// facon de prouver que l'audit ne partage pas le budget de l'evaluation.
+type auditObservateurDeContexte struct {
+	auditv1.AuditCollectionServiceClient
+	erreursDeContexte []error
+}
+
+func (f *auditObservateurDeContexte) Record(ctx context.Context, in *auditv1.RawEvent, opts ...grpc.CallOption) (*auditv1.RecordResult, error) {
+	f.erreursDeContexte = append(f.erreursDeContexte, ctx.Err())
+	return &auditv1.RecordResult{Accepted: true, EventId: "evt-test"}, nil
+}
+
+// identityLenteMaisSuffisante consomme presque tout le budget d'evaluation avant de repondre :
+// l'evaluation reussit de justesse, et c'est precisement l'instant ou un budget partage aurait
+// laisse partir les envois d'audit sur un contexte deja expire.
+type identityLenteMaisSuffisante struct {
+	identityv1.AssertionVerificationServiceClient
+	attente time.Duration
+	sujets  map[string]string
+}
+
+func (f identityLenteMaisSuffisante) VerifyAssertion(ctx context.Context, in *identityv1.VerifyAssertionRequest, opts ...grpc.CallOption) (*identityv1.VerifyAssertionResponse, error) {
+	time.Sleep(f.attente)
+	if string(in.Assertion) == assertionAppelantValide {
+		return reponseAppelantValide(), nil
+	}
+	if sujet, ok := f.sujets[string(in.Assertion)]; ok {
+		return &identityv1.VerifyAssertionResponse{Valid: true, SubjectId: sujet}, nil
+	}
+	return &identityv1.VerifyAssertionResponse{Valid: false, Reason: "inconnue"}, nil
+}
+
+// TestSecurityAuditNestJamaisSupprimeParLeBudgetDevaluation : une operation critique qui aboutit
+// doit TOUJOURS produire ses evenements (regle absolue #9). Avec un budget unique partage entre
+// evaluation et audit, l'appelant choisissait le nombre d'assertions — donc la latence cumulee —
+// et supprimait la trace d'une operation pourtant reussie.
+func TestSecurityAuditNestJamaisSupprimeParLeBudgetDevaluation(t *testing.T) {
+	identity := identityLenteMaisSuffisante{
+		attente: 60 * time.Millisecond,
+		sujets: map[string]string{
+			"assertion-porteur-a": "sub-porteur-1",
+			"assertion-porteur-b": "sub-porteur-2",
+		},
+	}
+	audit := &auditObservateurDeContexte{}
+	api := New(quorum.New(identity), identity, audit, domaineDeTest)
+	// Budget d'evaluation calibre pour etre presque entierement consomme par les trois
+	// verifications (appelant + deux porteurs) a 60 ms chacune.
+	api.delaiEvaluation = 200 * time.Millisecond
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("attendu 200, obtenu %d", resp.StatusCode)
+	}
+	if len(audit.erreursDeContexte) == 0 {
+		t.Fatal("une operation reussie doit produire des evenements d'audit, aucun n'a ete emis")
+	}
+	for i, err := range audit.erreursDeContexte {
+		if err != nil {
+			t.Fatalf("evenement %d emis avec un contexte deja expire (%v) : le budget d'audit doit etre detache de celui de l'evaluation", i, err)
+		}
 	}
 }
 
@@ -523,5 +633,41 @@ func TestSecurityRequeteNominaleNeJournalisePasDexclusion(t *testing.T) {
 		if req.Context != nil && req.Context.Justification != nil {
 			t.Fatalf("aucune exclusion n'a eu lieu, le journal ne doit pas en signaler une : %q", *req.Context.Justification)
 		}
+	}
+}
+
+// TestSecurityEncodageNonCanoniqueDeLassertionEstRefuse : le decodeur du runtime genere n'est pas
+// strict — il choisit son alphabet selon la presence de padding et de caracteres URL-safe, sans
+// verifier les bits de bourrage. Une meme assertion admet donc plusieurs chaines d'en-tete
+// valides. Seule la representation canonique (RFC 4648 §4, avec padding) est acceptee : sinon un
+// mecanisme indexant sur la chaine — limitation de debit par assertion, cache, deduplication de
+// journal — verrait plusieurs cles pour une seule identite.
+func TestSecurityEncodageNonCanoniqueDeLassertionEstRefuse(t *testing.T) {
+	cas := map[string]string{
+		"sans padding (RawStdEncoding)": base64.RawStdEncoding.EncodeToString([]byte(assertionAppelantValide)),
+		"alphabet URL-safe":             base64.RawURLEncoding.EncodeToString([]byte(assertionAppelantValide)),
+	}
+
+	for nom, entete := range cas {
+		t.Run(nom, func(t *testing.T) {
+			srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
+
+			req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/critical-operations/op-1/quorum", bytes.NewReader(corpsQuorumValide()))
+			if err != nil {
+				t.Fatalf("construction requete : %v", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Identity-Assertion", entete)
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("erreur inattendue : %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("attendu 401 pour un encodage non canonique, obtenu %d", resp.StatusCode)
+			}
+		})
 	}
 }

@@ -83,7 +83,9 @@ couche, et ADR-021 impose que le module ignore l'opération et les rôles.
 avait aussi soumis une assertion de porteur : le résultat audité devenait indiscernable d'une
 requête où il n'aurait rien soumis, et une campagne d'auto-approbation n'était plus détectable a
 posteriori. Le champ `context.justification` de l'événement d'initiateur (champ existant du
-contrat, schéma inchangé) porte donc le fait de l'exclusion.
+contrat, schéma inchangé) porte donc le fait de l'exclusion, avec pour valeur exacte la constante
+exportée `MotifExclusionInitiateur` — le rejeu hors ligne (`zs-replay`, ADR-034) doit pouvoir la
+reconnaître par égalité, jamais par appariement de sous-chaîne.
 
 ### Le décodage base64 appartient au contrat, pas au handler
 
@@ -93,8 +95,17 @@ l'en-tête manuellement derrière un `type: string` nu — la garantie vivait al
 de vérité (règle absolue #8), et un régénérateur ou un autre client n'avait aucun signal.
 
 Un en-tête non décodable n'atteint donc plus le handler. `writeParamError` traduit l'échec de
-liaison en `401 assertion_de_lappelant_malformee` et non en `400` : c'est un refus
-d'authentification, et le code de statut ne doit pas révéler *où* l'assertion a échoué.
+liaison — format invalide comme en-tête répété — en `401 assertion_de_lappelant_malformee` et non
+en `400` : c'est un refus d'authentification, et le code de statut ne doit pas révéler *où*
+l'assertion a échoué.
+
+**Réserve, et contrôle compensatoire.** Le décodeur du runtime généré n'est pas strict : il choisit
+son alphabet selon la présence de padding et de caractères URL-safe, et ne vérifie pas les bits de
+bourrage. Une même assertion admet donc quatre chaînes d'en-tête valides, là où le décodage manuel
+précédent (`base64.StdEncoding.Strict()`) n'en acceptait qu'une. La canonicité est donc revalidée
+dans `verifyCaller` par ré-encodage et comparaison à l'en-tête brut. Sans cela, tout mécanisme
+indexant sur la chaîne — limitation de débit par assertion, cache, déduplication de journal —
+verrait plusieurs clés pour une seule identité.
 
 ### Le domaine d'autorité vient de la configuration
 
@@ -114,17 +125,23 @@ attendu en dépendent), donc les bornes doivent tenir face à un anonyme :
 côté application). Chaque assertion déclenchant un appel gRPC sortant, une liste non bornée
 amplifierait une requête unique en autant d'appels vers `identity-provider`.
 
-### Budget de temps sur la requête entière
+### Deux budgets de temps distincts, jamais partagés
 
-Deux échéances imbriquées : **30 s** posées en tête du handler sur `r.Context()`, et **5 s** pour
-la vérification de l'appelant. Le budget global couvre ce que le seul délai de l'appelant laissait
-sans échéance : jusqu'à 64 vérifications de porteurs faites en série par le module `quorum`, et
-les N+1 envois d'audit. Sans lui, un vérificateur lent — ou tenu par l'attaquant, qui contrôle les
-deux bouts — immobilisait un goroutine jusqu'à déconnexion du client, sur le composant même qui
-porte le chemin d'une révocation d'urgence.
+**Évaluation** : 25 s pour la vérification de l'appelant puis celles des porteurs, faites en série
+par `quorum` — dont 5 s pour l'appelant seul. Sans cette borne, un vérificateur lent, ou tenu par
+l'attaquant qui contrôle les deux bouts, immobilisait un goroutine jusqu'à déconnexion du client,
+sur le composant même qui porte le chemin d'une révocation d'urgence.
 
-Le dépassement produit le même `502` qu'une panne : une lenteur indistinguable d'une panne est
-traitée comme une panne (règle absolue #2).
+**Audit** : 5 s sur un contexte obtenu par `context.WithoutCancel`, détaché du précédent. Un budget
+unique partagé entre évaluation et audit donnait à l'appelant un levier de suppression de trace :
+en choisissant le nombre d'assertions, donc la latence cumulée, il consommait presque tout le
+budget et les envois d'audit — best-effort par conception — échouaient sur contexte expiré.
+L'opération critique aboutissait alors en `200` sans qu'aucun `quorum.operation` n'atteigne
+`audit-collector`, ce qu'interdit la règle absolue #9.
+
+Le dépassement d'évaluation produit le même `502` qu'une panne : une lenteur indistinguable d'une
+panne est traitée comme une panne (règle absolue #2). Le message d'erreur du module `quorum` n'est
+jamais recopié dans la réponse — il contient l'adresse d'`identity-provider` et le code gRPC.
 
 ### `quorum` reste agnostique
 

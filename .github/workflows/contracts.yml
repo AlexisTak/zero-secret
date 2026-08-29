@@ -14,11 +14,8 @@ on:
       - "contracts/**"
       - "pkg/gen/**"
 
-# Jeton par defaut reduit a la lecture pour TOUS les jobs : ci.yml se declenche sur
-# pull_request, donc sur des PR de forks, et plusieurs jobs executent du code tiers
-# (cargo install, go install ...@latest, npm ci). Un bloc permissions au niveau job
-# REMPLACE ce defaut : le job provenance, qui a besoin d'ecrire, declare deja les
-# siennes explicitement et n'est donc pas affecte.
+# Ce workflow ne fait que verifier les contrats (buf lint, buf breaking, regeneration) :
+# aucune ecriture sur le depot n'est necessaire. Jeton reduit a la lecture.
 permissions:
   contents: read
 
