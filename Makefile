@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
-.PHONY: help setup generate check test test-crypto test-e2e fuzz audit sbom up down replay clean
+.PHONY: help setup generate check test test-crypto test-e2e fuzz audit security-quick security-full security-fuzz sbom up down replay clean
 
 # go.work regroupe plusieurs modules sous des sous-dossiers indépendants (pas de module à la
 # racine) : le pattern ./... ne fonctionne pas depuis la racine du workspace. On itère sur les
@@ -81,6 +81,20 @@ audit: ## cargo-audit, cargo-deny, govulncheck, gitleaks
 	cargo deny check licenses bans sources advisories
 	$(call go-each,govulncheck ./...)
 	gitleaks detect --no-banner --redact
+
+security-quick: ## Tests de sécurité handler-level + fonctions pures — CI, rapide, pas d'infra requise
+	$(call go-each,go test ./... -race -run 'TestSecurity|FuzzSecurity')
+	cargo test -p identity-provider --lib security_
+	cd apps/console-web && npm run build && node --test "dist/**/security.test.js"
+	bash tests/security/infrastructure/check_compose_dev.sh
+	cd tests/security/report/aggregate && go run . ../output
+
+security-full: ## Suite complète contre l'environnement local — make up requis (Postgres + SoftHSM2)
+	@echo "Phase 2 — nécessite make up, voir tests/security/README.md"
+	@exit 1
+
+security-fuzz: ## Fuzzing natif Go des décodeurs JSON, budget borné
+	$(call go-each,go test ./... -fuzz=FuzzSecurity -fuzztime=60s)
 
 sbom: ## SBOM CycloneDX + inventaire cryptographique (CBOM)
 	@bash tools/collect-sbom.sh

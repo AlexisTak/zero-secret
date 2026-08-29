@@ -176,6 +176,31 @@ jobs:
             (cd "$d" && govulncheck ./...) || exit 1
           done
 
+  security-quick:
+    name: tests de sécurité (Phase 1)
+    needs: [build-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: protoc (zs-policy/zs-identity le compilent via build.rs, ADR-004)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev
+      - name: npm ci (console-web)
+        working-directory: apps/console-web
+        run: npm ci
+      # Cette cible échoue tant que le gap ADR-021 n est pas corrigé
+      # (TestSecurityQuorumAcceptedSansVerificationDeLAppelant, apps/admin-api) : le rouge est le
+      # signal attendu, pas un defaut de configuration — voir tests/security/README.md.
+      - name: make security-quick
+        run: make security-quick
+
   sbom-cbom:
     name: SBOM + CBOM
     needs: [build-test]
