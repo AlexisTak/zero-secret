@@ -637,4 +637,73 @@ mod tests {
     fn hex_encode_produit_des_paires_hexadecimales_minuscules() {
         assert_eq!(hex_encode(&[0x00, 0xab, 0xff]), "00abff");
     }
+
+    // --- Tests de sécurité (Phase 1 — fonctions pures uniquement, pas de Postgres/HSM) --------
+    //
+    // Le bypass de cérémonie complet, le rejeu de challenge consommé et la race condition sur
+    // consume_challenge exigent un IdentityStore réel (sqlx::PgPool concret, pas de trait) et un
+    // AssertionSealer/AuditSealer réels (HSM) — voir tests/security/README.md, backlog Phase 2.
+
+    #[test]
+    fn security_presented_challenge_bytes_refuse_un_champ_challenge_de_type_incorrect() {
+        // Confusion de type : challenge fourni comme nombre au lieu de chaîne base64 — doit être
+        // refusé par serde_json, jamais interprété silencieusement.
+        let cdj = serde_json::json!({
+            "type": "webauthn.get",
+            "challenge": 12345,
+            "origin": "https://zero-secret.example",
+        })
+        .to_string();
+        assert!(
+            presented_challenge_bytes(cdj.as_bytes()).is_err(),
+            "un champ challenge numérique doit être refusé, jamais coercé en chaîne"
+        );
+    }
+
+    #[test]
+    fn security_presented_challenge_bytes_ignore_les_champs_supplementaires_sans_planter() {
+        // Champs JSON supplémentaires non prévus par le contrat WebAuthn — serde doit les ignorer
+        // silencieusement (comportement par défaut), jamais paniquer.
+        let cdj = serde_json::json!({
+            "type": "webauthn.get",
+            "challenge": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+            "origin": "https://zero-secret.example",
+            "crossOrigin": false,
+            "tokenBinding": {"status": "supported"},
+            "__proto__": {"admin": true},
+        })
+        .to_string();
+        assert!(
+            presented_challenge_bytes(cdj.as_bytes()).is_ok(),
+            "des champs JSON supplémentaires (y compris __proto__) ne doivent jamais faire échouer l'extraction"
+        );
+    }
+
+    #[test]
+    fn security_b64_decode_refuse_un_padding_standard_meme_partiel() {
+        // "AA==" (padding double) et "AA=" (padding simple invalide) sont tous deux du base64
+        // standard, jamais base64url-sans-padding (RFC 4648 §5, règle imposée par ce module).
+        assert!(b64_decode("champ", "AA==").is_err());
+        assert!(b64_decode("champ", "AA=").is_err());
+    }
+
+    #[test]
+    fn security_b64_decode_refuse_les_espaces_et_retours_a_la_ligne_injectes() {
+        // Un attaquant qui injecte des espaces/sauts de ligne dans un champ base64 ne doit jamais
+        // voir sa charge partiellement décodée — refus complet, pas de troncature silencieuse.
+        // Le saut de ligne est construit depuis son code ASCII (10) plutôt qu'écrit en littéral
+        // échappé, pour rester lisible sans double échappement.
+        let saut_de_ligne = char::from(10u8);
+        assert!(b64_decode("champ", "AA AA").is_err());
+        assert!(b64_decode("champ", &format!("AA{saut_de_ligne}AA")).is_err());
+    }
+
+    #[test]
+    fn security_b64_decode_refuse_une_chaine_extremement_longue_sans_paniquer() {
+        // 10 Mio de caractères 'a' répétés — ni panique, ni écriture illimitée : le décodeur
+        // base64 doit refuser proprement (longueur non multiple de 4 attendue par le format, ou
+        // décodage réussi mais borné par la taille de l'entrée elle-même, jamais un crash).
+        let huge = "a".repeat(10 * 1024 * 1024);
+        let _ = b64_decode("champ", &huge); // ne doit jamais paniquer, quel que soit le résultat
+    }
 }
