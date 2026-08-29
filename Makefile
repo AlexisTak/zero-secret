@@ -83,23 +83,37 @@ audit: ## cargo-audit, cargo-deny, govulncheck, gitleaks
 	gitleaks detect --no-banner --redact
 
 security-quick: ## Tests de sécurité handler-level + fonctions pures — CI, rapide, pas d'infra requise
-# Les trois premières recettes sont préfixées par '-' : un test de sécurité qui échoue est le
-# signal attendu (régression ADR-021, cf. tests/security/README.md), et make doit malgré tout
-# atteindre l'agrégateur — sans quoi la cible produit un rouge sans le rapport qui le justifie.
-# Le rouge est rétabli en dernière recette, à partir du rapport lui-même.
-	-$(call go-each,go test ./... -race -run 'TestSecurity|FuzzSecurity')
-	-cargo test -p identity-provider --lib security_
-	-cd apps/console-web && npm run build && node --test "dist/**/security.test.js"
-	bash tests/security/infrastructure/check_compose_dev.sh
-	cd tests/security/report/aggregate && go run . ../output
-	@! grep -rq '"blocking": true' tests/security/report/output/ 2>/dev/null || { echo "security-quick: finding(s) bloquant(s) dans le rapport ci-dessus — refus"; exit 1; }
+# Chaque etape est executee meme si la precedente echoue, mais son code de sortie est CONSERVE et
+# rejoue a la fin : sans cela un test rouge qui ne produit aucun finding (la plupart signalent par
+# t.Fatal, pas par un rapport) laisserait la cible verte — chaine fail-open, contraire a la regle
+# absolue #2. La decision bloquante finale est portee par l agregateur (code de sortie 1 si un
+# finding blocking=true subsiste), jamais par un grep sur la mise en forme du JSON.
+# -count=1 desactive le cache de go test : un test servi depuis le cache ne reexecute pas
+# writeSecurityReport, et le rapport serait vide alors que les findings existent.
+	@rc=0; \
+	go list -m -f '{{.Dir}}' | while IFS= read -r d; do \
+		echo "-- $$d --"; \
+		(cd "$$d" && go test ./... -count=1 -race -run 'TestSecurity|FuzzSecurity') || exit 1; \
+	done || rc=1; \
+	cargo test -p identity-provider --lib security_ || rc=1; \
+	(cd apps/console-web && npm run build && node --test "dist/**/security.test.js") || rc=1; \
+	bash tests/security/infrastructure/check_compose_dev.sh || rc=1; \
+	(cd tests/security/report/aggregate && go run . ../output > ../output/report.md); agg=$$?; \
+	cat tests/security/report/output/report.md 2>/dev/null || true; \
+	[ $$agg -eq 0 ] || rc=1; \
+	exit $$rc
 
 security-full: ## Suite complète contre l'environnement local — make up requis (Postgres + SoftHSM2)
 	@echo "Phase 2 — nécessite make up, voir tests/security/README.md"
 	@exit 1
 
 security-fuzz: ## Fuzzing natif Go des décodeurs JSON, budget borné
-	$(call go-each,go test ./... -fuzz=FuzzSecurity -fuzztime=60s)
+# Restreint aux modules portant reellement une cible Fuzz : go test -fuzz sort en erreur quand
+# aucune cible ne matche, ce qui rendait la cible inutilisable des le premier module sans fuzz.
+	@for d in apps/admin-api apps/access-broker; do \
+		echo "-- $$d --"; \
+		(cd "$$d" && go test ./internal/httpapi/... -fuzz=FuzzSecurity -fuzztime=60s) || exit 1; \
+	done
 
 sbom: ## SBOM CycloneDX + inventaire cryptographique (CBOM)
 	@bash tools/collect-sbom.sh

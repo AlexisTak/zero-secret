@@ -2,6 +2,12 @@
 // (tests/security/report/output/*.json) et produit un résumé Markdown sur stdout. N'importe
 // aucun package internal/ d'app — seul le format JSON documenté dans tests/security/README.md
 // est un contrat entre ce binaire et les modules qui écrivent les rapports.
+//
+// Code de sortie : 0 si aucun finding bloquant, 1 si au moins un finding porte blocking=true,
+// 2 en cas d'usage incorrect. C'est ce binaire — et non un grep sur la mise en forme du JSON —
+// qui porte la decision bloquante de la cible make security-quick : le champ Blocking est deja
+// desserialise ici, le lire est le seul controle qui ne se casse pas silencieusement si
+// l'indentation du rapport change.
 package main
 
 import (
@@ -42,9 +48,14 @@ func rank(severity string) int {
 }
 
 func main() {
+	os.Exit(run())
+}
+
+// run renvoie le code de sortie du binaire — separe de main pour rester testable.
+func run() int {
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "usage: aggregate <dossier-output>")
-		os.Exit(2)
+		return 2
 	}
 	dir := os.Args[1]
 
@@ -104,4 +115,16 @@ func main() {
 			fmt.Println()
 		}
 	}
+
+	blocking := 0
+	for _, f := range all {
+		if f.Blocking {
+			blocking++
+		}
+	}
+	if blocking > 0 {
+		fmt.Printf("\n---\n\n**%d finding(s) bloquant(s)** — refus.\n", blocking)
+		return 1
+	}
+	return 0
 }

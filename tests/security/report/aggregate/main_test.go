@@ -36,10 +36,10 @@ func TestSecurityAggregateTrieParSeveriteEtFusionnePlusieursFichiers(t *testing.
 		t.Fatalf("écriture .gitignore : %v", err)
 	}
 
-	out, err := exec.Command("go", "run", ".", dir).CombinedOutput()
-	if err != nil {
-		t.Fatalf("aggregate a échoué : %v\n%s", err, out)
-	}
+	// Le code de sortie 1 est attendu ici : les fixtures contiennent des findings bloquants, et
+	// l agregateur porte desormais la decision bloquante (voir
+	// TestSecurityAggregateSortEnErreurSiFindingBloquant). Seule la sortie Markdown est verifiee.
+	out, _ := exec.Command("go", "run", ".", dir).CombinedOutput()
 	report := string(out)
 
 	idxCrit := strings.Index(report, "CRIT-1")
@@ -53,5 +53,42 @@ func TestSecurityAggregateTrieParSeveriteEtFusionnePlusieursFichiers(t *testing.
 	}
 	if !strings.Contains(report, "3 finding(s) sur 2 fichier(s)") {
 		t.Fatalf("total inattendu dans l'en-tête :\n%s", report)
+	}
+}
+
+// TestSecurityAggregateSortEnErreurSiFindingBloquant verrouille le contrat de code de sortie :
+// c est lui, et non un grep sur la mise en forme du JSON, qui fait echouer make security-quick.
+// Sans ce test, un passage de MarshalIndent a Marshal (ou un changement d indentation) pourrait
+// neutraliser silencieusement le portail bloquant.
+func TestSecurityAggregateSortEnErreurSiFindingBloquant(t *testing.T) {
+	cas := []struct {
+		nom      string
+		findings []finding
+		veutCode int
+	}{
+		{"aucun finding", nil, 0},
+		{"finding non bloquant", []finding{{ID: "RATE-1", Severity: "MEDIUM", Blocking: false}}, 0},
+		{"finding bloquant", []finding{{ID: "AUTHZ-1", Severity: "HIGH", Blocking: true}}, 1},
+		{"melange", []finding{{ID: "RATE-1", Blocking: false}, {ID: "AUTHZ-1", Blocking: true}}, 1},
+	}
+
+	for _, c := range cas {
+		t.Run(c.nom, func(t *testing.T) {
+			dir := t.TempDir()
+			data, err := json.Marshal(c.findings)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "module.json"), data, 0o644); err != nil {
+				t.Fatalf("ecriture: %v", err)
+			}
+
+			cmd := exec.Command("go", "run", ".", dir)
+			out, err := cmd.CombinedOutput()
+			code := cmd.ProcessState.ExitCode()
+			if code != c.veutCode {
+				t.Fatalf("code de sortie attendu %d, obtenu %d (err=%v) :\n%s", c.veutCode, code, err, out)
+			}
+		})
 	}
 }

@@ -63,6 +63,47 @@ en premier, étant la surface d'administration des identités.
 | Modification de politique sans revue | `tests/adversarial/` — chemin de modification à chaud testé contre le contournement de CI | Non écrit, dépend de la clarification de l'angle mort ci-dessus |
 | Révocation retardée par saturation | `tests/adversarial/` — délai de révocation sous charge | Non écrit |
 | Rôle d'administration limité élevant ses droits | `tests/adversarial/` — tentative de modification de politique par un rôle « identités seulement » | Non écrit |
+| Quorum atteint sans habilitation de l'appelant (ADR-021) | `apps/admin-api/internal/httpapi/security_authorization_test.go` — deux assertions valides non liées à `operation_id` | **Écrit, échoue — vulnérabilité reproduite** |
+| Absence de limitation de débit | `apps/admin-api/internal/httpapi/security_rate_limit_test.go` — rafale de 200 requêtes | Écrit, constat non bloquant |
+| Entrées malformées provoquant une fuite ou un 5xx | `apps/admin-api/internal/httpapi/security_api_test.go` — matrice de 11 cas | Écrit, passe |
+| Panique du décodeur sur entrée arbitraire | `apps/admin-api/internal/httpapi/fuzz_test.go` — `make security-fuzz` | Écrit, passe |
+
+## Risques acceptés
+
+| Identifiant | Description | Depuis | Réexamen | Suivi |
+|---|---|---|---|---|
+| `SEC-ADMIN-API-AUTHZ-001` | `POST /v1/critical-operations/{id}/quorum` n'exige aucune preuve que l'appelant HTTP est habilité à déclencher `operation_id` : deux porteurs valides mais sans lien avec l'opération suffisent (ADR-021). Sévérité HIGH, OWASP API1:2023, CWE-862. | 2026-08-29 | 2026-11-29 | Test de régression rouge en CI (`security-quick`) tant que le gap subsiste — la remédiation proposée est d'exiger une assertion AAL3 de l'appelant, vérifiée avant `quorum.VerifyQuorum` |
+| `SEC-ADMIN-API-RATE-001` | Aucune limitation de débit sur l'entrée HTTP non authentifiée. Sévérité MEDIUM, OWASP API4:2023, CWE-770. | 2026-08-29 | 2026-11-29 | Constat non bloquant journalisé à chaque exécution de la suite |
+
+Ces deux entrées sont produites et vérifiées automatiquement : elles ne peuvent pas se périmer en
+silence, contrairement à un commentaire dans le code. Retirer une ligne de ce tableau sans corriger
+le composant fait apparaître un finding bloquant hors baseline dans le rapport agrégé.
+
+## Intégrité de la chaîne de vérification
+
+La suite de tests de sécurité (`tests/security/`, `make security-quick`) est elle-même un actif :
+la confiance accordée aux autres contrôles dépend de sa fiabilité. Hypothèses explicites, chacune
+adossée à un mécanisme :
+
+- **Fail-closed.** Un test en échec fait échouer la cible même s'il ne produit aucun rapport — les
+  codes de sortie de chaque étape sont conservés puis rejoués (`Makefile`, cible `security-quick`).
+  Une chaîne qui avale les échecs pour produire un rapport est pire que pas de chaîne.
+- **Décision portée par les données, pas par la mise en forme.** C'est l'agrégateur qui sort en
+  code 1 lorsqu'un finding `blocking=true` subsiste, après désérialisation du champ — jamais un
+  motif textuel sur le JSON, qu'un changement d'indentation neutraliserait en silence.
+- **Pas de cache.** `-count=1` garantit que les tests sont réellement réexécutés : un résultat
+  servi depuis le cache de `go test` n'écrit aucun rapport, et le dossier vide serait interprété
+  comme « aucun finding ».
+- **Écriture vérifiable.** Le dossier de rapport est résolu en remontant jusqu'à `go.work` ; une
+  racine introuvable fait échouer le test au lieu d'écrire hors du dépôt.
+- **Contrôle infra parsé, pas grepé.** `check_compose_dev.py` charge le YAML et refuse
+  explicitement si PyYAML est absent — un motif textuel ne couvre pas les formes équivalentes
+  (`- 5432:5432`, syntaxe longue, `network_mode: host`).
+
+Menace résiduelle non couverte : rien n'empêche techniquement un contributeur de neutraliser un
+test (`t.Skip`, passage de `Blocking` à `false`, retrait du job CI). Seule la revue de code le
+détecte — d'où la présence des identifiants ci-dessus dans le tableau des risques acceptés, qui
+rend une neutralisation visible dans le diff.
 
 ## Hypothèses de sécurité
 

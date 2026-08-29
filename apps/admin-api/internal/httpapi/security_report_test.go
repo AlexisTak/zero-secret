@@ -52,7 +52,10 @@ func writeSecurityReport(t *testing.T, findings []securityFinding) {
 	securityReportMu.Lock()
 	defer securityReportMu.Unlock()
 
-	outDir := filepath.Join("..", "..", "..", "..", "tests", "security", "report", "output")
+	outDir, ok := securityReportDir(t)
+	if !ok {
+		return
+	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		t.Logf("writeSecurityReport: impossible de créer %s : %v", outDir, err)
 		return
@@ -89,5 +92,32 @@ func writeSecurityReport(t *testing.T, findings []securityFinding) {
 	}
 	if err := os.WriteFile(outFile, data, 0o644); err != nil {
 		t.Logf("writeSecurityReport: écriture : %v", err)
+	}
+}
+
+// securityReportDir resout le dossier de rapport a partir de la racine du depot, identifiee par la
+// presence de go.work en remontant depuis le repertoire courant.
+//
+// La version precedente comptait quatre ".." depuis le paquet : un deplacement du paquet d un seul
+// niveau aurait fait creer silencieusement une arborescence tests/security/report/output HORS du
+// depot, sans qu aucun test ne le signale. Ici, une racine introuvable est un echec explicite du
+// test (t.Errorf) — refus par defaut plutot qu ecriture au mauvais endroit.
+func securityReportDir(t *testing.T) (string, bool) {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Errorf("securityReportDir: repertoire courant illisible : %v", err)
+		return "", false
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.work")); err == nil {
+			return filepath.Join(dir, "tests", "security", "report", "output"), true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Errorf("securityReportDir: racine du depot introuvable (aucun go.work en remontant) — rapport non ecrit")
+			return "", false
+		}
+		dir = parent
 	}
 }
