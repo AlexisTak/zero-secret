@@ -487,10 +487,18 @@ func TestSecurityPorteursLentsSontBornes(t *testing.T) {
 type auditObservateurDeContexte struct {
 	auditv1.AuditCollectionServiceClient
 	erreursDeContexte []error
+	budgetsRestants   []time.Duration
 }
 
 func (f *auditObservateurDeContexte) Record(ctx context.Context, in *auditv1.RawEvent, opts ...grpc.CallOption) (*auditv1.RecordResult, error) {
 	f.erreursDeContexte = append(f.erreursDeContexte, ctx.Err())
+	echeance, ok := ctx.Deadline()
+	if !ok {
+		// Aucune echeance : l'audit partirait sans borne, ce que le test doit signaler.
+		f.budgetsRestants = append(f.budgetsRestants, -1)
+	} else {
+		f.budgetsRestants = append(f.budgetsRestants, time.Until(echeance))
+	}
 	return &auditv1.RecordResult{Accepted: true, EventId: "evt-test"}, nil
 }
 
@@ -549,6 +557,19 @@ func TestSecurityAuditNestJamaisSupprimeParLeBudgetDevaluation(t *testing.T) {
 	for i, err := range audit.erreursDeContexte {
 		if err != nil {
 			t.Fatalf("evenement %d emis avec un contexte deja expire (%v) : le budget d'audit doit etre detache de celui de l'evaluation", i, err)
+		}
+	}
+	// Assertion DISCRIMINANTE : c'est le budget restant, non l'absence d'expiration, qui distingue
+	// les deux conceptions. Avec un budget partage, l'evaluation ayant consomme l'essentiel des
+	// 200 ms, il resterait quelques millisecondes — non expire, donc indetectable par la seule
+	// verification ci-dessus. Avec des budgets separes, l'audit dispose de son propre delaiAudit.
+	minimumAttendu := api.delaiAudit / 2
+	for i, restant := range audit.budgetsRestants {
+		if restant < minimumAttendu {
+			t.Fatalf(
+				"evenement %d emis avec seulement %s de budget : l'audit herite du budget d'evaluation au lieu du sien (%s)",
+				i, restant, api.delaiAudit,
+			)
 		}
 	}
 }
