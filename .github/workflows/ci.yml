@@ -109,6 +109,14 @@ jobs:
           done
       - name: tests d'architecture (L0.2)
         run: bash tools/check-arch.sh
+      # Le CLI Cedar est provisionne ici pour que les tests du corpus d'acces soient BLOQUANTS.
+      # Avant la reduction de perimetre, tools/cedar-test.sh tournait derriere un `|| true` : la
+      # CI garantissait la conformite d'infrastructure (Rego, optionnelle) et pas la politique
+      # d'autorisation du Core. --locked : version figee par le Cargo.lock de l'outil.
+      - name: CLI Cedar (corpus d'acces, ADR-003)
+        run: cargo install --locked cedar-policy-cli
+      - name: tests des politiques d'acces Cedar (L2.1, bloquant)
+        run: bash tools/cedar-test.sh
 
   coverage:
     name: couverture (informatif — ne bloque pas la CI, audit.md §3.3)
@@ -194,6 +202,24 @@ jobs:
           go list -m -f '{{.Dir}}' | while IFS= read -r d; do
             (cd "$d" && govulncheck ./...) || exit 1
           done
+
+  policy-platform:
+    name: conformité plateforme (EXPERIMENTAL, hors Core)
+    needs: [build-test]
+    runs-on: ubuntu-latest
+    # Extension hors chemin critique : aucun composant de apps/ ni crates/ n'evalue de Rego.
+    # Job separe pour que son etat soit lisible independamment du Core — et pour qu'un retrait
+    # futur de l'extension n'oblige a toucher aucun job du Core.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: CLI OPA
+        run: |
+          curl -sSL -o /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.19.1/opa_linux_amd64_static
+          chmod +x /usr/local/bin/opa
+      - name: make test-extensions
+        run: make test-extensions
 
   security-quick:
     name: tests de sécurité (Phase 1)

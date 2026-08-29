@@ -33,9 +33,9 @@ le typage du schéma et la validation statique répondent directement à la mena
 requête. Cedar étant écrit en Rust, il s'intègre au `policy-engine` sans frontière FFI ni
 sérialisation supplémentaire dans le chemin critique.
 
-**OPA / Rego pour les politiques de plateforme** (`policies/platform/` : admission, conformité
-d'infrastructure), où l'écosystème et les intégrations existantes sont déterminants et où une
-erreur n'accorde pas directement un accès à une ressource.
+**OPA / Rego pour les politiques de plateforme** (`extensions/policy-platform/` : admission,
+conformité d'infrastructure), où l'écosystème et les intégrations existantes sont déterminants et
+où une erreur n'accorde pas directement un accès à une ressource.
 
 Les deux corpus sont strictement séparés. Une politique de plateforme ne peut jamais accorder un
 accès applicatif, et réciproquement.
@@ -63,3 +63,25 @@ et par une revue.
   test, réexaminer.
 - Réexaminer si le maintien de deux langages de politiques génère plus d'incidents de
   cloisonnement qu'il n'en prévient.
+
+---
+
+## Amendement — 2026-08-29 — statut de la partie Rego
+
+**La décision elle-même est inchangée** : Cedar pour les décisions d'accès, Rego pour la
+conformité de plateforme, corpus strictement séparés. Deux points de mise à jour, issus de la
+réduction de périmètre du MVP :
+
+1. **Emplacement.** Le corpus Rego passe de `policies/platform/` à
+   `extensions/policy-platform/`, et ses tests de `policies/tests/platform/` à
+   `extensions/policy-platform/tests/`.
+
+2. **Statut : EXPERIMENTAL, hors Core MVP.** Constat de fait, pas changement de doctrine : aucun
+   composant de `apps/` ni de `crates/` n'importe OPA ni n'évalue de Rego. Ce corpus n'a jamais
+   été dans le chemin critique — il vérifie des fichiers de déploiement. Son retrait complet ne
+   modifierait aucune garantie du MVP.
+
+Conséquence sur la CI, dans l'autre sens : les tests du corpus **Cedar** étaient exécutés derrière
+un `|| true` alors que les tests Rego bloquaient. La CI garantissait donc la politique optionnelle
+et pas la politique critique. Le CLI Cedar est désormais provisionné dans le job `build-test` et
+`tools/cedar-test.sh` est bloquant ; Rego a son propre job `policy-platform`.

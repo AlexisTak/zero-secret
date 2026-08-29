@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
-.PHONY: help setup generate check test test-crypto test-e2e fuzz audit security-quick security-full security-fuzz sbom up down replay clean
+.PHONY: help setup generate check test test-extensions test-crypto test-e2e fuzz audit security-quick security-full security-fuzz sbom up down replay clean
 
 # go.work regroupe plusieurs modules sous des sous-dossiers indépendants (pas de module à la
 # racine) : le pattern ./... ne fonctionne pas depuis la racine du workspace. On itère sur les
@@ -49,19 +49,24 @@ check: ## fmt + lint + tests d'architecture (rapide)
 test-arch: ## Règles de dépendance, interdiction crypto directe, fichiers générés à jour
 	@bash tools/check-arch.sh
 
-test: ## Unitaires + propriété + politiques
+test: ## Unitaires + propriété + politiques d'accès (Core MVP)
 	cargo nextest run --all-features
 	$(call go-each,go test ./... -race)
 	# `cedar test` n'existe pas : le CLI expose `validate` et `run-tests`, et n'accepte qu'un
 	# fichier de politiques (pas un dossier). tools/cedar-test.sh fait les deux (L2.1).
-	# `|| true` conservé tel quel : rendre l'étape bloquante suppose de provisionner le CLI
-	# Cedar dans .github/workflows/ci.yml — changement de CI, validation humaine explicite requise.
-	bash tools/cedar-test.sh || true
-	# Conformité plateforme (Rego/OPA) : policies/platform/ + policies/tests/platform/.
-	# Étape bloquante et sans garde conditionnelle — audit.md §5.2 est traité. Un `|| true` ici
-	# masquerait une régression de politique, ce qui est exactement le défaut signalé.
+	#
+	# BLOQUANT depuis la réduction de périmètre. Le `|| true` précédent laissait passer une
+	# régression du moteur d'autorisation du Core alors que la conformité d'infrastructure, elle,
+	# bloquait : la CI garantissait la politique optionnelle et pas la politique critique. Le CLI
+	# Cedar est désormais provisionné par le job build-test (.github/workflows/ci.yml).
+	bash tools/cedar-test.sh
+
+test-extensions: ## Conformité plateforme (Rego/OPA) — EXPERIMENTAL, hors Core MVP
+	# extensions/policy-platform/ n'est importé par aucun composant de apps/ ni crates/ : son
+	# échec ne compromet aucune garantie du MVP. Cible séparée pour que `make test` reste le
+	# périmètre Core, et job CI distinct.
 	# Le CLI OPA doit être présent : https://openpolicyagent.org/docs/latest/#running-opa
-	opa test policies/platform policies/tests -v
+	opa test extensions/policy-platform/policies extensions/policy-platform/tests -v
 
 test-crypto: ## Vecteurs Wycheproof, conformité WebAuthn, intégration PKCS#11 (H1, ADR-011)
 	# `--features conformance` retiré (audit.md §3.2) : aucun des deux crates ne déclare cette

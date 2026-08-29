@@ -17,13 +17,14 @@ Exécution : `bash tools/cedar-test.sh` (ou `make test`).
 > Le script agrège `policies/tests/**/*.json`. Ne pas déposer ici de fichier JSON qui ne soit
 > pas un jeu de cas Cedar (données de test OPA comprises) : il serait exécuté comme tel.
 
-## Rego
+## Rego — déplacé hors du Core
 
-`platform/*_test.rego` — cas des politiques de conformité plateforme de `policies/platform/`.
-Format natif `opa test` : un paquet `..._test`, une règle par cas, préfixée `test_`.
+Les cas des politiques de conformité plateforme vivent désormais dans
+[`extensions/policy-platform/tests/`](../../extensions/policy-platform/tests/), avec les
+politiques qu'ils couvrent. Exécution : `make test-extensions`.
 
-Exécution : `opa test policies/platform policies/tests -v` (ou `make test`). Nécessite le CLI
-OPA : <https://openpolicyagent.org/docs/latest/#running-opa>.
+Ils ne font plus partie de `make test`, qui couvre le périmètre Core : ces politiques ne
+participent à aucune décision d'accès.
 
 Chaque cas construit son entrée **en entier dans le cas lui-même** (aucune donnée partagée, donc
 aucun fichier JSON de fixture — voir l'avertissement ci-dessus, qui rendrait ces données
