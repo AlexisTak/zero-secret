@@ -1,12 +1,13 @@
 package httpapi
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
 
 	"github.com/AlexisTak/biscuits-shield/apps/admin-api/internal/quorum"
 )
@@ -17,9 +18,11 @@ import (
 // doit toutes réussir sans throttling ni ralentissement mesurable — sinon un mécanisme de
 // limitation existe déjà et ce test doit être mis à jour pour le refléter.
 func TestSecurityAucunRateLimitSurQuorum(t *testing.T) {
-	identity := &fakeIdentityClient{}
+	identity := &fakeIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
+		assertionAppelantValide: reponseAppelantValide(),
+	}}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(Handler(New(quorum.New(identity), audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
 	defer srv.Close()
 
 	body, _ := json.Marshal(QuorumRequest{
@@ -32,7 +35,7 @@ func TestSecurityAucunRateLimitSurQuorum(t *testing.T) {
 	start := time.Now()
 	success := 0
 	for i := 0; i < burst; i++ {
-		resp, err := http.Post(srv.URL+"/v1/critical-operations/op-1/quorum", "application/json", bytes.NewReader(body))
+		resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
 		if err != nil {
 			t.Fatalf("le serveur ne doit jamais planter sous rafale : %v", err)
 		}

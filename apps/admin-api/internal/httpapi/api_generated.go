@@ -32,6 +32,12 @@ type QuorumResult struct {
 	Reached          bool     `json:"reached"`
 }
 
+// VerifyQuorumParams defines parameters for VerifyQuorum.
+type VerifyQuorumParams struct {
+	// XIdentityAssertion Assertion identity-assertion/v1 scellée (base64) de l'appelant qui initie l'opération. Vérifiée via identity.v1.AssertionVerificationService AVANT toute évaluation du quorum ; niveau AAL3 exigé. Cette assertion n'est jamais comptée parmi les porteurs du quorum — initiateur et porteur sont deux rôles distincts (ADR-035).
+	XIdentityAssertion string `json:"X-Identity-Assertion"`
+}
+
 // VerifyQuorumJSONRequestBody defines body for VerifyQuorum for application/json ContentType.
 type VerifyQuorumJSONRequestBody = QuorumRequest
 
@@ -39,7 +45,7 @@ type VerifyQuorumJSONRequestBody = QuorumRequest
 type ServerInterface interface {
 	// VerifyQuorum Vérifie qu'un quorum de porteurs distincts a approuvé une opération critique.
 	// (POST /v1/critical-operations/{operation_id}/quorum)
-	VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId string)
+	VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId string, params VerifyQuorumParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -66,8 +72,36 @@ func (siw *ServerInterfaceWrapper) VerifyQuorum(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params VerifyQuorumParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Identity-Assertion" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Identity-Assertion")]; found {
+		var XIdentityAssertion string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Identity-Assertion", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Identity-Assertion", valueList[0], &XIdentityAssertion, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Identity-Assertion", Err: err})
+			return
+		}
+
+		params.XIdentityAssertion = XIdentityAssertion
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Identity-Assertion is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Identity-Assertion", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.VerifyQuorum(w, r, operationId)
+		siw.Handler.VerifyQuorum(w, r, operationId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

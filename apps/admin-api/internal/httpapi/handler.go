@@ -3,9 +3,18 @@
 // (DO NOT EDIT) ; ce fichier porte la logique.
 //
 // operation_id (chemin d'URL) n'est PAS transmis à quorum.VerifyQuorum : le vérificateur reste
-// agnostique de l'opération protégée (ADR-021, angle mort hérité du modèle de menaces) — ce
-// composant ne sait toujours pas quelle opération critique il protège ni qui a le droit de
-// l'initier, operation_id n'est ici qu'une valeur de corrélation pour un futur appelant/journal.
+// agnostique de l'opération protégée (ADR-021) — ce composant ne sait pas quelle opération
+// critique il protège, operation_id n'est ici qu'une valeur de corrélation pour le journal.
+//
+// L'appelant, lui, est authentifié depuis ADR-035 : son assertion identity-assertion/v1
+// (X-Identity-Assertion) est vérifiée et son niveau AAL3 exigé AVANT toute évaluation du quorum.
+// Ce qui reste hors périmètre est l'habilitation : ce composant sait désormais QUI initie, pas
+// si cette personne a le droit d'initier CETTE opération — la granularité des rôles reste
+// l'angle mort non tranché de security/threat-models/admin-api.md.
+//
+// L'assertion de l'appelant n'est jamais comptée parmi les porteurs du quorum : initiateur et
+// porteur sont deux rôles distincts, et un initiateur qui s'auto-compterait ramènerait le quorum
+// réel à un seul porteur indépendant — exactement ce que le plancher MinimumThreshold interdit.
 //
 // Pas de TLS dans ce lot — signalé, même limite que partout ailleurs.
 package httpapi
@@ -13,27 +22,71 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
 	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
 
 	"github.com/AlexisTak/biscuits-shield/apps/admin-api/internal/quorum"
 )
 
+// aalRequisPourInitier : niveau d'authentification minimal de l'appelant qui declenche une
+// operation critique (ADR-035). Constante et non configurable : un niveau abaissable par
+// configuration serait un contournement trivial du controle.
+const aalRequisPourInitier = "AAL3"
+
 type API struct {
-	verifier    *quorum.Verifier
-	auditClient auditv1.AuditCollectionServiceClient
+	verifier *quorum.Verifier
+	// identityClient verifie l'assertion de l'APPELANT. C'est le meme service que celui utilise
+	// par quorum.Verifier pour les porteurs, mais l'appel vit ici et non dans le module quorum :
+	// ADR-021 impose que quorum reste agnostique de l'operation et du role, et l'authentification
+	// de l'initiateur est une preoccupation de la couche HTTP (meme decoupage qu'access-broker).
+	identityClient identityv1.AssertionVerificationServiceClient
+	auditClient    auditv1.AuditCollectionServiceClient
 }
 
-func New(v *quorum.Verifier, auditClient auditv1.AuditCollectionServiceClient) *API {
-	return &API{verifier: v, auditClient: auditClient}
+func New(
+	v *quorum.Verifier,
+	identityClient identityv1.AssertionVerificationServiceClient,
+	auditClient auditv1.AuditCollectionServiceClient,
+) *API {
+	return &API{verifier: v, identityClient: identityClient, auditClient: auditClient}
 }
 
-func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId string) {
+// NewHandler construit le routeur en remplacant le gestionnaire d'erreur de parametres par defaut
+// d'oapi-codegen, qui renvoie 400 text/plain avec err.Error() brut. Deux raisons : un en-tete
+// d'assertion absent est un refus d'authentification (401), pas une requete malformee ; et le
+// message d'erreur genere ne doit jamais atteindre le client tel quel.
+func NewHandler(api *API) http.Handler {
+	return HandlerWithOptions(api, StdHTTPServerOptions{ErrorHandlerFunc: writeParamError})
+}
+
+// writeParamError traduit les erreurs de liaison de parametres en refus explicites, sans jamais
+// recopier le message d'origine dans la reponse.
+func writeParamError(w http.ResponseWriter, r *http.Request, err error) {
+	var manquant *RequiredHeaderError
+	if errors.As(err, &manquant) {
+		writeError(w, http.StatusUnauthorized, "assertion_de_lappelant_absente")
+		return
+	}
+	writeError(w, http.StatusBadRequest, "parametre_de_requete_invalide")
+}
+
+func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId string, params VerifyQuorumParams) {
 	var body QuorumRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "corps_de_requete_malforme")
+		return
+	}
+
+	// Authentification de l'appelant AVANT toute evaluation du quorum (ADR-035). L'assertion est
+	// verifiee contre expected_authority_domain du corps : un appelant hors de ce domaine echoue
+	// ici meme, sans qu'aucun controle de domaine separe soit necessaire.
+	caller, refus := a.verifyCaller(r.Context(), params.XIdentityAssertion, body.ExpectedAuthorityDomain)
+	if refus != nil {
+		writeError(w, refus.status, refus.reason)
 		return
 	}
 
@@ -50,6 +103,7 @@ func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId s
 	// (result.DistinctSubjects) — jamais pour un refus avant vérification (seuil invalide, corps
 	// malformé) : sans identité établie, il n'y a personne à qui attribuer l'événement.
 	a.recordQuorumOperation(r.Context(), operationId, body.ExpectedAuthorityDomain, result)
+	a.recordQuorumInitiator(r.Context(), operationId, body.ExpectedAuthorityDomain, caller, result)
 
 	writeJSON(w, http.StatusOK, QuorumResult{
 		Reached:          result.Reached,
@@ -94,6 +148,78 @@ func (a *API) recordQuorumOperation(ctx context.Context, operationID, authorityD
 		if !res.Accepted {
 			log.Printf("admin-api: quorum.operation refusé par audit-collector (opération %s, porteur %s) : %s", operationID, subjectID, res.Reason)
 		}
+	}
+}
+
+// refusAppelant porte le couple statut/motif d'un refus d'authentification — jamais le detail
+// technique sous-jacent, qui resterait exploitable pour affiner une attaque.
+type refusAppelant struct {
+	status int
+	reason string
+}
+
+// verifyCaller verifie l'assertion de l'appelant et impose AAL3.
+//
+// Refus par defaut (regle absolue #2) : une indisponibilite d'identity-provider est un refus 502
+// explicite, jamais un repli permissif. Une assertion invalide et une assertion absente
+// produisent le meme 401 sans distinction exploitable.
+func (a *API) verifyCaller(ctx context.Context, assertion, expectedAuthorityDomain string) (*identityv1.VerifyAssertionResponse, *refusAppelant) {
+	if assertion == "" {
+		return nil, &refusAppelant{http.StatusUnauthorized, "assertion_de_lappelant_absente"}
+	}
+
+	resp, err := a.identityClient.VerifyAssertion(ctx, &identityv1.VerifyAssertionRequest{
+		Assertion:               []byte(assertion),
+		ExpectedAuthorityDomain: expectedAuthorityDomain,
+	})
+	if err != nil {
+		return nil, &refusAppelant{http.StatusBadGateway, "verification_de_lappelant_indisponible"}
+	}
+	if !resp.Valid {
+		return nil, &refusAppelant{http.StatusUnauthorized, "assertion_de_lappelant_invalide"}
+	}
+	// AAL3 exige : une operation critique ne se declenche pas depuis une session de niveau
+	// inferieur, meme authentifiee. Toute valeur autre que "AAL3" — y compris vide, cas d'un
+	// champ non renseigne par le verificateur (P2) — est refusee.
+	if resp.Aal != aalRequisPourInitier {
+		return nil, &refusAppelant{http.StatusForbidden, "niveau_dauthentification_insuffisant"}
+	}
+	return resp, nil
+}
+
+// recordQuorumInitiator audite QUI a declenche l'operation, en plus des porteurs.
+//
+// Reutilise le type d'evenement quorum.operation avec actor = initiateur : le schema d'evenement
+// (contracts/events/audit-event.schema.json) n'a qu'un champ actor, et le modifier casserait la
+// verifiabilite de l'historique existant. L'initiateur se distingue des porteurs par son
+// auth_method, present dans l'assertion verifiee.
+//
+// Best-effort comme recordQuorumOperation : le quorum a deja ete evalue de facon irreversible.
+func (a *API) recordQuorumInitiator(ctx context.Context, operationID, authorityDomain string, caller *identityv1.VerifyAssertionResponse, result quorum.Result) {
+	outcome := "denied"
+	if result.Reached {
+		outcome = "success"
+	}
+
+	res, err := a.auditClient.Record(ctx, &auditv1.RawEvent{
+		AuthorityDomain: authorityDomain,
+		EventType:       "quorum.operation",
+		Actor: &auditv1.Actor{
+			SubjectId: caller.SubjectId,
+			Kind:      "human",
+		},
+		Target: &auditv1.Target{
+			Type: "critical_operation",
+			Id:   operationID,
+		},
+		Outcome: outcome,
+	})
+	if err != nil {
+		log.Printf("admin-api: échec de l'envoi de quorum.operation (initiateur %s, opération %s) : %v", caller.SubjectId, operationID, err)
+		return
+	}
+	if !res.Accepted {
+		log.Printf("admin-api: quorum.operation refusé par audit-collector (initiateur %s, opération %s) : %s", caller.SubjectId, operationID, res.Reason)
 	}
 }
 

@@ -64,8 +64,9 @@ testable — hors périmètre de ce lot.
    `access-broker`/`identity-provider` démarrés (`make up`), pour mesurer latence/CPU/RAM en plus
    du simple constat d'absence (déjà couvert en Phase 1 par
    `apps/admin-api/internal/httpapi/security_rate_limit_test.go`, sans charge réelle).
-5. **Recommandation admin-api (ADR-021)** : `POST /v1/critical-operations/{id}/quorum` n'a
-   toujours aucune vérification de l'appelant (`security_authorization_test.go`, Phase 1,
-   documente le gap). Remédiation proposée : exiger une assertion `AAL3` de l'appelant en plus des
-   assertions de quorum, vérifiée par le même mécanisme que `access-broker`
-   (`X-Identity-Assertion`), avant d'accepter `operation_id`.
+5. **Habilitation de l'appelant sur `admin-api`** : l'authentification est faite (ADR-035 —
+   assertion `X-Identity-Assertion` de niveau AAL3 vérifiée avant toute évaluation du quorum,
+   verrouillée par `security_authorization_test.go`). Reste ouvert : rien ne vérifie que cet
+   appelant a le droit d'initier **cette** opération. La levée suppose de trancher la granularité
+   des rôles d'administration, angle mort explicite d'ADR-021 — `SEC-ADMIN-API-AUTHZ-001` reste
+   journalisé en MEDIUM non bloquant jusque-là.

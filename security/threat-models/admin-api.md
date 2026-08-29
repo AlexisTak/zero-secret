@@ -63,7 +63,8 @@ en premier, étant la surface d'administration des identités.
 | Modification de politique sans revue | `tests/adversarial/` — chemin de modification à chaud testé contre le contournement de CI | Non écrit, dépend de la clarification de l'angle mort ci-dessus |
 | Révocation retardée par saturation | `tests/adversarial/` — délai de révocation sous charge | Non écrit |
 | Rôle d'administration limité élevant ses droits | `tests/adversarial/` — tentative de modification de politique par un rôle « identités seulement » | Non écrit |
-| Quorum atteint sans habilitation de l'appelant (ADR-021) | `apps/admin-api/internal/httpapi/security_authorization_test.go` — deux assertions valides non liées à `operation_id` | **Écrit, échoue — vulnérabilité reproduite** |
+| Quorum déclenché par un appelant anonyme (ADR-021) | `apps/admin-api/internal/httpapi/security_authorization_test.go` — en-tête absent, assertion invalide, AAL2, AAL absent, vérificateur indisponible | Écrit, passe — corrigé par ADR-035 |
+| Quorum atteint sans habilitation de l'appelant | même fichier — un appelant AAL3 authentifié initie une opération sans lien démontré | Écrit, constat non bloquant — angle mort des rôles |
 | Absence de limitation de débit | `apps/admin-api/internal/httpapi/security_rate_limit_test.go` — rafale de 200 requêtes | Écrit, constat non bloquant |
 | Entrées malformées provoquant une fuite ou un 5xx | `apps/admin-api/internal/httpapi/security_api_test.go` — matrice de 11 cas | Écrit, passe |
 | Panique du décodeur sur entrée arbitraire | `apps/admin-api/internal/httpapi/fuzz_test.go` — `make security-fuzz` | Écrit, passe |
@@ -72,7 +73,7 @@ en premier, étant la surface d'administration des identités.
 
 | Identifiant | Description | Depuis | Réexamen | Suivi |
 |---|---|---|---|---|
-| `SEC-ADMIN-API-AUTHZ-001` | `POST /v1/critical-operations/{id}/quorum` n'exige aucune preuve que l'appelant HTTP est habilité à déclencher `operation_id` : deux porteurs valides mais sans lien avec l'opération suffisent (ADR-021). Sévérité HIGH, OWASP API1:2023, CWE-862. | 2026-08-29 | 2026-11-29 | Test de régression rouge en CI (`security-quick`) tant que le gap subsiste — la remédiation proposée est d'exiger une assertion AAL3 de l'appelant, vérifiée avant `quorum.VerifyQuorum` |
+| `SEC-ADMIN-API-AUTHZ-001` | L'appelant est authentifié depuis ADR-035 (assertion AAL3 vérifiée avant toute évaluation du quorum), mais son **habilitation** n'est pas vérifiée : un porteur AAL3 légitime peut initier une opération critique qui ne le concerne pas. Sévérité ramenée de HIGH à MEDIUM. OWASP API1:2023, CWE-862. | 2026-08-29 | 2026-11-29 | Verrou de non-régression vert en CI (`TestSecurityQuorumExigeUnAppelantAuthentifie`) ; la levée complète suppose de trancher la granularité des rôles d'administration |
 | `SEC-ADMIN-API-RATE-001` | Aucune limitation de débit sur l'entrée HTTP non authentifiée. Sévérité MEDIUM, OWASP API4:2023, CWE-770. | 2026-08-29 | 2026-11-29 | Constat non bloquant journalisé à chaque exécution de la suite |
 
 Ces deux entrées sont produites et vérifiées automatiquement : elles ne peuvent pas se périmer en

@@ -40,11 +40,12 @@ func (f *fakeAuditClient) Record(ctx context.Context, in *auditv1.RawEvent, opts
 
 func TestDeuxPorteursDistinctsAtteignentLeQuorumViaHTTP(t *testing.T) {
 	identity := &fakeIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
-		"assertion-a": {Valid: true, SubjectId: "sub-1"},
-		"assertion-b": {Valid: true, SubjectId: "sub-2"},
+		assertionAppelantValide: reponseAppelantValide(),
+		"assertion-a":           {Valid: true, SubjectId: "sub-1"},
+		"assertion-b":           {Valid: true, SubjectId: "sub-2"},
 	}}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(Handler(New(quorum.New(identity), audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
 	defer srv.Close()
 
 	body, _ := json.Marshal(QuorumRequest{
@@ -52,7 +53,7 @@ func TestDeuxPorteursDistinctsAtteignentLeQuorumViaHTTP(t *testing.T) {
 		Threshold:               quorum.MinimumThreshold,
 		ExpectedAuthorityDomain: "identity-provider",
 	})
-	resp, err := http.Post(srv.URL+"/v1/critical-operations/op-1/quorum", "application/json", bytes.NewReader(body))
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
 	if err != nil {
 		t.Fatalf("erreur inattendue : %v", err)
 	}
@@ -71,8 +72,12 @@ func TestDeuxPorteursDistinctsAtteignentLeQuorumViaHTTP(t *testing.T) {
 	if len(result.DistinctSubjects) != 2 {
 		t.Fatalf("attendu 2 porteurs distincts, reçu %d", len(result.DistinctSubjects))
 	}
-	if len(audit.reqs) != 2 {
-		t.Fatalf("attendu un quorum.operation par porteur distinct (2), reçu %d", len(audit.reqs))
+	// 2 porteurs + 1 initiateur : depuis ADR-035, l'appelant qui declenche l'operation est audite
+	// lui aussi, avec le meme type d'evenement (le schema n'a qu'un champ actor, le modifier
+	// casserait la verifiabilite de l'historique). Sans cet evenement, le journal dirait QUI a
+	// approuve mais jamais QUI a declenche.
+	if len(audit.reqs) != 3 {
+		t.Fatalf("attendu un quorum.operation par porteur distinct (2) plus un pour l'initiateur, reçu %d", len(audit.reqs))
 	}
 	for _, req := range audit.reqs {
 		if req.EventType != "quorum.operation" {
@@ -84,7 +89,10 @@ func TestDeuxPorteursDistinctsAtteignentLeQuorumViaHTTP(t *testing.T) {
 		if req.Target == nil || req.Target.Id != "op-1" {
 			t.Fatalf("target.id inattendu : %v", req.Target)
 		}
-		if req.Actor == nil || (req.Actor.SubjectId != "sub-1" && req.Actor.SubjectId != "sub-2") {
+		// sub-initiateur est l'appelant qui a declenche l'operation (ADR-035) ; sub-1/sub-2 sont
+		// les porteurs. Les trois evenements portent le meme type et la meme cible, seul l'acteur
+		// change — c'est ce qui permet de reconstituer qui a demande et qui a approuve.
+		if req.Actor == nil || (req.Actor.SubjectId != "sub-1" && req.Actor.SubjectId != "sub-2" && req.Actor.SubjectId != "sub-initiateur") {
 			t.Fatalf("actor.subject_id inattendu : %v", req.Actor)
 		}
 	}
@@ -92,10 +100,11 @@ func TestDeuxPorteursDistinctsAtteignentLeQuorumViaHTTP(t *testing.T) {
 
 func TestUnSeulPorteurEstRefuseViaHTTP(t *testing.T) {
 	identity := &fakeIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
-		"assertion-a": {Valid: true, SubjectId: "sub-1"},
+		assertionAppelantValide: reponseAppelantValide(),
+		"assertion-a":           {Valid: true, SubjectId: "sub-1"},
 	}}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(Handler(New(quorum.New(identity), audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
 	defer srv.Close()
 
 	body, _ := json.Marshal(QuorumRequest{
@@ -103,7 +112,7 @@ func TestUnSeulPorteurEstRefuseViaHTTP(t *testing.T) {
 		Threshold:               quorum.MinimumThreshold,
 		ExpectedAuthorityDomain: "identity-provider",
 	})
-	resp, err := http.Post(srv.URL+"/v1/critical-operations/op-1/quorum", "application/json", bytes.NewReader(body))
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
 	if err != nil {
 		t.Fatalf("erreur inattendue : %v", err)
 	}
@@ -117,8 +126,10 @@ func TestUnSeulPorteurEstRefuseViaHTTP(t *testing.T) {
 	if result.Reached {
 		t.Fatal("un seul porteur ne doit jamais atteindre le quorum")
 	}
-	if len(audit.reqs) != 1 {
-		t.Fatalf("attendu un quorum.operation pour le porteur vérifié (même quorum non atteint), reçu %d", len(audit.reqs))
+	// 1 porteur verifie + 1 initiateur (ADR-035) — l'initiateur est audite meme quand le quorum
+	// est refuse : une tentative de declenchement est un fait a tracer autant qu'un succes.
+	if len(audit.reqs) != 2 {
+		t.Fatalf("attendu un quorum.operation pour le porteur vérifié plus un pour l'initiateur (même quorum non atteint), reçu %d", len(audit.reqs))
 	}
 	if audit.reqs[0].Outcome != "denied" {
 		t.Fatalf("outcome inattendu : %s (le quorum global n'est pas atteint)", audit.reqs[0].Outcome)
@@ -126,9 +137,14 @@ func TestUnSeulPorteurEstRefuseViaHTTP(t *testing.T) {
 }
 
 func TestSeuilInferieurAuPlancherEstRefuse400ParHTTPPasUnCrash(t *testing.T) {
-	identity := &fakeIdentityClient{}
+	// L'appelant doit etre verifiable meme ici : depuis ADR-035, l'authentification precede
+	// l'evaluation du seuil, donc un appelant inconnu renverrait 401 avant que le plancher
+	// de quorum ne soit atteint — ce n'est pas ce que ce test mesure.
+	identity := &fakeIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
+		assertionAppelantValide: reponseAppelantValide(),
+	}}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(Handler(New(quorum.New(identity), audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
 	defer srv.Close()
 
 	body, _ := json.Marshal(QuorumRequest{
@@ -136,7 +152,7 @@ func TestSeuilInferieurAuPlancherEstRefuse400ParHTTPPasUnCrash(t *testing.T) {
 		Threshold:               1, // sous le plancher — quorum.VerifyQuorum panique en interne
 		ExpectedAuthorityDomain: "identity-provider",
 	})
-	resp, err := http.Post(srv.URL+"/v1/critical-operations/op-1/quorum", "application/json", bytes.NewReader(body))
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
 	if err != nil {
 		t.Fatalf("le serveur ne doit jamais planter sur cette requête : %v", err)
 	}
@@ -151,7 +167,7 @@ func TestSeuilInferieurAuPlancherEstRefuse400ParHTTPPasUnCrash(t *testing.T) {
 		Threshold:               quorum.MinimumThreshold,
 		ExpectedAuthorityDomain: "identity-provider",
 	})
-	resp2, err := http.Post(srv.URL+"/v1/critical-operations/op-1/quorum", "application/json", bytes.NewReader(body2))
+	resp2, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body2)
 	if err != nil {
 		t.Fatalf("le serveur devrait toujours répondre après le refus précédent : %v", err)
 	}
@@ -159,22 +175,26 @@ func TestSeuilInferieurAuPlancherEstRefuse400ParHTTPPasUnCrash(t *testing.T) {
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("attendu 200 après récupération, reçu %d", resp2.StatusCode)
 	}
-	// Le seuil sous le plancher refuse avant tout appel à identity-provider (VerifyQuorum
-	// panique avant de vérifier quoi que ce soit) — aucune identité établie, rien à auditer pour
-	// ce premier appel. L'identité de test n'a pas de réponse configurée pour "assertion-a" donc
-	// le second appel (seuil valide) ne vérifie personne non plus.
-	if len(audit.reqs) != 0 {
-		t.Fatalf("aucun quorum.operation attendu ici (aucun porteur vérifié), reçu %d", len(audit.reqs))
+	// Premier appel (seuil sous le plancher) : refuse avant toute evaluation, aucun evenement.
+	// Second appel (seuil valide) : aucun porteur n'est verifiable ("assertion-a" n'a pas de
+	// reponse configuree), mais l'initiateur, lui, a bien ete authentifie — son evenement est
+	// emis. Une tentative de declenchement par un appelant identifie est un fait a tracer, meme
+	// quand aucun porteur ne suit (ADR-035).
+	if len(audit.reqs) != 1 {
+		t.Fatalf("attendu le seul quorum.operation de l'initiateur (aucun porteur vérifié), reçu %d", len(audit.reqs))
+	}
+	if audit.reqs[0].Actor == nil || audit.reqs[0].Actor.SubjectId != "sub-initiateur" {
+		t.Fatalf("le seul événement attendu est celui de l'initiateur, reçu %v", audit.reqs[0].Actor)
 	}
 }
 
 func TestCorpsMalformeEstRefuse400(t *testing.T) {
 	identity := &fakeIdentityClient{}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(Handler(New(quorum.New(identity), audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
 	defer srv.Close()
 
-	resp, err := http.Post(srv.URL+"/v1/critical-operations/op-1/quorum", "application/json", bytes.NewReader([]byte("{not json")))
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, []byte("{not json"))
 	if err != nil {
 		t.Fatalf("erreur inattendue : %v", err)
 	}
@@ -182,4 +202,32 @@ func TestCorpsMalformeEstRefuse400(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("attendu 400, reçu %d", resp.StatusCode)
 	}
+}
+
+// assertionAppelantValide est l'entree a ajouter aux doublures identity pour que l'APPELANT
+// (X-Identity-Assertion, ADR-035) soit accepte. Distincte des assertions de porteurs : initiateur
+// et porteur sont deux roles, et le sujet de l'initiateur n'est jamais compte dans le quorum.
+const assertionAppelantValide = "assertion-appelant-aal3"
+
+func reponseAppelantValide() *identityv1.VerifyAssertionResponse {
+	return &identityv1.VerifyAssertionResponse{
+		Valid:      true,
+		SubjectId:  "sub-initiateur",
+		Aal:        "AAL3",
+		AuthMethod: "webauthn/device-bound",
+	}
+}
+
+// postQuorum envoie une requete de quorum avec l'assertion d'appelant fournie. Une chaine vide
+// omet l'en-tete, ce qui doit produire un refus 401 (jamais un acces anonyme).
+func postQuorum(url, assertionAppelant string, body []byte) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if assertionAppelant != "" {
+		req.Header.Set("X-Identity-Assertion", assertionAppelant)
+	}
+	return http.DefaultClient.Do(req)
 }

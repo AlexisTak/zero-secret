@@ -52,10 +52,10 @@ func main() {
 	identityClient := identityv1.NewAssertionVerificationServiceClient(identityConn)
 	auditClient := auditv1.NewAuditCollectionServiceClient(auditConn)
 	verifier := quorum.New(identityClient)
-	api := httpapi.New(verifier, auditClient)
+	api := httpapi.New(verifier, identityClient, auditClient)
 
 	log.Printf("admin-api: en écoute sur %s (gRPC en clair vers %s, %s — mTLS hors périmètre)", httpAddr, identityAddr, auditCollectorAddr)
-	if err := http.ListenAndServe(httpAddr, httpapi.Handler(api)); err != nil {
+	if err := http.ListenAndServe(httpAddr, httpapi.NewHandler(api)); err != nil {
 		fmt.Fprintf(os.Stderr, "admin-api: erreur serveur HTTP : %v\n", err)
 		os.Exit(1)
 	}

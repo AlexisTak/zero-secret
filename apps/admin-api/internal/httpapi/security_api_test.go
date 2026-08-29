@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
+
 	"github.com/AlexisTak/biscuits-shield/apps/admin-api/internal/quorum"
 )
 
@@ -18,9 +20,11 @@ import (
 // Deux assertions systématiques : pas de panique (le serveur répond toujours), pas de fuite
 // (jamais de stack trace, chemin filesystem, ou fragment ressemblant à un secret dans le corps).
 func TestSecurityMatriceEntreesMalformeesNeCrashePasEtNeFuitRien(t *testing.T) {
-	identity := &fakeIdentityClient{}
+	identity := &fakeIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
+		assertionAppelantValide: reponseAppelantValide(),
+	}}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(Handler(New(quorum.New(identity), audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
 	defer srv.Close()
 
 	longString := strings.Repeat("a", 5*1024*1024) // 5 Mio — chaîne extrêmement longue
@@ -56,6 +60,9 @@ func TestSecurityMatriceEntreesMalformeesNeCrashePasEtNeFuitRien(t *testing.T) {
 				t.Fatalf("construction requête : %v", err)
 			}
 			req.Header.Set("Content-Type", tc.contentType)
+			// L'appelant est authentifie sur toute la matrice : on teste la robustesse du handler
+			// lui-meme, pas le refus d'authentification deja couvert par le test d'autorisation.
+			req.Header.Set("X-Identity-Assertion", assertionAppelantValide)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {

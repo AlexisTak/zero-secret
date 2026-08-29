@@ -8,12 +8,27 @@ info:
     politiques (angles morts hérités de security/threat-models/admin-api.md, non tranchés). Un
     seul appel synchrone porte toutes les assertions déjà réunies hors bande — aucune collecte
     incrémentale, aucun magasin d'état.
+
+    L'appelant lui-même doit présenter une assertion identity-assertion/v1 valide de niveau AAL3
+    (ADR-035) : le quorum ne peut plus être déclenché par un appelant anonyme. Quel rôle a le
+    droit d'initier quelle opération reste hors périmètre — seule l'authentification de
+    l'initiateur est exigée, pas son habilitation.
 paths:
   /v1/critical-operations/{operation_id}/quorum:
     post:
       operationId: verifyQuorum
       summary: Vérifie qu'un quorum de porteurs distincts a approuvé une opération critique.
       parameters:
+        - name: X-Identity-Assertion
+          in: header
+          required: true
+          description: >-
+            Assertion identity-assertion/v1 scellée (base64) de l'appelant qui initie l'opération.
+            Vérifiée via identity.v1.AssertionVerificationService AVANT toute évaluation du
+            quorum ; niveau AAL3 exigé. Cette assertion n'est jamais comptée parmi les porteurs du
+            quorum — initiateur et porteur sont deux rôles distincts (ADR-035).
+          schema:
+            type: string
         - name: operation_id
           in: path
           required: true
@@ -37,6 +52,31 @@ paths:
                 $ref: '#/components/schemas/QuorumResult'
         '400':
           description: Corps de requête malformé, ou seuil inférieur au plancher imposé.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: >-
+            En-tête X-Identity-Assertion absent, ou assertion de l'appelant invalide. Aucune
+            distinction n'est faite entre les deux cas dans le corps de la réponse.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: >-
+            Appelant authentifié mais de niveau d'authentification insuffisant (AAL3 exigé).
+            Un appelant dont l'assertion n'appartient pas au expected_authority_domain du corps
+            echoue des la verification et ressort en 401, pas ici.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: >-
+            Vérification de l'assertion de l'appelant impossible (identity-provider
+            indisponible) — refus explicite, jamais un repli permissif.
           content:
             application/json:
               schema:
