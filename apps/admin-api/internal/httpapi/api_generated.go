@@ -19,6 +19,7 @@ type Error struct {
 
 // QuorumRequest defines model for QuorumRequest.
 type QuorumRequest struct {
+	// Assertions Borne haute imposee : chaque assertion declenche un appel sortant vers identity-provider, une liste non bornee amplifierait une requete unique en autant d'appels (ADR-035). Refus 400 au-dela.
 	Assertions              [][]byte `json:"assertions"`
 	ExpectedAuthorityDomain string   `json:"expected_authority_domain"`
 

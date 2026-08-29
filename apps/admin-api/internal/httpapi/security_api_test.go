@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -24,7 +25,7 @@ func TestSecurityMatriceEntreesMalformeesNeCrashePasEtNeFuitRien(t *testing.T) {
 		assertionAppelantValide: reponseAppelantValide(),
 	}}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit, domaineDeTest)))
 	defer srv.Close()
 
 	longString := strings.Repeat("a", 5*1024*1024) // 5 Mio — chaîne extrêmement longue
@@ -62,7 +63,7 @@ func TestSecurityMatriceEntreesMalformeesNeCrashePasEtNeFuitRien(t *testing.T) {
 			req.Header.Set("Content-Type", tc.contentType)
 			// L'appelant est authentifie sur toute la matrice : on teste la robustesse du handler
 			// lui-meme, pas le refus d'authentification deja couvert par le test d'autorisation.
-			req.Header.Set("X-Identity-Assertion", assertionAppelantValide)
+			req.Header.Set("X-Identity-Assertion", base64.StdEncoding.EncodeToString([]byte(assertionAppelantValide)))
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {

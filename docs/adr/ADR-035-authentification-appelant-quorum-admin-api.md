@@ -57,19 +57,58 @@ via `identity.v1.AssertionVerificationService` avant tout appel à `quorum.Verif
 |---|---|
 | En-tête absent | `401 assertion_de_lappelant_absente` |
 | `identity-provider` injoignable | `502 verification_de_lappelant_indisponible` |
-| Assertion invalide, ou hors du `expected_authority_domain` | `401 assertion_de_lappelant_invalide` |
+| Assertion non décodable en base64 | `401 assertion_de_lappelant_malformee` |
+| Assertion invalide, ou hors du domaine d'autorité configuré | `401 assertion_de_lappelant_invalide` |
 | `aal != "AAL3"`, valeur vide incluse | `403 niveau_dauthentification_insuffisant` |
+| Domaine proposé par le corps différent du domaine configuré | `400 domaine_dautorite_inattendu` |
+| Plus de 64 assertions, ou corps au-delà de 512 Kio | `400` |
 
-Une indisponibilité du vérificateur est un refus, jamais un repli permissif (règle absolue #2).
-Le domaine d'autorité n'est pas contrôlé séparément : l'assertion de l'appelant est vérifiée
-**contre** `expected_authority_domain` du corps, donc un appelant hors domaine échoue à la
-vérification elle-même.
+Une indisponibilité du vérificateur — panne comme dépassement de délai — est un refus, jamais un
+repli permissif (règle absolue #2). Une réponse `nil` sans erreur du client gRPC est traitée de
+même : la lire sans garde paniquerait sur le chemin non authentifié.
 
-### L'initiateur n'est jamais compté dans le quorum
+### Le sujet de l'initiateur est exclu du comptage des porteurs
 
-L'assertion de l'en-tête n'entre pas dans la liste des porteurs. Initiateur et porteur sont deux
-rôles : un initiateur qui s'auto-compterait ramènerait le quorum réel à un seul porteur
-indépendant, ce que le plancher `MinimumThreshold = 2` d'ADR-021 interdit précisément.
+Rien n'empêche un porteur de se déclarer aussi initiateur : son assertion peut figurer dans
+l'en-tête **et** dans le corps. `excludeInitiator` retire donc `caller.subject_id` des porteurs
+comptés, puis réévalue l'atteinte du seuil sur les porteurs restants — avant l'audit et avant la
+réponse. Sans cette exclusion, un quorum de 2 serait atteint avec un seul approbateur réellement
+indépendant de celui qui déclenche : la lettre du plancher `MinimumThreshold = 2` respectée, son
+intention vidée.
+
+L'exclusion vit dans la couche HTTP, jamais dans `quorum` : l'initiateur est une notion de cette
+couche, et ADR-021 impose que le module ignore l'opération et les rôles.
+
+### L'assertion de l'appelant est décodée en base64 strict
+
+L'en-tête porte l'assertion en base64, comme les assertions de porteurs du corps (`format: byte`
+au contrat, décodé par `encoding/json`). Le décodage est **strict et unique** : accepter à la fois
+le base64 et les octets bruts ferait exister deux représentations de la même entrée — terrain
+classique de confusion de requête et de contournement de journalisation. Un échec de décodage est
+un `401 assertion_de_lappelant_malformee`, jamais un repli.
+
+### Le domaine d'autorité vient de la configuration
+
+`expected_authority_domain` est fixé par `ZS_ADMIN_API_EXPECTED_AUTHORITY_DOMAIN`, jamais déduit
+du corps ; un corps qui en propose un autre est refusé en `400`. Laisser l'appelant choisir le
+domaine contre lequel il est vérifié rendrait le contrôle tautologique dès qu'un
+`identity-provider` accepte plus d'un domaine : il suffirait de présenter des assertions d'un
+domaine A pour agir sur le périmètre B.
+
+### Bornes sur l'entrée non authentifiée
+
+Le corps est nécessairement décodé avant la vérification de l'appelant (le seuil et le domaine
+attendu en dépendent), donc les bornes doivent tenir face à un anonyme :
+`http.MaxBytesReader` à 512 Kio, et au plus 64 assertions (`maxItems` au contrat, refus `400`
+côté application). Chaque assertion déclenchant un appel gRPC sortant, une liste non bornée
+amplifierait une requête unique en autant d'appels vers `identity-provider`.
+
+### Délai d'attente explicite sur la vérification
+
+`context.WithTimeout` de 5 s autour de l'appel sortant, conformément aux conventions Go du projet.
+Un vérificateur qui accepte la connexion sans jamais répondre immobiliserait sinon le handler
+jusqu'à déconnexion du client, dont l'attaquant tient les deux bouts. Le dépassement produit le
+même `502` qu'une panne : une lenteur indistinguable d'une panne est traitée comme une panne.
 
 ### `quorum` reste agnostique
 
@@ -84,7 +123,13 @@ toute construction de `broker.AccessRequest`.
 Un `quorum.operation` supplémentaire est émis avec `actor` = initiateur et `outcome` = résultat
 global du quorum. Le schéma d'événement (`contracts/events/audit-event.schema.json`) n'a qu'un
 champ `actor` ; le modifier casserait la vérifiabilité de l'historique existant. Trois événements
-pour un quorum à deux porteurs : deux approbations, une initiation. L'événement de l'initiateur
+pour un quorum à deux porteurs : deux approbations, une initiation.
+
+`actor.aal` et `actor.auth_method` (optionnels au contrat) sont renseignés **uniquement** sur
+l'événement de l'initiateur — le module `quorum` ne renvoie pas le niveau d'authentification des
+porteurs. C'est ce qui rend les deux rôles distinguables au journal. Sans ces champs, les N+1
+événements d'une même opération seraient identiques en type, cible, issue et forme d'acteur, et un
+auditeur — ou `zs-replay` (ADR-034) — compterait un approbateur de trop. L'événement de l'initiateur
 est émis même quand aucun porteur n'est vérifié — une tentative de déclenchement par un appelant
 identifié est un fait à tracer autant qu'un succès.
 
@@ -129,5 +174,8 @@ rôles n'a pas avancé d'ici là.
   l'opération ? Constante non configurable aujourd'hui : un niveau abaissable par configuration
   serait un contournement trivial. Une modulation par opération suppose de savoir quelles
   opérations existent — la même question de rôles, non tranchée.
-- Faut-il refuser qu'un initiateur figure aussi parmi les porteurs ? Aujourd'hui autorisé : le
-  quorum de 2 exige de toute façon un second porteur distinct. À trancher avec les rôles.
+- Le délai de 5 s et la borne de 64 assertions sont des valeurs par défaut raisonnables, non
+  mesurées sous charge réelle. À réévaluer avec les tests de charge de la Phase 2 (`make up`).
+- Le refus d'un appelant ne produit aucun événement d'audit : une campagne de sondage de
+  l'endpoint reste invisible au journal. Auditer les refus supposerait d'attribuer un événement à
+  une identité non établie, ce que le projet refuse ailleurs (ADR-027) — à trancher séparément.

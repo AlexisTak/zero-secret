@@ -22,7 +22,7 @@ func TestSecurityAucunRateLimitSurQuorum(t *testing.T) {
 		assertionAppelantValide: reponseAppelantValide(),
 	}}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit, domaineDeTest)))
 	defer srv.Close()
 
 	body, _ := json.Marshal(QuorumRequest{

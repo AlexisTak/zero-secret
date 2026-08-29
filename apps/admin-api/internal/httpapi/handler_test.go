@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +46,7 @@ func TestDeuxPorteursDistinctsAtteignentLeQuorumViaHTTP(t *testing.T) {
 		"assertion-b":           {Valid: true, SubjectId: "sub-2"},
 	}}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit, domaineDeTest)))
 	defer srv.Close()
 
 	body, _ := json.Marshal(QuorumRequest{
@@ -104,7 +105,7 @@ func TestUnSeulPorteurEstRefuseViaHTTP(t *testing.T) {
 		"assertion-a":           {Valid: true, SubjectId: "sub-1"},
 	}}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit, domaineDeTest)))
 	defer srv.Close()
 
 	body, _ := json.Marshal(QuorumRequest{
@@ -144,7 +145,7 @@ func TestSeuilInferieurAuPlancherEstRefuse400ParHTTPPasUnCrash(t *testing.T) {
 		assertionAppelantValide: reponseAppelantValide(),
 	}}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit, domaineDeTest)))
 	defer srv.Close()
 
 	body, _ := json.Marshal(QuorumRequest{
@@ -159,6 +160,12 @@ func TestSeuilInferieurAuPlancherEstRefuse400ParHTTPPasUnCrash(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("attendu 400, reçu %d", resp.StatusCode)
+	}
+	// Propriete verifiee ISOLEMENT, avant le second appel : un refus survenu avant toute
+	// evaluation du quorum ne produit AUCUN evenement. La verifier seulement sur le total agrege
+	// des deux appels laisserait passer un audit emis a tort sur ce chemin.
+	if len(audit.reqs) != 0 {
+		t.Fatalf("aucun quorum.operation attendu pour un refus avant évaluation, reçu %d", len(audit.reqs))
 	}
 
 	// Le serveur doit rester utilisable après ce refus — vérifié en renvoyant une requête valide.
@@ -191,7 +198,7 @@ func TestSeuilInferieurAuPlancherEstRefuse400ParHTTPPasUnCrash(t *testing.T) {
 func TestCorpsMalformeEstRefuse400(t *testing.T) {
 	identity := &fakeIdentityClient{}
 	audit := &fakeAuditClient{}
-	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit)))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit, domaineDeTest)))
 	defer srv.Close()
 
 	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, []byte("{not json"))
@@ -207,6 +214,13 @@ func TestCorpsMalformeEstRefuse400(t *testing.T) {
 // assertionAppelantValide est l'entree a ajouter aux doublures identity pour que l'APPELANT
 // (X-Identity-Assertion, ADR-035) soit accepte. Distincte des assertions de porteurs : initiateur
 // et porteur sont deux roles, et le sujet de l'initiateur n'est jamais compte dans le quorum.
+// domaineDeTest est le domaine d'autorite epingle des API de test : depuis ADR-035, un corps qui
+// en propose un autre est refuse en 400, le domaine n'etant plus choisi par l'appelant.
+const domaineDeTest = "identity-provider"
+
+// assertionAppelantValide est l'assertion de l'APPELANT telle que la voit le verificateur, donc
+// DECODEE. postQuorum l'encode en base64 avant de la poser dans l'en-tete, comme le fera un vrai
+// client : le contrat declare l'en-tete en base64, au meme titre que les assertions du corps.
 const assertionAppelantValide = "assertion-appelant-aal3"
 
 func reponseAppelantValide() *identityv1.VerifyAssertionResponse {
@@ -227,7 +241,7 @@ func postQuorum(url, assertionAppelant string, body []byte) (*http.Response, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if assertionAppelant != "" {
-		req.Header.Set("X-Identity-Assertion", assertionAppelant)
+		req.Header.Set("X-Identity-Assertion", base64.StdEncoding.EncodeToString([]byte(assertionAppelant)))
 	}
 	return http.DefaultClient.Do(req)
 }

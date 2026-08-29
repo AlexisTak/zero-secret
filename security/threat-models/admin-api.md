@@ -69,6 +69,21 @@ en premier, étant la surface d'administration des identités.
 | Entrées malformées provoquant une fuite ou un 5xx | `apps/admin-api/internal/httpapi/security_api_test.go` — matrice de 11 cas | Écrit, passe |
 | Panique du décodeur sur entrée arbitraire | `apps/admin-api/internal/httpapi/fuzz_test.go` — `make security-fuzz` | Écrit, passe |
 
+## Menaces introduites par l'authentification de l'appelant (ADR-035)
+
+Ce contrôle ferme le déclenchement anonyme mais crée sa propre surface, revue et traitée :
+
+| Catégorie STRIDE | Menace | Traitement |
+|---|---|---|
+| Élévation de privilège | Un porteur se déclare aussi initiateur : le quorum de 2 est atteint avec un seul approbateur réellement indépendant de lui | `excludeInitiator` retire le sujet de l'initiateur des porteurs comptés avant réévaluation du seuil — `TestSecurityInitiateurNestJamaisComptePorteur` |
+| Répudiation | L'événement de l'initiateur est indiscernable de celui d'un porteur : l'auditeur compte un approbateur de trop, ou la déduplication efface la trace de déclenchement | `actor.aal` et `actor.auth_method` renseignés sur le seul événement d'initiateur — `TestSecurityEvenementInitiateurEstDistinguableDesPorteurs` |
+| Déni de service | Corps décodé avant authentification (le seuil et le domaine en dépendent) : allocation non bornée par un anonyme, et amplification d'une requête en N appels gRPC sortants | `http.MaxBytesReader` 512 Kio, 64 assertions au plus, délai d'attente de 5 s sur chaque appel sortant |
+| Usurpation | L'appelant choisit le domaine d'autorité contre lequel il est vérifié : contrôle tautologique dès qu'un identity-provider accepte plus d'un domaine | Domaine épinglé par configuration, refus 400 si le corps en propose un autre |
+
+Menace résiduelle assumée : un refus d'appelant ne produit aucun événement d'audit — une campagne
+de sondage de l'endpoint reste invisible au journal. Auditer un refus supposerait d'attribuer un
+événement à une identité non établie, ce que le projet refuse ailleurs (ADR-027).
+
 ## Risques acceptés
 
 | Identifiant | Description | Depuis | Réexamen | Suivi |

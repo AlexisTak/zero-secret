@@ -12,19 +12,23 @@
 // si cette personne a le droit d'initier CETTE opération — la granularité des rôles reste
 // l'angle mort non tranché de security/threat-models/admin-api.md.
 //
-// L'assertion de l'appelant n'est jamais comptée parmi les porteurs du quorum : initiateur et
-// porteur sont deux rôles distincts, et un initiateur qui s'auto-compterait ramènerait le quorum
-// réel à un seul porteur indépendant — exactement ce que le plancher MinimumThreshold interdit.
+// Le sujet de l'appelant est EXCLU du comptage des porteurs (excludeInitiator) : sans cette
+// exclusion, un porteur qui se declare aussi initiateur atteindrait un quorum de 2 avec un seul
+// approbateur reellement independant de lui — la lettre du plancher MinimumThreshold serait
+// respectee, son intention non.
 //
 // Pas de TLS dans ce lot — signalé, même limite que partout ailleurs.
 package httpapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
+	"slices"
+	"time"
 
 	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
 	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
@@ -37,6 +41,25 @@ import (
 // configuration serait un contournement trivial du controle.
 const aalRequisPourInitier = "AAL3"
 
+// maxOctetsCorps borne la lecture du corps AVANT toute authentification : le decodage JSON precede
+// necessairement la verification de l'appelant (expected_authority_domain, contre lequel son
+// assertion est verifiee, vient du corps). Sans cette borne, un anonyme fait allouer autant qu'il
+// veut. Dimensionne pour maxAssertions assertions de 4096 octets (MAX_BYTES de
+// zs-crypto/src/identity_assertion.rs) encodees en base64, plus l'enveloppe JSON.
+const maxOctetsCorps = 512 * 1024
+
+// maxAssertions borne le nombre de porteurs, et donc le nombre d'appels gRPC sortants declenches
+// par une seule requete — sans quoi un appelant authentifie une fois amplifie sa requete en
+// autant d'appels vers identity-provider qu'il place d'assertions. Egalement declare au contrat
+// (maxItems) : ici c'est l'application qui refuse, le contrat qui documente.
+const maxAssertions = 64
+
+// delaiVerification borne chaque appel sortant vers identity-provider. Un verificateur qui accepte
+// la connexion sans jamais repondre immobiliserait sinon le handler jusqu'a deconnexion du client,
+// dont l'attaquant tient les deux bouts. Le depassement produit le meme refus 502 qu'une panne :
+// une lenteur indistinguable d'une panne doit etre traitee comme une panne (regle absolue #2).
+const delaiVerification = 5 * time.Second
+
 type API struct {
 	verifier *quorum.Verifier
 	// identityClient verifie l'assertion de l'APPELANT. C'est le meme service que celui utilise
@@ -45,14 +68,25 @@ type API struct {
 	// de l'initiateur est une preoccupation de la couche HTTP (meme decoupage qu'access-broker).
 	identityClient identityv1.AssertionVerificationServiceClient
 	auditClient    auditv1.AuditCollectionServiceClient
+	// expectedAuthorityDomain est fixe par la configuration du binaire, jamais deduit de la
+	// requete. Laisser l'appelant choisir le domaine contre lequel il est verifie rendrait le
+	// controle tautologique des qu'un identity-provider accepte plus d'un domaine : il suffirait
+	// de presenter des assertions d'un domaine A pour agir sur le perimetre B.
+	expectedAuthorityDomain string
 }
 
 func New(
 	v *quorum.Verifier,
 	identityClient identityv1.AssertionVerificationServiceClient,
 	auditClient auditv1.AuditCollectionServiceClient,
+	expectedAuthorityDomain string,
 ) *API {
-	return &API{verifier: v, identityClient: identityClient, auditClient: auditClient}
+	return &API{
+		verifier:                v,
+		identityClient:          identityClient,
+		auditClient:             auditClient,
+		expectedAuthorityDomain: expectedAuthorityDomain,
+	}
 }
 
 // NewHandler construit le routeur en remplacant le gestionnaire d'erreur de parametres par defaut
@@ -75,16 +109,28 @@ func writeParamError(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId string, params VerifyQuorumParams) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxOctetsCorps)
+
 	var body QuorumRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		// Corps malforme et corps trop volumineux produisent le meme refus : distinguer les deux
+		// renseignerait un attaquant sur la borne exacte sans servir un client legitime.
 		writeError(w, http.StatusBadRequest, "corps_de_requete_malforme")
 		return
 	}
+	if len(body.Assertions) > maxAssertions {
+		writeError(w, http.StatusBadRequest, "trop_dassertions")
+		return
+	}
 
-	// Authentification de l'appelant AVANT toute evaluation du quorum (ADR-035). L'assertion est
-	// verifiee contre expected_authority_domain du corps : un appelant hors de ce domaine echoue
-	// ici meme, sans qu'aucun controle de domaine separe soit necessaire.
-	caller, refus := a.verifyCaller(r.Context(), params.XIdentityAssertion, body.ExpectedAuthorityDomain)
+	// Le domaine d'autorite est celui de la configuration, jamais celui propose par le corps.
+	if body.ExpectedAuthorityDomain != a.expectedAuthorityDomain {
+		writeError(w, http.StatusBadRequest, "domaine_dautorite_inattendu")
+		return
+	}
+
+	// Authentification de l'appelant AVANT toute evaluation du quorum (ADR-035).
+	caller, refus := a.verifyCaller(r.Context(), params.XIdentityAssertion)
 	if refus != nil {
 		writeError(w, refus.status, refus.reason)
 		return
@@ -102,8 +148,12 @@ func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId s
 	// quorum.operation n'est audité que pour les porteurs réellement vérifiés
 	// (result.DistinctSubjects) — jamais pour un refus avant vérification (seuil invalide, corps
 	// malformé) : sans identité établie, il n'y a personne à qui attribuer l'événement.
-	a.recordQuorumOperation(r.Context(), operationId, body.ExpectedAuthorityDomain, result)
-	a.recordQuorumInitiator(r.Context(), operationId, body.ExpectedAuthorityDomain, caller, result)
+	// Exclusion de l'initiateur AVANT l'audit et avant la reponse : le quorum publie, journalise et
+	// renvoye est celui des porteurs reellement independants de celui qui declenche.
+	result = excludeInitiator(result, caller.SubjectId, body.Threshold)
+
+	a.recordQuorumOperation(r.Context(), operationId, a.expectedAuthorityDomain, result)
+	a.recordQuorumInitiator(r.Context(), operationId, a.expectedAuthorityDomain, caller, result)
 
 	writeJSON(w, http.StatusOK, QuorumResult{
 		Reached:          result.Reached,
@@ -163,16 +213,30 @@ type refusAppelant struct {
 // Refus par defaut (regle absolue #2) : une indisponibilite d'identity-provider est un refus 502
 // explicite, jamais un repli permissif. Une assertion invalide et une assertion absente
 // produisent le meme 401 sans distinction exploitable.
-func (a *API) verifyCaller(ctx context.Context, assertion, expectedAuthorityDomain string) (*identityv1.VerifyAssertionResponse, *refusAppelant) {
+func (a *API) verifyCaller(ctx context.Context, assertion string) (*identityv1.VerifyAssertionResponse, *refusAppelant) {
 	if assertion == "" {
 		return nil, &refusAppelant{http.StatusUnauthorized, "assertion_de_lappelant_absente"}
 	}
 
-	resp, err := a.identityClient.VerifyAssertion(ctx, &identityv1.VerifyAssertionRequest{
-		Assertion:               []byte(assertion),
-		ExpectedAuthorityDomain: expectedAuthorityDomain,
-	})
+	// L'en-tete porte l'assertion en base64, comme les assertions de porteurs du corps (format:
+	// byte au contrat, decode par encoding/json). Decodage STRICT et unique : accepter a la fois
+	// le base64 et les octets bruts ferait exister deux representations de la meme entree, terrain
+	// classique de confusion de requete et de contournement de journalisation.
+	octets, err := base64.StdEncoding.Strict().DecodeString(assertion)
 	if err != nil {
+		return nil, &refusAppelant{http.StatusUnauthorized, "assertion_de_lappelant_malformee"}
+	}
+
+	ctx, annuler := context.WithTimeout(ctx, delaiVerification)
+	defer annuler()
+
+	resp, err := a.identityClient.VerifyAssertion(ctx, &identityv1.VerifyAssertionRequest{
+		Assertion:               octets,
+		ExpectedAuthorityDomain: a.expectedAuthorityDomain,
+	})
+	// resp nil sans erreur ne peut pas venir d'un vrai client gRPC, mais un intercepteur ou un
+	// client de repli le pourrait : le lire sans garde paniquerait sur le chemin non authentifie.
+	if err != nil || resp == nil {
 		return nil, &refusAppelant{http.StatusBadGateway, "verification_de_lappelant_indisponible"}
 	}
 	if !resp.Valid {
@@ -191,8 +255,13 @@ func (a *API) verifyCaller(ctx context.Context, assertion, expectedAuthorityDoma
 //
 // Reutilise le type d'evenement quorum.operation avec actor = initiateur : le schema d'evenement
 // (contracts/events/audit-event.schema.json) n'a qu'un champ actor, et le modifier casserait la
-// verifiabilite de l'historique existant. L'initiateur se distingue des porteurs par son
-// auth_method, present dans l'assertion verifiee.
+// verifiabilite de l'historique existant.
+//
+// actor.aal et actor.auth_method (optionnels au contrat, sealing.proto) sont renseignes ICI et
+// nulle part ailleurs : c'est ce qui distingue l'evenement de l'initiateur de ceux des porteurs,
+// dont le module quorum ne renvoie pas le niveau d'authentification. Sans ces champs, les N+1
+// evenements d'une meme operation seraient strictement identiques en forme, et un auditeur — ou
+// zs-replay (ADR-034) — compterait un approbateur de trop.
 //
 // Best-effort comme recordQuorumOperation : le quorum a deja ete evalue de facon irreversible.
 func (a *API) recordQuorumInitiator(ctx context.Context, operationID, authorityDomain string, caller *identityv1.VerifyAssertionResponse, result quorum.Result) {
@@ -205,8 +274,10 @@ func (a *API) recordQuorumInitiator(ctx context.Context, operationID, authorityD
 		AuthorityDomain: authorityDomain,
 		EventType:       "quorum.operation",
 		Actor: &auditv1.Actor{
-			SubjectId: caller.SubjectId,
-			Kind:      "human",
+			SubjectId:  caller.SubjectId,
+			Kind:       "human",
+			Aal:        &caller.Aal,
+			AuthMethod: &caller.AuthMethod,
 		},
 		Target: &auditv1.Target{
 			Type: "critical_operation",
@@ -220,6 +291,26 @@ func (a *API) recordQuorumInitiator(ctx context.Context, operationID, authorityD
 	}
 	if !res.Accepted {
 		log.Printf("admin-api: quorum.operation refusé par audit-collector (initiateur %s, opération %s) : %s", caller.SubjectId, operationID, res.Reason)
+	}
+}
+
+// excludeInitiator retire le sujet de l'initiateur des porteurs comptes, puis reevalue l'atteinte
+// du seuil sur les porteurs restants.
+//
+// Rien n'interdit a un porteur de se declarer aussi initiateur : son assertion peut figurer dans
+// l'en-tete ET dans le corps. Sans cette exclusion, un quorum de 2 serait atteint avec un seul
+// approbateur independant de celui qui declenche l'operation — le controle serait respecte a la
+// lettre et vide de sens.
+//
+// Vit dans la couche HTTP et non dans le module quorum : ADR-021 impose que quorum ignore
+// l'operation et les roles, et l'initiateur est une notion de la couche HTTP.
+func excludeInitiator(result quorum.Result, initiateur string, threshold int) quorum.Result {
+	porteurs := slices.DeleteFunc(slices.Clone(result.DistinctSubjects), func(sujet string) bool {
+		return sujet == initiateur
+	})
+	return quorum.Result{
+		Reached:          len(porteurs) >= threshold,
+		DistinctSubjects: porteurs,
 	}
 }
 

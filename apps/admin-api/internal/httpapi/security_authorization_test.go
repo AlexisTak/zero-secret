@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,7 +21,7 @@ import (
 // la construction est factorisee ici, jamais les reponses attendues.
 func serveurQuorum(t *testing.T, identity identityv1.AssertionVerificationServiceClient) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, &fakeAuditClient{})))
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, &fakeAuditClient{}, domaineDeTest)))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -211,4 +212,199 @@ func TestSecurityQuorumAppelantAAL3EstAccepte(t *testing.T) {
 		CWE:         "CWE-862",
 		Blocking:    false,
 	}})
+}
+
+// serveurQuorumAvecAudit expose la doublure d'audit, pour les tests qui verifient le journal.
+func serveurQuorumAvecAudit(t *testing.T, identity identityv1.AssertionVerificationServiceClient) (*httptest.Server, *fakeAuditClient) {
+	t.Helper()
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit, domaineDeTest)))
+	t.Cleanup(srv.Close)
+	return srv, audit
+}
+
+// TestSecurityInitiateurNestJamaisComptePorteur est le cas d'attaque du quorum auto-approuve :
+// Alice se declare initiatrice ET place sa propre assertion parmi les porteurs, avec celle de Bob.
+// Sans exclusion, DistinctSubjects = {Alice, Bob} atteint un seuil de 2 alors qu'un SEUL
+// approbateur est reellement independant de celle qui declenche — la lettre du plancher
+// MinimumThreshold serait respectee, son intention non.
+func TestSecurityInitiateurNestJamaisComptePorteur(t *testing.T) {
+	identity := &fakeIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
+		// Meme sujet pour l'en-tete et pour l'un des porteurs : Alice joue les deux roles.
+		assertionAppelantValide:   {Valid: true, SubjectId: "sub-alice", Aal: "AAL3", AuthMethod: "webauthn/device-bound"},
+		"assertion-porteur-alice": {Valid: true, SubjectId: "sub-alice"},
+		"assertion-porteur-b":     {Valid: true, SubjectId: "sub-porteur-2"},
+	}}
+	srv := serveurQuorum(t, identity)
+
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions: [][]byte{
+			[]byte("assertion-porteur-alice"),
+			[]byte("assertion-porteur-b"),
+		},
+		Threshold:               quorum.MinimumThreshold,
+		ExpectedAuthorityDomain: domaineDeTest,
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/rotation-cle-hsm-prod/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result QuorumResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("reponse illisible : %v", err)
+	}
+	if result.Reached {
+		t.Fatalf("quorum atteint avec un seul approbateur independant de l'initiatrice : %v", result.DistinctSubjects)
+	}
+	for _, sujet := range result.DistinctSubjects {
+		if sujet == "sub-alice" {
+			t.Fatalf("le sujet de l'initiatrice ne doit jamais figurer parmi les porteurs comptes : %v", result.DistinctSubjects)
+		}
+	}
+}
+
+// TestSecurityAssertionAppelantNonBase64EstRefusee : l'en-tete est declare base64 au contrat, comme
+// les assertions du corps. Un decodage a repli (base64 sinon brut) ferait exister deux
+// representations de la meme entree — confusion de requete, et journalisation contournable.
+func TestSecurityAssertionAppelantNonBase64EstRefusee(t *testing.T) {
+	identity := doublurePorteursValides(reponseAppelantValide())
+	srv := serveurQuorum(t, identity)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/critical-operations/op-1/quorum", bytes.NewReader(corpsQuorumValide()))
+	if err != nil {
+		t.Fatalf("construction requete : %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Octets bruts, non encodes : exactement ce que la version precedente transmettait au
+	// verificateur, et ce qu'un client conforme au contrat n'envoie jamais.
+	req.Header.Set("X-Identity-Assertion", "assertion-en-clair-pas-base64!!")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("attendu 401 pour une assertion mal encodee, obtenu %d", resp.StatusCode)
+	}
+	var erreur Error
+	if err := json.NewDecoder(resp.Body).Decode(&erreur); err != nil {
+		t.Fatalf("reponse d'erreur illisible : %v", err)
+	}
+	if erreur.Reason != "assertion_de_lappelant_malformee" {
+		t.Fatalf("motif attendu assertion_de_lappelant_malformee, obtenu %q", erreur.Reason)
+	}
+}
+
+// TestSecurityDomaineDautoriteNestPasChoisiParLappelant : le domaine contre lequel les assertions
+// sont verifiees vient de la configuration. Le laisser choisir par le corps rendrait le controle
+// tautologique des qu'un identity-provider accepte plus d'un domaine.
+func TestSecurityDomaineDautoriteNestPasChoisiParLappelant(t *testing.T) {
+	srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
+
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions:              [][]byte{[]byte("assertion-porteur-a"), []byte("assertion-porteur-b")},
+		Threshold:               quorum.MinimumThreshold,
+		ExpectedAuthorityDomain: "domaine-choisi-par-lattaquant",
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("attendu 400 pour un domaine d'autorite non configure, obtenu %d", resp.StatusCode)
+	}
+}
+
+// TestSecurityNombreDassertionsEstBorne : chaque assertion declenche un appel gRPC sortant. Une
+// liste non bornee amplifierait une requete unique en autant d'appels vers identity-provider.
+func TestSecurityNombreDassertionsEstBorne(t *testing.T) {
+	srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
+
+	trop := make([][]byte, maxAssertions+1)
+	for i := range trop {
+		trop[i] = []byte("assertion-porteur-a")
+	}
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions:              trop,
+		Threshold:               quorum.MinimumThreshold,
+		ExpectedAuthorityDomain: domaineDeTest,
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("attendu 400 au-dela de %d assertions, obtenu %d", maxAssertions, resp.StatusCode)
+	}
+}
+
+// TestSecurityCorpsNonAuthentifieEstBorne : le corps est decode avant l'authentification (le
+// domaine attendu et le seuil en dependent), donc la borne doit s'appliquer a un anonyme.
+func TestSecurityCorpsNonAuthentifieEstBorne(t *testing.T) {
+	srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
+
+	enorme := make([]byte, maxOctetsCorps+1024)
+	for i := range enorme {
+		enorme[i] = 'a'
+	}
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions:              [][]byte{enorme},
+		Threshold:               quorum.MinimumThreshold,
+		ExpectedAuthorityDomain: domaineDeTest,
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("le serveur ne doit jamais planter sur un corps surdimensionne : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("attendu 400 pour un corps au-dela de %d octets, obtenu %d", maxOctetsCorps, resp.StatusCode)
+	}
+}
+
+// TestSecurityEvenementInitiateurEstDistinguableDesPorteurs : sans aal/auth_method sur l'acteur,
+// les N+1 evenements d'une meme operation sont identiques en forme, et un auditeur — ou zs-replay
+// (ADR-034) — compte un approbateur de trop.
+func TestSecurityEvenementInitiateurEstDistinguableDesPorteurs(t *testing.T) {
+	srv, audit := serveurQuorumAvecAudit(t, doublurePorteursValides(reponseAppelantValide()))
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	var initiateurs, porteurs int
+	for _, req := range audit.reqs {
+		if req.Actor == nil {
+			t.Fatalf("evenement sans acteur : %v", req)
+		}
+		if req.Actor.Aal != nil && req.Actor.AuthMethod != nil {
+			initiateurs++
+			if req.Actor.SubjectId != "sub-initiateur" {
+				t.Fatalf("l'evenement porteur aal/auth_method doit etre celui de l'initiateur, obtenu %s", req.Actor.SubjectId)
+			}
+			continue
+		}
+		porteurs++
+	}
+	if initiateurs != 1 {
+		t.Fatalf("attendu exactement 1 evenement d'initiateur distinguable, obtenu %d", initiateurs)
+	}
+	if porteurs != 2 {
+		t.Fatalf("attendu 2 evenements de porteurs, obtenu %d", porteurs)
+	}
 }

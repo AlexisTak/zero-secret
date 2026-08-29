@@ -34,6 +34,9 @@ func main() {
 	identityAddr := envOr("ZS_ADMIN_API_IDENTITY_PROVIDER_ADDR", "127.0.0.1:50062")
 	auditCollectorAddr := envOr("ZS_ADMIN_API_AUDIT_COLLECTOR_ADDR", "127.0.0.1:50065")
 	httpAddr := envOr("ZS_ADMIN_API_HTTP_ADDR", "127.0.0.1:8082")
+	// Domaine d'autorite contre lequel toute assertion est verifiee — fixe par la configuration,
+	// jamais propose par la requete (ADR-035).
+	expectedAuthorityDomain := envOr("ZS_ADMIN_API_EXPECTED_AUTHORITY_DOMAIN", "identity-provider")
 
 	identityConn, err := grpc.NewClient(identityAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -52,7 +55,7 @@ func main() {
 	identityClient := identityv1.NewAssertionVerificationServiceClient(identityConn)
 	auditClient := auditv1.NewAuditCollectionServiceClient(auditConn)
 	verifier := quorum.New(identityClient)
-	api := httpapi.New(verifier, identityClient, auditClient)
+	api := httpapi.New(verifier, identityClient, auditClient, expectedAuthorityDomain)
 
 	log.Printf("admin-api: en écoute sur %s (gRPC en clair vers %s, %s — mTLS hors périmètre)", httpAddr, identityAddr, auditCollectorAddr)
 	if err := http.ListenAndServe(httpAddr, httpapi.NewHandler(api)); err != nil {
