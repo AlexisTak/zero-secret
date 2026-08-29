@@ -355,7 +355,7 @@ async function handleQuorumSubmit(
     }
     const assertions = parseAssertionsBlock(requireString(body, "assertions"));
 
-    const result = await config.adminApi.requestQuorum({
+    const result = await config.adminApi.requestQuorum(session.identityAssertion, {
       operationId,
       assertions,
       threshold,

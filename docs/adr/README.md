@@ -39,6 +39,8 @@ divergence silencieuse.
 | [031](ADR-031-ancrage-periodique-journal-audit.md) | Ancrage périodique du journal d'audit (audit.chain_verified) | proposé | 2026-08-24 |
 | [032](ADR-032-socle-ml-dsa-65-suites-hybrides.md) | Socle ML-DSA-65 partagé pour les suites hybrides (zs-crypto, zs-hsm) | proposé | 2026-08-24 |
 | [033](ADR-033-github-actions-remplace-jenkins.md) | GitHub Actions remplace Jenkins pour la CI | accepté | 2026-08-24 |
+| [034](ADR-034-zs-replay-rejeu-decisions-archivees.md) | Crate zs-replay : rejeu hors ligne des décisions archivées | proposé | 2026-08-25 |
+| [035](ADR-035-authentification-appelant-quorum-admin-api.md) | Authentification de l'appelant sur le quorum admin-api (referme l'angle mort d'ADR-021) | accepté | 2026-08-29 |
 
 ## Règles
 

@@ -36,3 +36,6 @@ Thumbs.db
 
 # Logs locaux
 *.log
+
+# Worktrees Git locaux (isolation de tâche)
+.worktrees/

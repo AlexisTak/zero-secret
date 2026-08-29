@@ -640,8 +640,8 @@ const file_audit_v1_sealing_proto_rawDesc = "" +
 	"\fsealed_bytes\x18\x01 \x01(\fR\vsealedBytes2\x9b\x01\n" +
 	"\x13AuditSealingService\x125\n" +
 	"\x04Seal\x12\x15.audit.v1.SealRequest\x1a\x16.audit.v1.SealResponse\x12M\n" +
-	"\fHashPrevious\x12\x1d.audit.v1.HashPreviousRequest\x1a\x1e.audit.v1.HashPreviousResponseB\x9e\x01\n" +
-	"\fcom.audit.v1B\fSealingProtoP\x01Z?github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1;auditv1\xa2\x02\x03AXX\xaa\x02\bAudit.V1\xca\x02\bAudit\\V1\xe2\x02\x14Audit\\V1\\GPBMetadata\xea\x02\tAudit::V1b\x06proto3"
+	"\fHashPrevious\x12\x1d.audit.v1.HashPreviousRequest\x1a\x1e.audit.v1.HashPreviousResponseB\x9c\x01\n" +
+	"\fcom.audit.v1B\fSealingProtoP\x01Z=github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1;auditv1\xa2\x02\x03AXX\xaa\x02\bAudit.V1\xca\x02\bAudit\\V1\xe2\x02\x14Audit\\V1\\GPBMetadata\xea\x02\tAudit::V1b\x06proto3"
 
 var (
 	file_audit_v1_sealing_proto_rawDescOnce sync.Once

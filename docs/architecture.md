@@ -30,8 +30,8 @@ saturation de l'audit ne dégrade pas l'accès ; une interruption de l'audit dé
 | `policy-engine` | Rust | PDP. Évalue une requête contre les politiques, rend une décision motivée. Sans état, déterministe, rejouable hors ligne. **Aucun appel réseau pendant l'évaluation.** |
 | `access-broker` | Go | Parcours JIT : motif, ticket ITSM, approbation, appel PDP, déclenchement d'émission, expiration, révocation. |
 | `credential-issuer` | Go | Interface unique vers OpenBao, la PKI et le HSM. **Seul composant autorisé à dialoguer avec le HSM.** |
-| `audit-collector` | Go | Réception, horodatage, chaînage séquentiel (`prev_hash`, ancrage périodique — ADR-031), signature, exposition d'un journal vérifiable, export SIEM. |
-| `admin-api` | Go | Administration des politiques, identités, approbations. Quorum sur les opérations critiques. |
+| `audit-collector` | Go | Réception, horodatage, chaînage séquentiel (`prev_hash`), signature, exposition d'un journal vérifiable. Les événements sont destinés à un SIEM **externe** (OpenTelemetry, JSON) : ce dépôt n'implémente pas de SIEM. L'ancrage périodique (ADR-031) est décidé mais **non implémenté**. |
+| `admin-api` | Go | **OPTIONAL** — quorum sur les opérations critiques (gouvernance). Hors chaîne Core : l'approbation du parcours JIT passe par le champ `approvals` d'`access-broker`. |
 | `console-web` | TypeScript | Interface. **Aucune logique de sécurité côté client.** |
 
 ## Flux nominal (parcours JIT)
@@ -95,8 +95,26 @@ Ces six scénarios sont implémentés comme tests exécutables dans `tests/adver
 6. **Compromission de l'IdP** → **limite structurelle assumée du modèle.** Traitée par HSM,
    distribution de l'autorité et détection dédiée, jamais présentée comme résolue.
 
+## Périmètre — ce qui est implémenté, ce qui ne l'est pas
+
+| Niveau | Éléments |
+|---|---|
+| **CORE** | `identity-provider`, `policy-engine`, `access-broker`, `credential-issuer`, `audit-collector`, `audit-sealer`, `console-web`, crates `zs-*`, politiques Cedar de `policies/access/` |
+| **OPTIONAL** | `admin-api` (quorum de gouvernance), `policies/detection/` (Sigma, pour un SIEM externe) |
+| **EXPERIMENTAL** | `extensions/policy-platform/` (Rego/OPA, conformité d'infrastructure, hors chemin critique) |
+| **FUTURE / RESEARCH** | SPIFFE/SPIRE, cryptographie post-quantique (ML-KEM, ML-DSA, hybridation), `zs-replay` (ADR-034), ancrage périodique (ADR-031) — **aucune implémentation dans le dépôt** |
+
+Un lecteur pressé retiendra ceci : le MVP tourne avec WebAuthn, Cedar, OpenBao, PostgreSQL et un
+HSM PKCS#11. Tout le reste de l'écosystème cité dans les ADR est soit optionnel, soit à l'état de
+décision documentée.
+
 ## Limites assumées
 
+- **Aucun mTLS entre composants.** SPIFFE/SPIRE est la cible retenue (ADR-001) mais n'est pas
+  implémenté : les appels gRPC internes sont en clair, `audit-sealer` se protégeant par un socket
+  Unix plutôt que par un port réseau. Limite signalée dans chaque modèle de menaces.
+- **Aucune cryptographie post-quantique.** Les suites sont versionnées et leur successeur déclaré
+  dans le CBOM ; le code repose sur ECDSA P-256.
 - La compromission de l'IdP reste un risque critique résiduel.
 - La reprise après sinistre n'est pas prête tant que l'exercice de destruction/reconstruction
   n'a pas été réalisé et chronométré (lot L6). Avant cela, aucun accès critique ne transite ici.

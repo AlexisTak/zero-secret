@@ -81,9 +81,9 @@ silence.
 | `policy-engine` | Rust | PDP (*Policy Decision Point*). Évalue une requête contre les politiques Cedar, rend une décision motivée. Sans état, déterministe, **rejouable hors ligne** — aucun appel réseau pendant l'évaluation. |
 | `access-broker` | Go | Orchestre le parcours JIT : motif, ticket, approbation, appel au PDP, déclenchement d'émission, expiration, révocation. |
 | `credential-issuer` | Go | Seul composant autorisé à dialoguer avec OpenBao, la PKI et le HSM. |
-| `audit-collector` | Go | Réception des événements, horodatage, chaînage séquentiel (`prev_hash`), exposition d'un journal vérifiable, export SIEM. |
+| `audit-collector` | Go | Réception des événements, horodatage, chaînage séquentiel (`prev_hash`), exposition d'un journal vérifiable. Les événements sont destinés à un SIEM **externe** (OpenTelemetry, JSON) — ce dépôt n'implémente pas de SIEM. |
 | `audit-sealer` | Rust | Pont de scellement cryptographique pour `audit-collector` (Go) — toute la crypto du dépôt passe par des crates Rust auditées ; ce composant sert cette frontière sur socket Unix, jamais un port réseau ouvert. |
-| `admin-api` | Go | Administration des politiques, des identités, des approbations. Quorum sur les opérations critiques. |
+| `admin-api` | Go | **OPTIONAL** — quorum sur les opérations critiques (gouvernance). Hors chaîne Core : l'approbation du parcours JIT passe par le champ `approvals` d'`access-broker`, pas par ce composant. |
 | `console-web` | TypeScript | Interface, rendu serveur. Aucune logique de sécurité côté client. |
 
 Aucun composant de `apps/` ne dépend d'un autre : le partage passe uniquement par `crates/`
@@ -111,28 +111,74 @@ Détail complet (données, objectifs de service, scénarios d'attaque tenus, lim
 
 ---
 
+## Périmètre
+
+Toutes les technologies citées dans ce dépôt ne sont pas requises pour faire tourner
+biscuits-shield. Quatre niveaux, explicites :
+
+| Niveau | Signification |
+|---|---|
+| **CORE** | Nécessaire pour démontrer et garantir le modèle zero-secret. Implémenté, testé, dans le chemin critique. |
+| **OPTIONAL** | Implémenté et testé, mais retirable sans casser une garantie du Core. |
+| **EXPERIMENTAL** | Hors chemin critique. Son échec ne compromet aucune propriété de sécurité du Core. |
+| **FUTURE / RESEARCH** | Décidé et documenté, **non implémenté à ce jour**. Aucune ligne de code correspondante dans le dépôt. |
+
+**CORE** — `identity-provider`, `policy-engine`, `access-broker`, `credential-issuer`,
+`audit-collector`, `audit-sealer`, `console-web`, les crates `zs-*`, les politiques d'accès Cedar
+de `policies/access/`, les contrats de `contracts/`.
+
+**OPTIONAL** — `admin-api` (quorum de gouvernance), `policies/detection/` (règles Sigma).
+
+**EXPERIMENTAL** — `extensions/policy-platform/` (conformité d'infrastructure en Rego/OPA, aucun
+composant applicatif ne l'évalue).
+
+**FUTURE / RESEARCH** — SPIFFE/SPIRE, cryptographie post-quantique, rejeu hors ligne
+(`zs-replay`), ancrage périodique du journal. Décisions prises et documentées en ADR ; **rien de
+tout cela n'est implémenté aujourd'hui**.
+
+---
+
 ## Pile technique
+
+### Requis (CORE)
 
 | Domaine | Techno | Où |
 |---|---|---|
 | Composants critiques | Rust (édition 2024) | `apps/identity-provider`, `apps/policy-engine`, `apps/audit-sealer`, `crates/` |
-| Orchestration, API | Go 1.25 | `apps/access-broker`, `apps/credential-issuer`, `apps/audit-collector`, `apps/admin-api`, `pkg/` |
+| Orchestration, API | Go 1.25 | `apps/access-broker`, `apps/credential-issuer`, `apps/audit-collector`, `pkg/` |
 | Interface | TypeScript, rendu serveur | `apps/console-web` — aucune logique de sécurité côté client |
+| Authentification | WebAuthn / FIDO2 | `crates/zs-webauthn`, `apps/identity-provider` |
+| Autorisation | **Cedar** | `policies/access/`, évalué par `apps/policy-engine` via `crates/zs-policy` |
 | Secrets dynamiques | OpenBao (MPL-2.0) | via `apps/credential-issuer` uniquement |
-| Identité machine | SPIFFE / SPIRE | SVID X.509 courts, mTLS entre composants |
-| Politiques | Cedar (accès) + Rego/OPA (conformité plateforme) | `policies/` |
 | Persistance | PostgreSQL 17+ | 4 schémas cloisonnés : `identity`, `authz`, `issuance`, `audit` |
 | HSM | PKCS#11 (SoftHSM2 en dev) | `crates/zs-hsm` uniquement |
-| Observabilité | OpenTelemetry, Prometheus | via `pkg/zstelemetry` |
+| Observabilité | OpenTelemetry | via `pkg/zstelemetry` |
+
+### Non requis
+
+| Techno | Niveau | Précision |
+|---|---|---|
+| Rego / OPA | EXPERIMENTAL | Conformité d'infrastructure uniquement (`extensions/policy-platform/`). **Ne participe à aucune décision d'accès** et ne remplace jamais Cedar. |
+| Règles Sigma | OPTIONAL | Contenu de détection destiné à un SIEM **externe** (`policies/detection/`). Ce dépôt n'implémente pas de SIEM. |
+| SPIFFE / SPIRE | FUTURE | Cible retenue pour l'identité machine et le mTLS entre composants ([ADR-001](docs/adr/ADR-001-langages-et-frontieres.md)). **Aucune implémentation dans le dépôt** : les communications internes sont aujourd'hui en clair, limite signalée dans chaque modèle de menaces. |
+| ML-KEM, ML-DSA | RESEARCH | Voir la trajectoire post-quantique ci-dessous. |
 
 **Aucune primitive cryptographique n'est écrite dans ce dépôt.** Tout passe par
 [`crates/zs-crypto`](crates/zs-crypto), façade unique vers des bibliothèques auditées
 (`aws-lc-rs`). Un détecteur statique (`no-direct-crypto`) bloque toute autre voie en CI.
 
-**Trajectoire post-quantique** : chaque suite cryptographique est versionnée et déclarée dans
-[`security/crypto-inventory/suites.toml`](security/crypto-inventory/suites.toml), avec sa cible
-d'hybridation (`ECDSA P-256 + ML-DSA-65`, `X25519 + ML-KEM-768`) — voir
-[ADR-030 à ADR-032](docs/adr/README.md).
+**Trajectoire post-quantique — préparation, pas implémentation.** Ce dépôt ne contient
+**aucune** implémentation post-quantique : ni ML-KEM, ni ML-DSA, ni suite hybride, ni dépendance
+correspondante. Les signatures reposent aujourd'hui sur ECDSA P-256.
+
+Ce qui existe est la préparation de la migration : chaque suite est versionnée et déclarée dans
+[`security/crypto-inventory/suites.toml`](security/crypto-inventory/suites.toml) avec son champ
+`anssi_2027_compliant`, son successeur prévu et l'ADR qui la justifie. Les cibles d'hybridation
+(`ECDSA P-256 + ML-DSA-65`, `X25519 + ML-KEM-768`) sont des **décisions d'architecture au statut
+proposé** ([ADR-030 à ADR-032](docs/adr/README.md)), pas du code.
+
+Ne présentez pas ce projet comme « PQC-ready » : il est *PQC-instruit*, ce qui n'est pas la même
+chose.
 
 ---
 
@@ -143,8 +189,9 @@ apps/          binaires déployables — 1 dossier = 1 artefact, pas de dépenda
 crates/        bibliothèques Rust internes (zs-crypto, zs-webauthn, zs-policy, zs-audit, zs-hsm, …)
 pkg/           bibliothèques Go internes
 contracts/     OpenAPI 3.1, protobuf, JSON Schema d'événements, schéma Cedar — SOURCE DE VÉRITÉ
-policies/      Cedar (accès), Rego (conformité plateforme), règles Sigma — avec leurs tests
-deploy/        OpenTofu, Ansible, quadlets Podman (environnement de dev aujourd'hui)
+policies/      Cedar (accès, CORE) et règles Sigma (détection, OPTIONAL) — avec leurs tests
+extensions/    hors Core — policy-platform (Rego/OPA, conformité d'infrastructure)
+deploy/        compose Podman de développement, migrations SQL, configuration OTel
 security/      modèles de menaces STRIDE, SBOM, CBOM, inventaire cryptographique
 tests/         e2e, conformance, scénarios adverses
 docs/adr/      décisions d'architecture actées — [index](docs/adr/README.md)

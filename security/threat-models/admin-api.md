@@ -63,6 +63,80 @@ en premier, étant la surface d'administration des identités.
 | Modification de politique sans revue | `tests/adversarial/` — chemin de modification à chaud testé contre le contournement de CI | Non écrit, dépend de la clarification de l'angle mort ci-dessus |
 | Révocation retardée par saturation | `tests/adversarial/` — délai de révocation sous charge | Non écrit |
 | Rôle d'administration limité élevant ses droits | `tests/adversarial/` — tentative de modification de politique par un rôle « identités seulement » | Non écrit |
+| Quorum déclenché par un appelant anonyme (ADR-021) | `apps/admin-api/internal/httpapi/security_authorization_test.go` — en-tête absent, assertion invalide, AAL2, AAL absent, vérificateur indisponible | Écrit, passe — corrigé par ADR-035 |
+| Quorum atteint sans habilitation de l'appelant | même fichier — un appelant AAL3 authentifié initie une opération sans lien démontré | Écrit, constat non bloquant — angle mort des rôles |
+| Absence de limitation de débit | `apps/admin-api/internal/httpapi/security_rate_limit_test.go` — rafale de 200 requêtes | Écrit, constat non bloquant |
+| Entrées malformées provoquant une fuite ou un 5xx | `apps/admin-api/internal/httpapi/security_api_test.go` — matrice de 11 cas | Écrit, passe |
+| Panique du décodeur sur entrée arbitraire | `apps/admin-api/internal/httpapi/fuzz_test.go` — `make security-fuzz` | Écrit, passe |
+
+## Menaces introduites par l'authentification de l'appelant (ADR-035)
+
+Ce contrôle ferme le déclenchement anonyme mais crée sa propre surface, revue et traitée :
+
+| Catégorie STRIDE | Menace | Traitement |
+|---|---|---|
+| Élévation de privilège | Un porteur se déclare aussi initiateur : le quorum de 2 est atteint avec un seul approbateur réellement indépendant de lui | `excludeInitiator` retire le sujet de l'initiateur des porteurs comptés avant réévaluation du seuil — `TestSecurityInitiateurNestJamaisComptePorteur` |
+| Répudiation | L'événement de l'initiateur est indiscernable de celui d'un porteur : l'auditeur compte un approbateur de trop, ou la déduplication efface la trace de déclenchement | `actor.aal` et `actor.auth_method` renseignés sur le seul événement d'initiateur, tous deux refusés vides (502) — `TestSecurityEvenementInitiateurEstDistinguableDesPorteurs` |
+| Répudiation | L'exclusion de l'initiateur efface du journal le fait qu'il avait aussi soumis une assertion de porteur : une campagne d'auto-approbation devient indétectable a posteriori | `context.justification` de l'événement d'initiateur porte le fait (champ existant du contrat, schéma inchangé) — `TestSecurityExclusionDeLinitiateurEstAuditee` |
+| Déni de service | Corps décodé avant authentification (le seuil et le domaine en dépendent) : allocation non bornée par un anonyme, et amplification d'une requête en N appels gRPC sortants | `http.MaxBytesReader` 512 Kio, 64 assertions au plus, budget d'évaluation de 25 s dont 5 s pour l'appelant, **plafond agrégé de 15 s sur la phase d'audit** (en plus des 5 s par événement) et timeouts sur `http.Server` — `TestSecurityPorteursLentsSontBornes`, `TestSecurityPhaseDauditEstBorneeGlobalement` |
+| Déni de service | Le budget d'audit *par événement*, seul, rendait la durée de la requête proportionnelle au nombre de porteurs : (64+1) × 5 s sur un collecteur muet, sur un serveur sans aucun timeout | Plafond agrégé sur la phase d'audit, initiateur émis en premier pour que la trace la plus précieuse précède la coupe ; `ReadHeaderTimeout`/`ReadTimeout`/`WriteTimeout`/`IdleTimeout` posés sur `http.Server` |
+| Répudiation | Un appelant qui consomme le budget de traitement supprime les N+1 événements d'audit d'une opération pourtant **réussie** : le levier est entre ses mains, il choisit le nombre d'assertions donc la latence cumulée | Budget d'audit détaché par `context.WithoutCancel` — `TestSecurityAuditNestJamaisSupprimeParLeBudgetDevaluation` |
+| Répudiation | Même levier, un cran plus bas : un budget d'audit unique partagé entre les N+1 envois séquentiels redevient fonction du nombre de porteurs, et les derniers événements du lot sont perdus | Budget **par événement** (`delaiAudit` remis à zéro à chaque envoi) et initiateur audité **en premier**, son événement portant seul l'identité du déclencheur — `TestSecurityBudgetDauditEstParEvenement`, `TestSecurityInitiateurEstAuditeEnPremier`. **Atténué, non fermé** : le plafond agrégé peut encore priver de trace les derniers porteurs (voir `SEC-ADMIN-API-AUDIT-001`) |
+| Divulgation | Toute panique du module quorum était convertie en `400 seuil_de_quorum_invalide` sans aucune trace serveur : oracle silencieux, distinguable au seul code de statut, pour itérer un fuzzing en production | Plancher vérifié explicitement avant appel ; toute panique résiduelle est journalisée avec sa valeur et refusée en `500 defaut_interne` — `TestSecuritySeuilSousLePlancherEstRefuse`, `TestSecurityPaniqueInterneEstUnDefautInterne` |
+| Divulgation | La réponse recopiait `err.Error()` du module quorum : adresse d'identity-provider, code gRPC et état de santé fuitaient vers un appelant authentifié | Erreurs typées : seuil invalide → 400 générique, toute autre cause → `502 verification_des_porteurs_indisponible` |
+| Usurpation | L'appelant choisit le domaine d'autorité contre lequel il est vérifié : contrôle tautologique dès qu'un identity-provider accepte plus d'un domaine | Domaine épinglé par `ZS_ADMIN_API_EXPECTED_AUTHORITY_DOMAIN`, **obligatoire au démarrage** (pas de valeur par défaut), refus 400 si le corps en propose un autre |
+| Divulgation | Les contrôles de domaine et de plafond, placés avant l'authentification, laissaient un anonyme énumérer la configuration par réponse différentielle | Déplacés après `verifyCaller` ; seul `MaxBytesReader`, qui ne renvoie aucune information, protège le chemin anonyme |
+
+Le décodeur base64 du binding généré n'est pas strict (il cascade sur quatre alphabets et ne
+vérifie pas les bits de bourrage) : la canonicité de l'en-tête est donc revalidée dans
+`verifyCaller` par ré-encodage et comparaison — `TestSecurityEncodageNonCanoniqueDeLassertionEstRefuse`.
+Sans cela, une même assertion admettrait plusieurs chaînes d'en-tête, et tout mécanisme
+indexant sur cette chaîne verrait plusieurs clés pour une seule identité.
+
+Menace résiduelle assumée : un refus d'appelant ne produit aucun événement d'audit — une campagne
+de sondage de l'endpoint reste invisible au journal. Auditer un refus supposerait d'attribuer un
+événement à une identité non établie, ce que le projet refuse ailleurs (ADR-027).
+
+## Risques acceptés
+
+| Identifiant | Description | Depuis | Réexamen | Suivi |
+|---|---|---|---|---|
+| `SEC-ADMIN-API-AUTHZ-001` | L'appelant est authentifié depuis ADR-035 (assertion AAL3 vérifiée avant toute évaluation du quorum), mais son **habilitation** n'est pas vérifiée : un porteur AAL3 légitime peut initier une opération critique qui ne le concerne pas. Sévérité ramenée de HIGH à MEDIUM. OWASP API1:2023, CWE-862. | 2026-08-29 | 2026-11-29 | Verrou de non-régression vert en CI (`TestSecurityQuorumExigeUnAppelantAuthentifie`) ; la levée complète suppose de trancher la granularité des rôles d'administration |
+| `SEC-ADMIN-API-AUDIT-001` | Le plafond agrégé de 15 s sur la phase d'audit peut priver d'événement les derniers porteurs d'un lot : avec ~60 porteurs et un collecteur simplement lent (~250 ms/événement, sans intervention d'un attaquant), les porteurs restants n'ont pas de trace et la réponse reste `200`. L'initiateur, émis en premier, est protégé par l'ordre. Sévérité MEDIUM. | 2026-08-29 | 2026-11-29 | Arbitrage assumé entre répudiation et déni de service : sans plafond, la durée de requête devenait proportionnelle au nombre de porteurs choisi par l'appelant. Le dépassement produit une ligne de journal explicite indiquant le nombre d'événements abandonnés — il n'est jamais silencieux |
+| `SEC-ADMIN-API-RATE-001` | Aucune limitation de débit sur l'entrée HTTP non authentifiée. Sévérité MEDIUM, OWASP API4:2023, CWE-770. | 2026-08-29 | 2026-11-29 | Constat non bloquant journalisé à chaque exécution de la suite |
+
+Ces deux entrées sont produites et vérifiées automatiquement : elles ne peuvent pas se périmer en
+silence, contrairement à un commentaire dans le code. Retirer une ligne de ce tableau sans corriger
+le composant fait apparaître un finding bloquant hors baseline dans le rapport agrégé.
+
+## Intégrité de la chaîne de vérification
+
+La suite de tests de sécurité (`tests/security/`, `make security-quick`) est elle-même un actif :
+la confiance accordée aux autres contrôles dépend de sa fiabilité. Hypothèses explicites, chacune
+adossée à un mécanisme :
+
+- **Fail-closed.** Un test en échec fait échouer la cible même s'il ne produit aucun rapport — les
+  codes de sortie de chaque étape sont conservés puis rejoués (`Makefile`, cible `security-quick`).
+  Une chaîne qui avale les échecs pour produire un rapport est pire que pas de chaîne.
+- **Décision portée par les données, pas par la mise en forme.** C'est l'agrégateur qui sort en
+  code 1 lorsqu'un finding `blocking=true` subsiste, après désérialisation du champ — jamais un
+  motif textuel sur le JSON, qu'un changement d'indentation neutraliserait en silence.
+- **Pas de cache.** `-count=1` garantit que les tests sont réellement réexécutés : un résultat
+  servi depuis le cache de `go test` n'écrit aucun rapport, et le dossier vide serait interprété
+  comme « aucun finding ».
+- **Écriture vérifiable.** Le dossier de rapport est résolu en remontant jusqu'à `go.work` ; une
+  racine introuvable fait échouer le test au lieu d'écrire hors du dépôt.
+- **Actions CI épinglées par SHA.** Les neuf références des trois workflows sont épinglées au
+  condensat de commit ; un tag repointé ne peut plus modifier ce qui s'exécute. Le jeton par
+  défaut est réduit à `contents: read` au niveau de `ci.yml` et `contracts.yml`.
+- **Contrôle infra parsé, pas grepé.** `check_compose_dev.py` charge le YAML et refuse
+  explicitement si PyYAML est absent — un motif textuel ne couvre pas les formes équivalentes
+  (`- 5432:5432`, syntaxe longue, `network_mode: host`).
+
+Menace résiduelle non couverte : rien n'empêche techniquement un contributeur de neutraliser un
+test (`t.Skip`, passage de `Blocking` à `false`, retrait du job CI). Seule la revue de code le
+détecte — d'où la présence des identifiants ci-dessus dans le tableau des risques acceptés, qui
+rend une neutralisation visible dans le diff.
 
 ## Hypothèses de sécurité
 

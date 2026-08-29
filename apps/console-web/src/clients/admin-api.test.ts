@@ -16,20 +16,31 @@ test("requestQuorum encode les assertions en base64 standard et lit le résultat
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
-    received = { url: req.url, body: JSON.parse(Buffer.concat(chunks).toString("utf-8")) };
+    received = {
+      url: req.url,
+      assertionAppelant: req.headers["x-identity-assertion"],
+      body: JSON.parse(Buffer.concat(chunks).toString("utf-8")),
+    };
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ reached: true, distinct_subjects: ["subject-1", "subject-2"] }));
   });
   const base = await listenEphemeral(server);
   const client = new HttpAdminApiClient(base);
 
-  const result = await client.requestQuorum({
+  const result = await client.requestQuorum(new Uint8Array([9, 9, 9]), {
     operationId: "op-1",
     assertions: [new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6])],
     threshold: 2,
     expectedAuthorityDomain: "admin-api",
   });
 
+  // ADR-035 : sans cet en-tete, admin-api refuse en 401 et le parcours quorum de la console est
+  // mort. Le client doit le poser systematiquement, encode en base64 comme pour access-broker.
+  assert.equal(
+    (received as { assertionAppelant?: string }).assertionAppelant,
+    Buffer.from([9, 9, 9]).toString("base64"),
+    "l'assertion de l'appelant doit etre transmise en en-tete X-Identity-Assertion",
+  );
   assert.equal(result.reached, true);
   assert.deepEqual(result.distinctSubjects, ["subject-1", "subject-2"]);
 
@@ -54,7 +65,7 @@ test("requestQuorum échoue avec AdminApiError sur un refus (seuil sous plancher
   const client = new HttpAdminApiClient(base);
 
   await assert.rejects(
-    client.requestQuorum({
+    client.requestQuorum(new Uint8Array([9, 9, 9]), {
       operationId: "op-1",
       assertions: [new Uint8Array([1])],
       threshold: 1,
@@ -81,7 +92,7 @@ test("requestQuorum encode l'operation_id dans l'URL", async () => {
   const base = await listenEphemeral(server);
   const client = new HttpAdminApiClient(base);
 
-  await client.requestQuorum({
+  await client.requestQuorum(new Uint8Array([9, 9, 9]), {
     operationId: "op with spaces/slash",
     assertions: [new Uint8Array([1])],
     threshold: 2,

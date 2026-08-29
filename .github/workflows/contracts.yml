@@ -14,15 +14,20 @@ on:
       - "contracts/**"
       - "pkg/gen/**"
 
+# Ce workflow ne fait que verifier les contrats (buf lint, buf breaking, regeneration) :
+# aucune ecriture sur le depot n'est necessaire. Jeton reduit a la lecture.
+permissions:
+  contents: read
+
 jobs:
   buf:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # buf breaking compare contre main : historique complet requis
 
-      - uses: bufbuild/buf-setup-action@v1
+      - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1
 
       - name: buf lint
         run: buf lint
@@ -37,7 +42,7 @@ jobs:
         run: buf breaking --against '../.git#branch=main,subdir=contracts'
         working-directory: contracts
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25"
 

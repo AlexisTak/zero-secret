@@ -5,11 +5,15 @@ politique. Voir [policies/CLAUDE.md](CLAUDE.md) pour les règles locales (priori
 
 ```
 policies/
-  access/     Cedar — décisions d'accès (policy-engine)
-  platform/   Rego/OPA — conformité plateforme, CI, admission
-  detection/  Sigma — règles de détection SIEM livrées avec le produit
-  tests/      cas nominaux et cas d'attaque pour access/ et platform/
+  access/     CORE      Cedar — décisions d'accès (policy-engine), chemin critique
+  detection/  OPTIONAL  Sigma — contenu de détection pour un SIEM EXTERNE
+  tests/      cas nominaux et cas d'attaque de access/
 ```
+
+La conformité plateforme (Rego/OPA) a quitté ce dossier : elle vit dans
+[`extensions/policy-platform/`](../extensions/policy-platform/), au statut EXPERIMENTAL. Aucun
+composant de `apps/` ni de `crates/` ne l'évalue, et son retrait ne changerait rien au
+comportement du MVP. **Cedar reste le seul moteur d'autorisation.**
 
 Vérification du corpus Cedar : `bash tools/cedar-test.sh` (appelé par `make test`) — validation
 stricte contre `contracts/cedar/schema.cedarschema.json` puis exécution des cas de

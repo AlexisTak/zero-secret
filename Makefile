@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
-.PHONY: help setup generate check test test-crypto test-e2e fuzz audit sbom up down replay clean
+.PHONY: help setup generate check test test-extensions test-crypto test-e2e fuzz audit security-quick security-full security-fuzz sbom up down replay clean
 
 # go.work regroupe plusieurs modules sous des sous-dossiers indépendants (pas de module à la
 # racine) : le pattern ./... ne fonctionne pas depuis la racine du workspace. On itère sur les
@@ -49,19 +49,24 @@ check: ## fmt + lint + tests d'architecture (rapide)
 test-arch: ## Règles de dépendance, interdiction crypto directe, fichiers générés à jour
 	@bash tools/check-arch.sh
 
-test: ## Unitaires + propriété + politiques
+test: ## Unitaires + propriété + politiques d'accès (Core MVP)
 	cargo nextest run --all-features
 	$(call go-each,go test ./... -race)
 	# `cedar test` n'existe pas : le CLI expose `validate` et `run-tests`, et n'accepte qu'un
 	# fichier de politiques (pas un dossier). tools/cedar-test.sh fait les deux (L2.1).
-	# `|| true` conservé tel quel : rendre l'étape bloquante suppose de provisionner le CLI
-	# Cedar dans .github/workflows/ci.yml — changement de CI, validation humaine explicite requise.
-	bash tools/cedar-test.sh || true
-	# Conformité plateforme (Rego/OPA) : policies/platform/ + policies/tests/platform/.
-	# Étape bloquante et sans garde conditionnelle — audit.md §5.2 est traité. Un `|| true` ici
-	# masquerait une régression de politique, ce qui est exactement le défaut signalé.
+	#
+	# BLOQUANT depuis la réduction de périmètre. Le `|| true` précédent laissait passer une
+	# régression du moteur d'autorisation du Core alors que la conformité d'infrastructure, elle,
+	# bloquait : la CI garantissait la politique optionnelle et pas la politique critique. Le CLI
+	# Cedar est désormais provisionné par le job build-test (.github/workflows/ci.yml).
+	bash tools/cedar-test.sh
+
+test-extensions: ## Conformité plateforme (Rego/OPA) — EXPERIMENTAL, hors Core MVP
+	# extensions/policy-platform/ n'est importé par aucun composant de apps/ ni crates/ : son
+	# échec ne compromet aucune garantie du MVP. Cible séparée pour que `make test` reste le
+	# périmètre Core, et job CI distinct.
 	# Le CLI OPA doit être présent : https://openpolicyagent.org/docs/latest/#running-opa
-	opa test policies/platform policies/tests -v
+	opa test extensions/policy-platform/policies extensions/policy-platform/tests -v
 
 test-crypto: ## Vecteurs Wycheproof, conformité WebAuthn, intégration PKCS#11 (H1, ADR-011)
 	# `--features conformance` retiré (audit.md §3.2) : aucun des deux crates ne déclare cette
@@ -81,6 +86,39 @@ audit: ## cargo-audit, cargo-deny, govulncheck, gitleaks
 	cargo deny check licenses bans sources advisories
 	$(call go-each,govulncheck ./...)
 	gitleaks detect --no-banner --redact
+
+security-quick: ## Tests de sécurité handler-level + fonctions pures — CI, rapide, pas d'infra requise
+# Chaque etape est executee meme si la precedente echoue, mais son code de sortie est CONSERVE et
+# rejoue a la fin : sans cela un test rouge qui ne produit aucun finding (la plupart signalent par
+# t.Fatal, pas par un rapport) laisserait la cible verte — chaine fail-open, contraire a la regle
+# absolue #2. La decision bloquante finale est portee par l agregateur (code de sortie 1 si un
+# finding blocking=true subsiste), jamais par un grep sur la mise en forme du JSON.
+# -count=1 desactive le cache de go test : un test servi depuis le cache ne reexecute pas
+# writeSecurityReport, et le rapport serait vide alors que les findings existent.
+	@rc=0; \
+	go list -m -f '{{.Dir}}' | while IFS= read -r d; do \
+		echo "-- $$d --"; \
+		(cd "$$d" && go test ./... -count=1 -race -run 'TestSecurity|FuzzSecurity') || exit 1; \
+	done || rc=1; \
+	cargo test -p identity-provider --lib security_ || rc=1; \
+	(cd apps/console-web && npm run build && node --test "dist/**/security.test.js") || rc=1; \
+	bash tests/security/infrastructure/check_compose_dev.sh || rc=1; \
+	(cd tests/security/report/aggregate && go run . ../output > ../output/report.md); agg=$$?; \
+	cat tests/security/report/output/report.md 2>/dev/null || true; \
+	[ $$agg -eq 0 ] || rc=1; \
+	exit $$rc
+
+security-full: ## Suite complète contre l'environnement local — make up requis (Postgres + SoftHSM2)
+	@echo "Phase 2 — nécessite make up, voir tests/security/README.md"
+	@exit 1
+
+security-fuzz: ## Fuzzing natif Go des décodeurs JSON, budget borné
+# Restreint aux modules portant reellement une cible Fuzz : go test -fuzz sort en erreur quand
+# aucune cible ne matche, ce qui rendait la cible inutilisable des le premier module sans fuzz.
+	@for d in apps/admin-api apps/access-broker; do \
+		echo "-- $$d --"; \
+		(cd "$$d" && go test ./internal/httpapi/... -fuzz=FuzzSecurity -fuzztime=60s) || exit 1; \
+	done
 
 sbom: ## SBOM CycloneDX + inventaire cryptographique (CBOM)
 	@bash tools/collect-sbom.sh

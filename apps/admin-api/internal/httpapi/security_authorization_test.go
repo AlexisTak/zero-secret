@@ -1,0 +1,959 @@
+package httpapi
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"google.golang.org/grpc"
+
+	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
+	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
+
+	"github.com/AlexisTak/biscuits-shield/apps/admin-api/internal/quorum"
+)
+
+// serveurQuorum monte un serveur avec la doublure identity fournie. Chaque test de ce fichier a
+// besoin d'une doublure differente (appelant valide, invalide, AAL insuffisant, indisponible) :
+// la construction est factorisee ici, jamais les reponses attendues.
+func serveurQuorum(t *testing.T, identity identityv1.AssertionVerificationServiceClient) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, &fakeAuditClient{}, domaineDeTest)))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// corpsQuorumValide produit un corps dont les deux porteurs sont distincts et verifiables — seule
+// l'authentification de l'appelant varie d'un test a l'autre.
+func corpsQuorumValide() []byte {
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions: [][]byte{
+			[]byte("assertion-porteur-a"),
+			[]byte("assertion-porteur-b"),
+		},
+		Threshold:               quorum.MinimumThreshold,
+		ExpectedAuthorityDomain: "identity-provider",
+	})
+	return body
+}
+
+// doublurePorteursValides accepte les deux porteurs, plus l'entree appelant fournie (nil pour un
+// appelant inconnu du verificateur, donc refuse).
+func doublurePorteursValides(appelant *identityv1.VerifyAssertionResponse) *fakeIdentityClient {
+	reponses := map[string]*identityv1.VerifyAssertionResponse{
+		"assertion-porteur-a": {Valid: true, SubjectId: "sub-porteur-1"},
+		"assertion-porteur-b": {Valid: true, SubjectId: "sub-porteur-2"},
+	}
+	if appelant != nil {
+		reponses[assertionAppelantValide] = appelant
+	}
+	return &fakeIdentityClient{responses: reponses}
+}
+
+// identityIndisponible simule une panne d'identity-provider : toute verification renvoie une
+// erreur de transport.
+type identityIndisponible struct {
+	identityv1.AssertionVerificationServiceClient
+}
+
+func (identityIndisponible) VerifyAssertion(ctx context.Context, in *identityv1.VerifyAssertionRequest, opts ...grpc.CallOption) (*identityv1.VerifyAssertionResponse, error) {
+	return nil, errors.New("identity-provider injoignable")
+}
+
+// TestSecurityQuorumExigeUnAppelantAuthentifie verrouille la correction d'ADR-021 (ADR-035) :
+// avant cette correction, deux assertions de porteurs valides suffisaient a atteindre le quorum
+// depuis un appelant anonyme — un attaquant qui obtenait deux assertions de porteurs, par rejeu ou
+// par hameconnage, declenchait n'importe quelle operation critique sans jamais s'authentifier.
+//
+// Ce test etait rouge par conception tant que le handler n'exigeait rien de l'appelant ; il est
+// desormais le verrou de non-regression de ce controle. Le finding SEC-ADMIN-API-AUTHZ-001 reste
+// journalise en non bloquant : l'habilitation (QUEL role a le droit d'initier QUELLE operation)
+// reste l'angle mort non tranche de security/threat-models/admin-api.md.
+func TestSecurityQuorumExigeUnAppelantAuthentifie(t *testing.T) {
+	cas := []struct {
+		nom           string
+		appelant      *identityv1.VerifyAssertionResponse
+		enTete        string
+		identity      identityv1.AssertionVerificationServiceClient
+		statutAttendu int
+		motifAttendu  string
+	}{
+		{
+			nom:           "en-tete absent",
+			appelant:      reponseAppelantValide(),
+			enTete:        "",
+			statutAttendu: http.StatusUnauthorized,
+			motifAttendu:  "assertion_de_lappelant_absente",
+		},
+		{
+			nom:           "assertion inconnue du verificateur",
+			appelant:      nil, // l'entree appelant n'existe pas dans la doublure
+			enTete:        assertionAppelantValide,
+			statutAttendu: http.StatusUnauthorized,
+			motifAttendu:  "assertion_de_lappelant_invalide",
+		},
+		{
+			nom:           "assertion explicitement invalide",
+			appelant:      &identityv1.VerifyAssertionResponse{Valid: false, Reason: "signature_invalide"},
+			enTete:        assertionAppelantValide,
+			statutAttendu: http.StatusUnauthorized,
+			motifAttendu:  "assertion_de_lappelant_invalide",
+		},
+		{
+			nom:           "niveau AAL2 insuffisant",
+			appelant:      &identityv1.VerifyAssertionResponse{Valid: true, SubjectId: "sub-initiateur", Aal: "AAL2"},
+			enTete:        assertionAppelantValide,
+			statutAttendu: http.StatusForbidden,
+			motifAttendu:  "niveau_dauthentification_insuffisant",
+		},
+		{
+			nom:           "niveau AAL absent traite comme insuffisant",
+			appelant:      &identityv1.VerifyAssertionResponse{Valid: true, SubjectId: "sub-initiateur"},
+			enTete:        assertionAppelantValide,
+			statutAttendu: http.StatusForbidden,
+			motifAttendu:  "niveau_dauthentification_insuffisant",
+		},
+	}
+
+	for _, c := range cas {
+		t.Run(c.nom, func(t *testing.T) {
+			srv := serveurQuorum(t, doublurePorteursValides(c.appelant))
+
+			resp, err := postQuorum(srv.URL+"/v1/critical-operations/rotation-cle-hsm-prod/quorum", c.enTete, corpsQuorumValide())
+			if err != nil {
+				t.Fatalf("erreur inattendue : %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != c.statutAttendu {
+				t.Fatalf("statut attendu %d, obtenu %d — le quorum ne doit jamais etre evalue pour un appelant refuse", c.statutAttendu, resp.StatusCode)
+			}
+
+			var erreur Error
+			if err := json.NewDecoder(resp.Body).Decode(&erreur); err != nil {
+				t.Fatalf("reponse d'erreur illisible : %v", err)
+			}
+			if erreur.Reason != c.motifAttendu {
+				t.Fatalf("motif attendu %q, obtenu %q", c.motifAttendu, erreur.Reason)
+			}
+		})
+	}
+}
+
+// TestSecurityQuorumRefuseSiVerificationAppelantIndisponible : refus par defaut (regle absolue
+// #2). Une panne d'identity-provider ne doit jamais degrader le controle en acces libre — 502,
+// jamais un quorum evalue sur un appelant non verifie.
+func TestSecurityQuorumRefuseSiVerificationAppelantIndisponible(t *testing.T) {
+	srv := serveurQuorum(t, identityIndisponible{})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/rotation-cle-hsm-prod/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("statut attendu 502 en cas d'indisponibilite du verificateur, obtenu %d", resp.StatusCode)
+	}
+}
+
+// TestSecurityQuorumAppelantAAL3EstAccepte confirme que le controle ne casse pas le parcours
+// nominal : un appelant AAL3 legitime obtient bien l'evaluation du quorum. Sans ce cas, les tests
+// ci-dessus seraient satisfaits par un handler qui refuse tout le monde.
+//
+// Journalise SEC-ADMIN-API-AUTHZ-001 en non bloquant : la vulnerabilite d'authentification est
+// fermee, l'habilitation reste ouverte.
+func TestSecurityQuorumAppelantAAL3EstAccepte(t *testing.T) {
+	srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/rotation-cle-hsm-prod/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("un appelant AAL3 legitime doit obtenir 200, obtenu %d", resp.StatusCode)
+	}
+
+	var result QuorumResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("reponse illisible : %v", err)
+	}
+	if !result.Reached {
+		t.Fatalf("quorum attendu atteint avec deux porteurs distincts, obtenu reached=false")
+	}
+	// L'initiateur ne doit jamais figurer parmi les porteurs comptes : sinon le quorum reel
+	// tomberait a un seul porteur independant.
+	for _, sujet := range result.DistinctSubjects {
+		if sujet == "sub-initiateur" {
+			t.Fatalf("le sujet de l'initiateur ne doit jamais etre compte dans le quorum : %v", result.DistinctSubjects)
+		}
+	}
+
+	writeSecurityReport(t, []securityFinding{{
+		ID:        "SEC-ADMIN-API-AUTHZ-001",
+		Category:  "authorization",
+		Severity:  "MEDIUM",
+		Component: "POST /v1/critical-operations/{id}/quorum",
+		Description: "L'appelant est desormais authentifie (assertion identity-assertion/v1, AAL3 " +
+			"exige) avant toute evaluation du quorum. Reste ouvert : aucune verification que cet " +
+			"appelant est HABILITE a declencher cette operation precise — la granularite des roles " +
+			"reste l'angle mort non tranche d'ADR-021.",
+		Payload:     "appelant AAL3 authentifie, sans lien demontre avec operation_id",
+		Expected:    "a terme, refus si l'appelant n'a pas le role requis pour cette operation",
+		Obtained:    "200 apres authentification de l'appelant — acces anonyme ferme, habilitation non verifiee",
+		Evidence:    "apps/admin-api/internal/httpapi/handler.go (verifyCaller, ADR-035)",
+		Remediation: "Trancher la granularite des roles d'administration, puis verifier l'habilitation de l'appelant sur operation_id",
+		OWASP:       []string{"API1:2023 Broken Object Level Authorization"},
+		CWE:         "CWE-862",
+		Blocking:    false,
+	}})
+}
+
+// serveurQuorumAvecAudit expose la doublure d'audit, pour les tests qui verifient le journal.
+func serveurQuorumAvecAudit(t *testing.T, identity identityv1.AssertionVerificationServiceClient) (*httptest.Server, *fakeAuditClient) {
+	t.Helper()
+	audit := &fakeAuditClient{}
+	srv := httptest.NewServer(NewHandler(New(quorum.New(identity), identity, audit, domaineDeTest)))
+	t.Cleanup(srv.Close)
+	return srv, audit
+}
+
+// TestSecurityInitiateurNestJamaisComptePorteur est le cas d'attaque du quorum auto-approuve :
+// Alice se declare initiatrice ET place sa propre assertion parmi les porteurs, avec celle de Bob.
+// Sans exclusion, DistinctSubjects = {Alice, Bob} atteint un seuil de 2 alors qu'un SEUL
+// approbateur est reellement independant de celle qui declenche — la lettre du plancher
+// MinimumThreshold serait respectee, son intention non.
+func TestSecurityInitiateurNestJamaisComptePorteur(t *testing.T) {
+	identity := &fakeIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
+		// Meme sujet pour l'en-tete et pour l'un des porteurs : Alice joue les deux roles.
+		assertionAppelantValide:   {Valid: true, SubjectId: "sub-alice", Aal: "AAL3", AuthMethod: "webauthn/device-bound"},
+		"assertion-porteur-alice": {Valid: true, SubjectId: "sub-alice"},
+		"assertion-porteur-b":     {Valid: true, SubjectId: "sub-porteur-2"},
+	}}
+	srv := serveurQuorum(t, identity)
+
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions: [][]byte{
+			[]byte("assertion-porteur-alice"),
+			[]byte("assertion-porteur-b"),
+		},
+		Threshold:               quorum.MinimumThreshold,
+		ExpectedAuthorityDomain: domaineDeTest,
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/rotation-cle-hsm-prod/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result QuorumResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("reponse illisible : %v", err)
+	}
+	if result.Reached {
+		t.Fatalf("quorum atteint avec un seul approbateur independant de l'initiatrice : %v", result.DistinctSubjects)
+	}
+	for _, sujet := range result.DistinctSubjects {
+		if sujet == "sub-alice" {
+			t.Fatalf("le sujet de l'initiatrice ne doit jamais figurer parmi les porteurs comptes : %v", result.DistinctSubjects)
+		}
+	}
+}
+
+// TestSecurityAssertionAppelantNonBase64EstRefusee : l'en-tete est declare base64 au contrat, comme
+// les assertions du corps. Un decodage a repli (base64 sinon brut) ferait exister deux
+// representations de la meme entree — confusion de requete, et journalisation contournable.
+func TestSecurityAssertionAppelantNonBase64EstRefusee(t *testing.T) {
+	identity := doublurePorteursValides(reponseAppelantValide())
+	srv := serveurQuorum(t, identity)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/critical-operations/op-1/quorum", bytes.NewReader(corpsQuorumValide()))
+	if err != nil {
+		t.Fatalf("construction requete : %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Octets bruts, non encodes : exactement ce que la version precedente transmettait au
+	// verificateur, et ce qu'un client conforme au contrat n'envoie jamais.
+	req.Header.Set("X-Identity-Assertion", "assertion-en-clair-pas-base64!!")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("attendu 401 pour une assertion mal encodee, obtenu %d", resp.StatusCode)
+	}
+	var erreur Error
+	if err := json.NewDecoder(resp.Body).Decode(&erreur); err != nil {
+		t.Fatalf("reponse d'erreur illisible : %v", err)
+	}
+	if erreur.Reason != "assertion_de_lappelant_malformee" {
+		t.Fatalf("motif attendu assertion_de_lappelant_malformee, obtenu %q", erreur.Reason)
+	}
+}
+
+// TestSecurityDomaineDautoriteNestPasChoisiParLappelant : le domaine contre lequel les assertions
+// sont verifiees vient de la configuration. Le laisser choisir par le corps rendrait le controle
+// tautologique des qu'un identity-provider accepte plus d'un domaine.
+func TestSecurityDomaineDautoriteNestPasChoisiParLappelant(t *testing.T) {
+	srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
+
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions:              [][]byte{[]byte("assertion-porteur-a"), []byte("assertion-porteur-b")},
+		Threshold:               quorum.MinimumThreshold,
+		ExpectedAuthorityDomain: "domaine-choisi-par-lattaquant",
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("attendu 400 pour un domaine d'autorite non configure, obtenu %d", resp.StatusCode)
+	}
+}
+
+// TestSecurityNombreDassertionsEstBorne : chaque assertion declenche un appel gRPC sortant. Une
+// liste non bornee amplifierait une requete unique en autant d'appels vers identity-provider.
+func TestSecurityNombreDassertionsEstBorne(t *testing.T) {
+	srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
+
+	trop := make([][]byte, maxAssertions+1)
+	for i := range trop {
+		trop[i] = []byte("assertion-porteur-a")
+	}
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions:              trop,
+		Threshold:               quorum.MinimumThreshold,
+		ExpectedAuthorityDomain: domaineDeTest,
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("attendu 400 au-dela de %d assertions, obtenu %d", maxAssertions, resp.StatusCode)
+	}
+}
+
+// TestSecurityCorpsNonAuthentifieEstBorne : le corps est decode avant l'authentification (le
+// domaine attendu et le seuil en dependent), donc la borne doit s'appliquer a un anonyme.
+func TestSecurityCorpsNonAuthentifieEstBorne(t *testing.T) {
+	srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
+
+	enorme := make([]byte, maxOctetsCorps+1024)
+	for i := range enorme {
+		enorme[i] = 'a'
+	}
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions:              [][]byte{enorme},
+		Threshold:               quorum.MinimumThreshold,
+		ExpectedAuthorityDomain: domaineDeTest,
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("le serveur ne doit jamais planter sur un corps surdimensionne : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("attendu 400 pour un corps au-dela de %d octets, obtenu %d", maxOctetsCorps, resp.StatusCode)
+	}
+}
+
+// TestSecurityEvenementInitiateurEstDistinguableDesPorteurs : sans aal/auth_method sur l'acteur,
+// les N+1 evenements d'une meme operation sont identiques en forme, et un auditeur — ou zs-replay
+// (ADR-034) — compte un approbateur de trop.
+func TestSecurityEvenementInitiateurEstDistinguableDesPorteurs(t *testing.T) {
+	srv, audit := serveurQuorumAvecAudit(t, doublurePorteursValides(reponseAppelantValide()))
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	var initiateurs, porteurs int
+	for _, req := range audit.reqs {
+		if req.Actor == nil {
+			t.Fatalf("evenement sans acteur : %v", req)
+		}
+		if req.Actor.Aal != nil && req.Actor.AuthMethod != nil {
+			initiateurs++
+			if req.Actor.SubjectId != "sub-initiateur" {
+				t.Fatalf("l'evenement porteur aal/auth_method doit etre celui de l'initiateur, obtenu %s", req.Actor.SubjectId)
+			}
+			continue
+		}
+		porteurs++
+	}
+	if initiateurs != 1 {
+		t.Fatalf("attendu exactement 1 evenement d'initiateur distinguable, obtenu %d", initiateurs)
+	}
+	if porteurs != 2 {
+		t.Fatalf("attendu 2 evenements de porteurs, obtenu %d", porteurs)
+	}
+}
+
+// identityLent simule un verificateur qui accepte la connexion et ne repond jamais : il attend
+// l'expiration du contexte. C'est le cas que l'erreur de transport ne couvre pas — sans echeance,
+// le handler resterait bloque jusqu'a deconnexion du client, dont l'attaquant tient les deux bouts.
+type identityLent struct {
+	identityv1.AssertionVerificationServiceClient
+}
+
+func (identityLent) VerifyAssertion(ctx context.Context, in *identityv1.VerifyAssertionRequest, opts ...grpc.CallOption) (*identityv1.VerifyAssertionResponse, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// identityLentPourPorteurs repond immediatement pour l'assertion de l'APPELANT et bloque sur
+// toutes les autres : c'est le chemin qu'un budget pose sur le seul appelant laissait sans
+// echeance, et donc celui qu'il faut exercer.
+type identityLentPourPorteurs struct {
+	identityv1.AssertionVerificationServiceClient
+	appelant []byte
+}
+
+func (f identityLentPourPorteurs) VerifyAssertion(ctx context.Context, in *identityv1.VerifyAssertionRequest, opts ...grpc.CallOption) (*identityv1.VerifyAssertionResponse, error) {
+	if string(in.Assertion) == string(f.appelant) {
+		return reponseAppelantValide(), nil
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// TestSecurityPorteursLentsSontBornes exerce le chemin reellement corrige : appelant rapide,
+// porteurs muets. Avant la correction, seule la verification de l'appelant avait une echeance ;
+// les jusqu'a 64 verifications de porteurs, faites en serie, partaient avec un contexte nu et
+// immobilisaient un goroutine jusqu'a deconnexion du client.
+//
+// Le refus est un 502 generique : le message d'erreur du module quorum contient l'adresse
+// d'identity-provider et le code gRPC, il ne doit jamais atteindre le client.
+func TestSecurityPorteursLentsSontBornes(t *testing.T) {
+	identity := identityLentPourPorteurs{appelant: []byte(assertionAppelantValide)}
+	api := New(quorum.New(identity), identity, &fakeAuditClient{}, domaineDeTest)
+	api.delaiEvaluation = 200 * time.Millisecond
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	debut := time.Now()
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+	ecoule := time.Since(debut)
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("attendu 502 sur porteurs muets, obtenu %d", resp.StatusCode)
+	}
+	// Borne serree, rapportee au budget injecte : une borne de plusieurs secondes passerait avec
+	// un budget defaillant et ne prouverait rien.
+	if maximum := 10 * api.delaiEvaluation; ecoule > maximum {
+		t.Fatalf("le budget d'evaluation n'a pas borne la verification des porteurs : %s (maximum %s)", ecoule, maximum)
+	}
+
+	var erreur Error
+	if err := json.NewDecoder(resp.Body).Decode(&erreur); err != nil {
+		t.Fatalf("reponse d'erreur illisible : %v", err)
+	}
+	if erreur.Reason != "verification_des_porteurs_indisponible" {
+		t.Fatalf("motif attendu verification_des_porteurs_indisponible, obtenu %q", erreur.Reason)
+	}
+	if strings.Contains(erreur.Reason, "rpc error") || strings.Contains(erreur.Reason, "127.0.0.1") {
+		t.Fatalf("la reponse ne doit jamais recopier le message interne : %q", erreur.Reason)
+	}
+}
+
+// auditObservateurDeContexte capture l'etat du contexte au moment de chaque envoi : c'est la seule
+// facon de prouver que l'audit ne partage pas le budget de l'evaluation.
+type auditObservateurDeContexte struct {
+	auditv1.AuditCollectionServiceClient
+	erreursDeContexte []error
+	budgetsRestants   []time.Duration
+	sujets            []string
+	attente           time.Duration
+}
+
+func (f *auditObservateurDeContexte) Record(ctx context.Context, in *auditv1.RawEvent, opts ...grpc.CallOption) (*auditv1.RecordResult, error) {
+	// L'echeance est relevee AVANT toute attente simulee : mesurer apres reviendrait a compter le
+	// sommeil de la doublure dans le budget observe, et le test mesurerait son propre artefact.
+	echeance, ok := ctx.Deadline()
+	if !ok {
+		// Aucune echeance : l'audit partirait sans borne, ce que le test doit signaler.
+		f.budgetsRestants = append(f.budgetsRestants, -1)
+	} else {
+		f.budgetsRestants = append(f.budgetsRestants, time.Until(echeance))
+	}
+	if in.Actor != nil {
+		f.sujets = append(f.sujets, in.Actor.SubjectId)
+	}
+	// L'attente HONORE le contexte, comme le ferait un vrai appel gRPC : un time.Sleep nu
+	// ignorerait l'echeance et le test mesurerait la doublure au lieu de la borne testee.
+	if f.attente > 0 {
+		select {
+		case <-time.After(f.attente):
+		case <-ctx.Done():
+		}
+	}
+	f.erreursDeContexte = append(f.erreursDeContexte, ctx.Err())
+	return &auditv1.RecordResult{Accepted: true, EventId: "evt-test"}, nil
+}
+
+// identityLenteMaisSuffisante consomme presque tout le budget d'evaluation avant de repondre :
+// l'evaluation reussit de justesse, et c'est precisement l'instant ou un budget partage aurait
+// laisse partir les envois d'audit sur un contexte deja expire.
+type identityLenteMaisSuffisante struct {
+	identityv1.AssertionVerificationServiceClient
+	attente time.Duration
+	sujets  map[string]string
+}
+
+func (f identityLenteMaisSuffisante) VerifyAssertion(ctx context.Context, in *identityv1.VerifyAssertionRequest, opts ...grpc.CallOption) (*identityv1.VerifyAssertionResponse, error) {
+	time.Sleep(f.attente)
+	if string(in.Assertion) == assertionAppelantValide {
+		return reponseAppelantValide(), nil
+	}
+	if sujet, ok := f.sujets[string(in.Assertion)]; ok {
+		return &identityv1.VerifyAssertionResponse{Valid: true, SubjectId: sujet}, nil
+	}
+	return &identityv1.VerifyAssertionResponse{Valid: false, Reason: "inconnue"}, nil
+}
+
+// TestSecurityAuditNestJamaisSupprimeParLeBudgetDevaluation : une operation critique qui aboutit
+// doit TOUJOURS produire ses evenements (regle absolue #9). Avec un budget unique partage entre
+// evaluation et audit, l'appelant choisissait le nombre d'assertions — donc la latence cumulee —
+// et supprimait la trace d'une operation pourtant reussie.
+func TestSecurityAuditNestJamaisSupprimeParLeBudgetDevaluation(t *testing.T) {
+	identity := identityLenteMaisSuffisante{
+		attente: 60 * time.Millisecond,
+		sujets: map[string]string{
+			"assertion-porteur-a": "sub-porteur-1",
+			"assertion-porteur-b": "sub-porteur-2",
+		},
+	}
+	audit := &auditObservateurDeContexte{}
+	api := New(quorum.New(identity), identity, audit, domaineDeTest)
+	// Budget d'evaluation calibre pour etre presque entierement consomme par les trois
+	// verifications (appelant + deux porteurs) a 60 ms chacune.
+	api.delaiEvaluation = 200 * time.Millisecond
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("attendu 200, obtenu %d", resp.StatusCode)
+	}
+	if len(audit.erreursDeContexte) == 0 {
+		t.Fatal("une operation reussie doit produire des evenements d'audit, aucun n'a ete emis")
+	}
+	for i, err := range audit.erreursDeContexte {
+		if err != nil {
+			t.Fatalf("evenement %d emis avec un contexte deja expire (%v) : le budget d'audit doit etre detache de celui de l'evaluation", i, err)
+		}
+	}
+	// Assertion DISCRIMINANTE : c'est le budget restant, non l'absence d'expiration, qui distingue
+	// les deux conceptions. Avec un budget partage, l'evaluation ayant consomme l'essentiel des
+	// 200 ms, il resterait quelques millisecondes — non expire, donc indetectable par la seule
+	// verification ci-dessus. Avec des budgets separes, l'audit dispose de son propre delaiAudit.
+	minimumAttendu := api.delaiAudit / 2
+	for i, restant := range audit.budgetsRestants {
+		if restant < minimumAttendu {
+			t.Fatalf(
+				"evenement %d emis avec seulement %s de budget : l'audit herite du budget d'evaluation au lieu du sien (%s)",
+				i, restant, api.delaiAudit,
+			)
+		}
+	}
+}
+
+// TestSecurityReponseDeVerificateurIncompleteEstRefusee : le contrat declare subject_id et
+// auth_method presents seulement si valid = true. Une reponse valide mais incomplete est un
+// verificateur qui ne respecte pas son contrat, pas une identite — l'accepter produirait un
+// evenement d'audit sans acteur exploitable et une cle d'exclusion vide.
+func TestSecurityReponseDeVerificateurIncompleteEstRefusee(t *testing.T) {
+	cas := []struct {
+		nom      string
+		appelant *identityv1.VerifyAssertionResponse
+	}{
+		{"subject_id vide", &identityv1.VerifyAssertionResponse{Valid: true, Aal: "AAL3", AuthMethod: "webauthn/device-bound"}},
+		{"auth_method vide", &identityv1.VerifyAssertionResponse{Valid: true, Aal: "AAL3", SubjectId: "sub-initiateur"}},
+	}
+
+	for _, c := range cas {
+		t.Run(c.nom, func(t *testing.T) {
+			srv := serveurQuorum(t, doublurePorteursValides(c.appelant))
+
+			resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+			if err != nil {
+				t.Fatalf("erreur inattendue : %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusBadGateway {
+				t.Fatalf("attendu 502 pour une reponse de verificateur incomplete, obtenu %d", resp.StatusCode)
+			}
+		})
+	}
+}
+
+// TestSecurityExclusionDeLinitiateurEstAuditee : filtrer l'initiateur sans le journaliser
+// effacerait la tentative d'auto-approbation. Le resultat audite serait indiscernable d'une
+// requete ou l'initiateur n'aurait soumis aucune assertion de porteur, et une campagne
+// d'auto-approbation deviendrait indetectable a posteriori.
+func TestSecurityExclusionDeLinitiateurEstAuditee(t *testing.T) {
+	identity := &fakeIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
+		assertionAppelantValide:   {Valid: true, SubjectId: "sub-alice", Aal: "AAL3", AuthMethod: "webauthn/device-bound"},
+		"assertion-porteur-alice": {Valid: true, SubjectId: "sub-alice"},
+		"assertion-porteur-b":     {Valid: true, SubjectId: "sub-porteur-2"},
+	}}
+	srv, audit := serveurQuorumAvecAudit(t, identity)
+
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions:              [][]byte{[]byte("assertion-porteur-alice"), []byte("assertion-porteur-b")},
+		Threshold:               quorum.MinimumThreshold,
+		ExpectedAuthorityDomain: domaineDeTest,
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	var trace bool
+	for _, req := range audit.reqs {
+		if req.Context != nil && req.Context.Justification != nil && *req.Context.Justification != "" {
+			trace = true
+		}
+	}
+	if !trace {
+		t.Fatal("l'exclusion de l'assertion de porteur de l'initiateur doit laisser une trace au journal")
+	}
+}
+
+// TestSecurityRequeteNominaleNeJournalisePasDexclusion : verrou du test precedent. Sans lui, un
+// handler qui poserait la justification a chaque requete passerait aussi.
+func TestSecurityRequeteNominaleNeJournalisePasDexclusion(t *testing.T) {
+	srv, audit := serveurQuorumAvecAudit(t, doublurePorteursValides(reponseAppelantValide()))
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	for _, req := range audit.reqs {
+		if req.Context != nil && req.Context.Justification != nil {
+			t.Fatalf("aucune exclusion n'a eu lieu, le journal ne doit pas en signaler une : %q", *req.Context.Justification)
+		}
+	}
+}
+
+// TestSecurityEncodageNonCanoniqueDeLassertionEstRefuse : le decodeur du runtime genere n'est pas
+// strict — il choisit son alphabet selon la presence de padding et de caracteres URL-safe, sans
+// verifier les bits de bourrage. Une meme assertion admet donc plusieurs chaines d'en-tete
+// valides. Seule la representation canonique (RFC 4648 §4, avec padding) est acceptee : sinon un
+// mecanisme indexant sur la chaine — limitation de debit par assertion, cache, deduplication de
+// journal — verrait plusieurs cles pour une seule identite.
+func TestSecurityEncodageNonCanoniqueDeLassertionEstRefuse(t *testing.T) {
+	cas := map[string]string{
+		"sans padding (RawStdEncoding)": base64.RawStdEncoding.EncodeToString([]byte(assertionAppelantValide)),
+		"alphabet URL-safe":             base64.RawURLEncoding.EncodeToString([]byte(assertionAppelantValide)),
+	}
+
+	for nom, entete := range cas {
+		t.Run(nom, func(t *testing.T) {
+			srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
+
+			req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/critical-operations/op-1/quorum", bytes.NewReader(corpsQuorumValide()))
+			if err != nil {
+				t.Fatalf("construction requete : %v", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Identity-Assertion", entete)
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("erreur inattendue : %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("attendu 401 pour un encodage non canonique, obtenu %d", resp.StatusCode)
+			}
+		})
+	}
+}
+
+// TestSecurityInitiateurEstAuditeEnPremier : son evenement est le seul a porter QUI a declenche
+// l'operation, son niveau d'authentification et l'eventuelle exclusion. Place en fin de lot, il
+// etait la premiere victime d'un budget epuise — l'information la plus precieuse perdue en premier.
+func TestSecurityInitiateurEstAuditeEnPremier(t *testing.T) {
+	audit := &auditObservateurDeContexte{}
+	identity := doublurePorteursValides(reponseAppelantValide())
+	api := New(quorum.New(identity), identity, audit, domaineDeTest)
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if len(audit.sujets) == 0 {
+		t.Fatal("aucun evenement d'audit emis")
+	}
+	if audit.sujets[0] != "sub-initiateur" {
+		t.Fatalf("l'evenement de l'initiateur doit etre emis en premier, ordre obtenu : %v", audit.sujets)
+	}
+}
+
+// TestSecurityBudgetDauditEstParEvenement : partage entre les N+1 envois, le budget redevenait
+// fonction du nombre de porteurs — donc d'une quantite choisie par l'appelant, qui epuisait le lot
+// avant le dernier envoi. Chaque envoi doit disposer de son propre budget, quel que soit le temps
+// consomme par les precedents.
+func TestSecurityBudgetDauditEstParEvenement(t *testing.T) {
+	// Chaque envoi consomme plus que le budget d'un seul : avec un budget de lot, le deuxieme
+	// evenement partirait deja sur un contexte expire.
+	audit := &auditObservateurDeContexte{attente: 300 * time.Millisecond}
+	identity := doublurePorteursValides(reponseAppelantValide())
+	api := New(quorum.New(identity), identity, audit, domaineDeTest)
+	// Marge large devant la granularite du timer Windows (~15 ms) : le ratio porte le sens, pas
+	// les valeurs absolues. Un calibrage serre produirait des echecs intermittents en CI, qui
+	// finissent toujours par faire desactiver le test.
+	api.delaiAudit = 500 * time.Millisecond
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	// 1 initiateur + 2 porteurs, tous emis, aucun sur contexte expire.
+	if len(audit.erreursDeContexte) != 3 {
+		t.Fatalf("attendu 3 evenements (initiateur + 2 porteurs), obtenu %d", len(audit.erreursDeContexte))
+	}
+	for i, err := range audit.erreursDeContexte {
+		if err != nil {
+			t.Fatalf("evenement %d emis sur contexte expire (%v) : le budget d'audit est partage entre les envois", i, err)
+		}
+	}
+	for i, restant := range audit.budgetsRestants {
+		if restant < api.delaiAudit/3 {
+			t.Fatalf("evenement %d dispose de %s seulement : le budget n'est pas remis a zero par envoi", i, restant)
+		}
+	}
+}
+
+// TestSecurityAppelantMuetEstBorne retablit la couverture du chemin « appelant qui ne repond
+// jamais », retiree lors du remplacement du test de delai. Budget injecte, donc pas d'attente
+// reelle de plusieurs secondes.
+func TestSecurityAppelantMuetEstBorne(t *testing.T) {
+	identity := identityLent{}
+	api := New(quorum.New(identity), identity, &fakeAuditClient{}, domaineDeTest)
+	api.delaiVerification = 150 * time.Millisecond
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	debut := time.Now()
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+	ecoule := time.Since(debut)
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("attendu 502 sur appelant muet, obtenu %d", resp.StatusCode)
+	}
+	if maximum := 10 * api.delaiVerification; ecoule > maximum {
+		t.Fatalf("le budget de verification de l'appelant n'a pas borne l'appel : %s (maximum %s)", ecoule, maximum)
+	}
+}
+
+// TestSecuritySeuilSousLePlancherEstRefuse : le plancher est desormais verifie explicitement dans
+// le handler, AVANT l'appel au module — le refus ne transite plus par le rattrapage de panique.
+// Le seuil est derive de quorum.MinimumThreshold et non ecrit en dur : une evolution du plancher
+// ne doit pas laisser ce test vert par accident.
+//
+// Ce cas ne prouve PAS la levee de l'oracle de panique — il passait deja avant cette correction.
+// C'est TestSecurityPaniqueInterneEstUnDefautInterne qui l'exerce.
+func TestSecuritySeuilSousLePlancherEstRefuse(t *testing.T) {
+	srv := serveurQuorum(t, doublurePorteursValides(reponseAppelantValide()))
+
+	// Seuil sous le plancher : desormais refuse explicitement AVANT le module, donc sans passer par
+	// le rattrapage de panique.
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions:              [][]byte{[]byte("assertion-porteur-a")},
+		Threshold:               quorum.MinimumThreshold - 1,
+		ExpectedAuthorityDomain: domaineDeTest,
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("un seuil sous le plancher reste un refus metier 400, obtenu %d", resp.StatusCode)
+	}
+	var erreur Error
+	if err := json.NewDecoder(resp.Body).Decode(&erreur); err != nil {
+		t.Fatalf("reponse illisible : %v", err)
+	}
+	if erreur.Reason != "seuil_de_quorum_invalide" {
+		t.Fatalf("motif attendu seuil_de_quorum_invalide, obtenu %q", erreur.Reason)
+	}
+}
+
+// identityQuiPanique fait paniquer la verification d'un PORTEUR, sur un chemin sans rapport avec
+// le seuil de quorum : c'est le cas que le rattrapage de panique doit traiter comme un defaut
+// interne, et non comme un refus metier.
+type identityQuiPanique struct {
+	identityv1.AssertionVerificationServiceClient
+}
+
+func (identityQuiPanique) VerifyAssertion(ctx context.Context, in *identityv1.VerifyAssertionRequest, opts ...grpc.CallOption) (*identityv1.VerifyAssertionResponse, error) {
+	if string(in.Assertion) == assertionAppelantValide {
+		return reponseAppelantValide(), nil
+	}
+	panic("defaut simule dans la verification d'un porteur")
+}
+
+// TestSecurityPaniqueInterneEstUnDefautInterne : avant correction, TOUTE panique du module quorum
+// devenait un 400 « seuil_de_quorum_invalide », sans aucune trace serveur. Un attaquant trouvant
+// une entree qui fait paniquer le module disposait donc d'un oracle silencieux, distinguable au
+// seul code de statut, pour iterer un fuzzing en production.
+//
+// Le refus doit etre un 500 generique, et ne recopier aucun detail technique.
+func TestSecurityPaniqueInterneEstUnDefautInterne(t *testing.T) {
+	identity := identityQuiPanique{}
+	srv := serveurQuorum(t, identity)
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("le serveur ne doit jamais planter sur une panique interne : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("attendu 500 pour un defaut interne, obtenu %d", resp.StatusCode)
+	}
+
+	// Le CORPS BRUT est inspecte, pas le champ Reason : chercher un fragment de panique dans une
+	// valeur dont l'egalite a "defaut_interne" vient d'etre affirmee ne verifie rien.
+	brut, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("lecture du corps : %v", err)
+	}
+	var erreur Error
+	if err := json.Unmarshal(brut, &erreur); err != nil {
+		t.Fatalf("reponse d'erreur illisible : %v", err)
+	}
+	if erreur.Reason != "defaut_interne" {
+		t.Fatalf("motif attendu defaut_interne, obtenu %q", erreur.Reason)
+	}
+	for _, fragment := range []string{"porteur", "panic", "defaut simule", "goroutine", ".go:"} {
+		if strings.Contains(string(brut), fragment) {
+			t.Fatalf("la reponse recopie un detail de la panique (%q) : %s", fragment, brut)
+		}
+	}
+}
+
+// TestSecurityPhaseDauditEstBorneeGlobalement : le budget par evenement, seul, rendait la duree de
+// la requete proportionnelle au nombre de porteurs — quantite choisie par l'appelant. Avec 64
+// porteurs et un collecteur muet, la requete tenait un goroutine pendant (64+1) x delaiAudit.
+// Le plafond agrege borne la phase entiere, l'initiateur partant en premier pour que la trace la
+// plus precieuse soit emise avant que le plafond puisse mordre.
+func TestSecurityPhaseDauditEstBorneeGlobalement(t *testing.T) {
+	// Collecteur muet : chaque envoi consommera tout son budget par evenement.
+	audit := &auditObservateurDeContexte{attente: time.Second}
+	identity := doublurePorteursValides(reponseAppelantValide())
+	api := New(quorum.New(identity), identity, audit, domaineDeTest)
+	// Calibrage discriminant : 3 evenements x 300 ms = 900 ms sans plafond agrege, contre ~350 ms
+	// avec. La borne verifiee (2 x plafondAudit = 700 ms) separe donc franchement les deux
+	// conceptions, ce qu'une borne large ne ferait pas.
+	api.delaiAudit = 300 * time.Millisecond
+	api.plafondAudit = 350 * time.Millisecond
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	debut := time.Now()
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+	ecoule := time.Since(debut)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("attendu 200, obtenu %d", resp.StatusCode)
+	}
+	// Sans plafond agrege, trois envois d'une seconde chacun donneraient au moins 3 s.
+	if maximum := 2 * api.plafondAudit; ecoule > maximum {
+		t.Fatalf("la phase d'audit n'est pas bornee globalement : %s (maximum %s)", ecoule, maximum)
+	}
+	// L'initiateur part en premier : sa trace doit exister meme quand le plafond mord.
+	if len(audit.sujets) == 0 || audit.sujets[0] != "sub-initiateur" {
+		t.Fatalf("la trace de l'initiateur doit etre emise avant que le plafond morde, ordre obtenu : %v", audit.sujets)
+	}
+}
+
+// TestSecurityPlafondNulNeSupprimePasLaudit : le garde-fou de valeur nulle avait ete pose sur le
+// budget par evenement mais pas sur le plafond, alors que la meme justification s'applique un cran
+// plus haut. Un plafond nul produit un contexte deja expire dont TOUS les contextes d'evenement
+// derivent : zero evenement emis, reponse 200 — le mode de defaillance que ce composant cherche a
+// fermer, simplement deplace.
+func TestSecurityPlafondNulNeSupprimePasLaudit(t *testing.T) {
+	audit := &auditObservateurDeContexte{}
+	identity := doublurePorteursValides(reponseAppelantValide())
+	api := New(quorum.New(identity), identity, audit, domaineDeTest)
+	api.plafondAudit = 0 // valeur qu'un litteral &API{...} intra-paquet pourrait produire
+	srv := httptest.NewServer(NewHandler(api))
+	t.Cleanup(srv.Close)
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if len(audit.erreursDeContexte) == 0 {
+		t.Fatal("un plafond nul ne doit jamais supprimer l'audit : aucun evenement emis")
+	}
+	for i, err := range audit.erreursDeContexte {
+		if err != nil {
+			t.Fatalf("evenement %d emis sur contexte deja expire (%v) : le plafond nul n'a pas ete rattrape", i, err)
+		}
+	}
+}

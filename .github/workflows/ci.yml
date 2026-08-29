@@ -22,16 +22,25 @@ env:
   GO_VERSION: "1.25"
   NODE_VERSION: "22"
 
+# Jeton par defaut reduit a la lecture pour TOUS les jobs : ci.yml se declenche sur
+# pull_request, donc sur des PR de forks, et plusieurs jobs executent du code tiers
+# (cargo install, go install ...@latest, npm ci). Un bloc permissions au niveau job
+# REMPLACE ce defaut : le job provenance, qui a besoin d'ecrire, declare deja les
+# siennes explicitement et n'est donc pas affecte.
+permissions:
+  contents: read
+
 jobs:
   format-lint:
     name: format + lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: protoc (zs-policy/zs-identity le compilent via build.rs, ADR-004)
@@ -52,8 +61,8 @@ jobs:
       run:
         working-directory: apps/console-web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci
@@ -64,7 +73,7 @@ jobs:
     name: détection de secrets
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # gitleaks scanne l'historique, pas seulement HEAD
       - name: gitleaks (CLI directe, pas gitleaks-action — licence org requise par l'Action depuis 2025, pas par le binaire OSS)
@@ -77,10 +86,13 @@ jobs:
     needs: [format-lint, secrets]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          # Epinglee par SHA : l'action deduit sinon la toolchain du nom de la ref.
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: protoc (zs-policy/zs-identity le compilent via build.rs, ADR-004)
@@ -97,6 +109,14 @@ jobs:
           done
       - name: tests d'architecture (L0.2)
         run: bash tools/check-arch.sh
+      # Le CLI Cedar est provisionne ici pour que les tests du corpus d'acces soient BLOQUANTS.
+      # Avant la reduction de perimetre, tools/cedar-test.sh tournait derriere un `|| true` : la
+      # CI garantissait la conformite d'infrastructure (Rego, optionnelle) et pas la politique
+      # d'autorisation du Core. --locked : version figee par le Cargo.lock de l'outil.
+      - name: CLI Cedar (corpus d'acces, ADR-003)
+        run: cargo install --locked cedar-policy-cli
+      - name: tests des politiques d'acces Cedar (L2.1, bloquant)
+        run: bash tools/cedar-test.sh
 
   coverage:
     name: couverture (informatif — ne bloque pas la CI, audit.md §3.3)
@@ -107,11 +127,12 @@ jobs:
     # réel connu (audit.md §3.3 recommandation).
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
+          toolchain: stable
           components: llvm-tools-preview
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: protoc (zs-policy/zs-identity le compilent via build.rs, ADR-004)
@@ -123,7 +144,7 @@ jobs:
           go list -m -f '{{.Dir}}' | while IFS= read -r d; do
             (cd "$d" && go test ./... -coverprofile=coverage.out) || exit 1
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage
           path: |
@@ -143,13 +164,16 @@ jobs:
           - { crate: zs-crypto, name: identity_assertion_verify }
           - { crate: zs-webauthn, name: attestation_parser }
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly
+        with:
+          # Epinglee par SHA : l'action deduit sinon la toolchain du nom de la ref.
+          toolchain: nightly
       - run: cargo install --locked cargo-fuzz
       - name: fuzz ${{ matrix.target.crate }}/${{ matrix.target.name }} (5 min)
         working-directory: crates/${{ matrix.target.crate }}
         run: cargo fuzz run ${{ matrix.target.name }} -- -max_total_time=300
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
           name: fuzz-crash-${{ matrix.target.crate }}-${{ matrix.target.name }}
@@ -161,9 +185,12 @@ jobs:
     needs: [build-test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          # Epinglee par SHA : l'action deduit sinon la toolchain du nom de la ref.
+          toolchain: stable
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
       - run: cargo install --locked cargo-audit cargo-deny
@@ -176,14 +203,78 @@ jobs:
             (cd "$d" && govulncheck ./...) || exit 1
           done
 
+  policy-platform:
+    name: conformité plateforme (EXPERIMENTAL, hors Core)
+    needs: [build-test]
+    runs-on: ubuntu-latest
+    # Extension hors chemin critique : aucun composant de apps/ ni crates/ n'evalue de Rego.
+    # Job separe pour que son etat soit lisible independamment du Core — et pour qu'un retrait
+    # futur de l'extension n'oblige a toucher aucun job du Core.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: CLI OPA
+        run: |
+          curl -sSL -o /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.19.1/opa_linux_amd64_static
+          chmod +x /usr/local/bin/opa
+      - name: make test-extensions
+        run: make test-extensions
+
+  security-quick:
+    name: tests de sécurité (Phase 1)
+    needs: [build-test]
+    runs-on: ubuntu-latest
+    # Ce job exécute `npm ci`, donc des scripts postinstall de dépendances tierces. Le jeton par
+    # défaut est réduit à la lecture du dépôt : un job de vérification de sécurité n'a aucune
+    # raison de pouvoir écrire quoi que ce soit.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          # Epinglee par SHA : l'action deduit sinon la toolchain du nom de la ref.
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: protoc (zs-policy/zs-identity le compilent via build.rs, ADR-004)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev
+      - name: npm ci (console-web)
+        working-directory: apps/console-web
+        run: npm ci
+      # La cible echoue si un finding blocking=true subsiste dans le rapport agrege — decision
+      # portee par l'agregateur, pas par un motif textuel. Les findings connus et acceptes sont
+      # journalises en non bloquant (voir security/threat-models/admin-api.md, Risques acceptes).
+      - name: make security-quick
+        run: make security-quick
+      # if: always() — le rapport est justement la preuve à conserver quand la cible échoue sur un
+      # finding bloquant. Sans cela, l'artefact ne serait produit que dans le cas où il est le
+      # moins utile.
+      - name: rapport de sécurité agrégé
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rapport-securite
+          path: tests/security/report/output/
+          if-no-files-found: warn
+
   sbom-cbom:
     name: SBOM + CBOM
     needs: [build-test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          # Epinglee par SHA : l'action deduit sinon la toolchain du nom de la ref.
+          toolchain: stable
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: protoc (zs-policy/zs-identity le compilent via build.rs, ADR-004)
@@ -193,7 +284,7 @@ jobs:
           go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
       - run: bash tools/collect-sbom.sh
       - run: bash tools/generate-cbom.sh > security/crypto-inventory/cbom.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-cbom
           path: |
@@ -213,8 +304,11 @@ jobs:
     # reproductibilité (SOURCE_DATE_EPOCH, toolchain figée, flags de build hermétique).
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          # Epinglee par SHA : l'action deduit sinon la toolchain du nom de la ref.
+          toolchain: stable
       - name: protoc (zs-policy/zs-identity le compilent via build.rs, ADR-004)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev
       - name: build deux fois, comparer les binaires
@@ -242,9 +336,12 @@ jobs:
       attestations: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          # Epinglee par SHA : l'action deduit sinon la toolchain du nom de la ref.
+          toolchain: stable
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: protoc (zs-policy/zs-identity le compilent via build.rs, ADR-004)
@@ -256,7 +353,7 @@ jobs:
           for app in access-broker admin-api audit-collector credential-issuer; do
             (cd "apps/$app" && go build -o "../../bin/$app" .)
           done
-      - uses: actions/attest-build-provenance@v1
+      - uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1
         with:
           subject-path: |
             target/release/identity-provider

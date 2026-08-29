@@ -330,8 +330,8 @@ const file_credential_v1_emission_proto_rawDesc = "" +
 	"\x0eRevokeResponse2\xa7\x01\n" +
 	"\x19CredentialIssuanceService\x12C\n" +
 	"\x04Emit\x12\x1c.credential.v1.EmissionOrder\x1a\x1d.credential.v1.EmissionResult\x12E\n" +
-	"\x06Revoke\x12\x1c.credential.v1.RevokeRequest\x1a\x1d.credential.v1.RevokeResponseB\xc2\x01\n" +
-	"\x11com.credential.v1B\rEmissionProtoP\x01ZIgithub.com/AlexisTak/biscuits-shield/pkg/gen/credential/v1;credentialv1\xa2\x02\x03CXX\xaa\x02\rCredential.V1\xca\x02\rCredential\\V1\xe2\x02\x19Credential\\V1\\GPBMetadata\xea\x02\x0eCredential::V1b\x06proto3"
+	"\x06Revoke\x12\x1c.credential.v1.RevokeRequest\x1a\x1d.credential.v1.RevokeResponseB\xc0\x01\n" +
+	"\x11com.credential.v1B\rEmissionProtoP\x01ZGgithub.com/AlexisTak/biscuits-shield/pkg/gen/credential/v1;credentialv1\xa2\x02\x03CXX\xaa\x02\rCredential.V1\xca\x02\rCredential\\V1\xe2\x02\x19Credential\\V1\\GPBMetadata\xea\x02\x0eCredential::V1b\x06proto3"
 
 var (
 	file_credential_v1_emission_proto_rawDescOnce sync.Once
