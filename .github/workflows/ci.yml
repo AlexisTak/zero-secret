@@ -22,6 +22,14 @@ env:
   GO_VERSION: "1.25"
   NODE_VERSION: "22"
 
+# Jeton par defaut reduit a la lecture pour TOUS les jobs : ci.yml se declenche sur
+# pull_request, donc sur des PR de forks, et plusieurs jobs executent du code tiers
+# (cargo install, go install ...@latest, npm ci). Un bloc permissions au niveau job
+# REMPLACE ce defaut : le job provenance, qui a besoin d'ecrire, declare deja les
+# siennes explicitement et n'est donc pas affecte.
+permissions:
+  contents: read
+
 jobs:
   format-lint:
     name: format + lint

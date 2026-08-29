@@ -35,8 +35,14 @@ func main() {
 	auditCollectorAddr := envOr("ZS_ADMIN_API_AUDIT_COLLECTOR_ADDR", "127.0.0.1:50065")
 	httpAddr := envOr("ZS_ADMIN_API_HTTP_ADDR", "127.0.0.1:8082")
 	// Domaine d'autorite contre lequel toute assertion est verifiee — fixe par la configuration,
-	// jamais propose par la requete (ADR-035).
-	expectedAuthorityDomain := envOr("ZS_ADMIN_API_EXPECTED_AUTHORITY_DOMAIN", "identity-provider")
+	// jamais propose par la requete (ADR-035). Obligatoire et sans valeur par defaut : un ancrage
+	// de confiance qui se replie silencieusement sur une valeur generique n'ancre rien, et un
+	// deploiement qui oublie la variable demarrerait en croyant le controle actif.
+	expectedAuthorityDomain := os.Getenv("ZS_ADMIN_API_EXPECTED_AUTHORITY_DOMAIN")
+	if expectedAuthorityDomain == "" {
+		fmt.Fprintln(os.Stderr, "admin-api: ZS_ADMIN_API_EXPECTED_AUTHORITY_DOMAIN est obligatoire (domaine d'autorité attendu des assertions)")
+		os.Exit(1)
+	}
 
 	identityConn, err := grpc.NewClient(identityAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {

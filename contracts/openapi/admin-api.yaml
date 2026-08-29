@@ -29,6 +29,7 @@ paths:
             quorum — initiateur et porteur sont deux rôles distincts (ADR-035).
           schema:
             type: string
+            format: byte
         - name: operation_id
           in: path
           required: true

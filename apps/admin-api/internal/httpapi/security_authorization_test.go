@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -406,5 +407,121 @@ func TestSecurityEvenementInitiateurEstDistinguableDesPorteurs(t *testing.T) {
 	}
 	if porteurs != 2 {
 		t.Fatalf("attendu 2 evenements de porteurs, obtenu %d", porteurs)
+	}
+}
+
+// identityLent simule un verificateur qui accepte la connexion et ne repond jamais : il attend
+// l'expiration du contexte. C'est le cas que l'erreur de transport ne couvre pas — sans echeance,
+// le handler resterait bloque jusqu'a deconnexion du client, dont l'attaquant tient les deux bouts.
+type identityLent struct {
+	identityv1.AssertionVerificationServiceClient
+}
+
+func (identityLent) VerifyAssertion(ctx context.Context, in *identityv1.VerifyAssertionRequest, opts ...grpc.CallOption) (*identityv1.VerifyAssertionResponse, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// TestSecurityVerificateurLentEstTraiteCommeUnePanne : une lenteur indistinguable d'une panne doit
+// produire le meme refus qu'une panne (regle absolue #2). Sans echeance, ce test ne terminerait
+// jamais dans le temps imparti au paquet.
+func TestSecurityVerificateurLentEstTraiteCommeUnePanne(t *testing.T) {
+	srv := serveurQuorum(t, identityLent{})
+
+	debut := time.Now()
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("attendu 502 sur verificateur muet, obtenu %d", resp.StatusCode)
+	}
+	if ecoule := time.Since(debut); ecoule > delaiTraitement {
+		t.Fatalf("le refus doit survenir dans le budget de la requete (%s), obtenu %s", delaiTraitement, ecoule)
+	}
+}
+
+// TestSecurityReponseDeVerificateurIncompleteEstRefusee : le contrat declare subject_id et
+// auth_method presents seulement si valid = true. Une reponse valide mais incomplete est un
+// verificateur qui ne respecte pas son contrat, pas une identite — l'accepter produirait un
+// evenement d'audit sans acteur exploitable et une cle d'exclusion vide.
+func TestSecurityReponseDeVerificateurIncompleteEstRefusee(t *testing.T) {
+	cas := []struct {
+		nom      string
+		appelant *identityv1.VerifyAssertionResponse
+	}{
+		{"subject_id vide", &identityv1.VerifyAssertionResponse{Valid: true, Aal: "AAL3", AuthMethod: "webauthn/device-bound"}},
+		{"auth_method vide", &identityv1.VerifyAssertionResponse{Valid: true, Aal: "AAL3", SubjectId: "sub-initiateur"}},
+	}
+
+	for _, c := range cas {
+		t.Run(c.nom, func(t *testing.T) {
+			srv := serveurQuorum(t, doublurePorteursValides(c.appelant))
+
+			resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+			if err != nil {
+				t.Fatalf("erreur inattendue : %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusBadGateway {
+				t.Fatalf("attendu 502 pour une reponse de verificateur incomplete, obtenu %d", resp.StatusCode)
+			}
+		})
+	}
+}
+
+// TestSecurityExclusionDeLinitiateurEstAuditee : filtrer l'initiateur sans le journaliser
+// effacerait la tentative d'auto-approbation. Le resultat audite serait indiscernable d'une
+// requete ou l'initiateur n'aurait soumis aucune assertion de porteur, et une campagne
+// d'auto-approbation deviendrait indetectable a posteriori.
+func TestSecurityExclusionDeLinitiateurEstAuditee(t *testing.T) {
+	identity := &fakeIdentityClient{responses: map[string]*identityv1.VerifyAssertionResponse{
+		assertionAppelantValide:   {Valid: true, SubjectId: "sub-alice", Aal: "AAL3", AuthMethod: "webauthn/device-bound"},
+		"assertion-porteur-alice": {Valid: true, SubjectId: "sub-alice"},
+		"assertion-porteur-b":     {Valid: true, SubjectId: "sub-porteur-2"},
+	}}
+	srv, audit := serveurQuorumAvecAudit(t, identity)
+
+	body, _ := json.Marshal(QuorumRequest{
+		Assertions:              [][]byte{[]byte("assertion-porteur-alice"), []byte("assertion-porteur-b")},
+		Threshold:               quorum.MinimumThreshold,
+		ExpectedAuthorityDomain: domaineDeTest,
+	})
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, body)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	var trace bool
+	for _, req := range audit.reqs {
+		if req.Context != nil && req.Context.Justification != nil && *req.Context.Justification != "" {
+			trace = true
+		}
+	}
+	if !trace {
+		t.Fatal("l'exclusion de l'assertion de porteur de l'initiateur doit laisser une trace au journal")
+	}
+}
+
+// TestSecurityRequeteNominaleNeJournalisePasDexclusion : verrou du test precedent. Sans lui, un
+// handler qui poserait la justification a chaque requete passerait aussi.
+func TestSecurityRequeteNominaleNeJournalisePasDexclusion(t *testing.T) {
+	srv, audit := serveurQuorumAvecAudit(t, doublurePorteursValides(reponseAppelantValide()))
+
+	resp, err := postQuorum(srv.URL+"/v1/critical-operations/op-1/quorum", assertionAppelantValide, corpsQuorumValide())
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	defer resp.Body.Close()
+
+	for _, req := range audit.reqs {
+		if req.Context != nil && req.Context.Justification != nil {
+			t.Fatalf("aucune exclusion n'a eu lieu, le journal ne doit pas en signaler une : %q", *req.Context.Justification)
+		}
 	}
 }

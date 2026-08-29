@@ -219,8 +219,8 @@ func TestCorpsMalformeEstRefuse400(t *testing.T) {
 const domaineDeTest = "identity-provider"
 
 // assertionAppelantValide est l'assertion de l'APPELANT telle que la voit le verificateur, donc
-// DECODEE. postQuorum l'encode en base64 avant de la poser dans l'en-tete, comme le fera un vrai
-// client : le contrat declare l'en-tete en base64, au meme titre que les assertions du corps.
+// DECODEE. postQuorum l'encode en base64 avant de la poser dans l'en-tete : depuis que le contrat
+// declare le parametre en format: byte, c'est le binding genere qui la redecode, plus le handler.
 const assertionAppelantValide = "assertion-appelant-aal3"
 
 func reponseAppelantValide() *identityv1.VerifyAssertionResponse {

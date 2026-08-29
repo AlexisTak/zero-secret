@@ -79,18 +79,29 @@ intention vidée.
 L'exclusion vit dans la couche HTTP, jamais dans `quorum` : l'initiateur est une notion de cette
 couche, et ADR-021 impose que le module ignore l'opération et les rôles.
 
-### L'assertion de l'appelant est décodée en base64 strict
+**L'exclusion est auditée.** Filtrer avant l'audit effaçait du journal le fait que l'initiateur
+avait aussi soumis une assertion de porteur : le résultat audité devenait indiscernable d'une
+requête où il n'aurait rien soumis, et une campagne d'auto-approbation n'était plus détectable a
+posteriori. Le champ `context.justification` de l'événement d'initiateur (champ existant du
+contrat, schéma inchangé) porte donc le fait de l'exclusion.
 
-L'en-tête porte l'assertion en base64, comme les assertions de porteurs du corps (`format: byte`
-au contrat, décodé par `encoding/json`). Le décodage est **strict et unique** : accepter à la fois
-le base64 et les octets bruts ferait exister deux représentations de la même entrée — terrain
-classique de confusion de requête et de contournement de journalisation. Un échec de décodage est
-un `401 assertion_de_lappelant_malformee`, jamais un repli.
+### Le décodage base64 appartient au contrat, pas au handler
+
+Le paramètre est déclaré `format: byte`, comme les assertions de porteurs du corps : le décodage
+est fait par le binding généré, jamais par du code écrit à la main. Une première version décodait
+l'en-tête manuellement derrière un `type: string` nu — la garantie vivait alors hors de la source
+de vérité (règle absolue #8), et un régénérateur ou un autre client n'avait aucun signal.
+
+Un en-tête non décodable n'atteint donc plus le handler. `writeParamError` traduit l'échec de
+liaison en `401 assertion_de_lappelant_malformee` et non en `400` : c'est un refus
+d'authentification, et le code de statut ne doit pas révéler *où* l'assertion a échoué.
 
 ### Le domaine d'autorité vient de la configuration
 
-`expected_authority_domain` est fixé par `ZS_ADMIN_API_EXPECTED_AUTHORITY_DOMAIN`, jamais déduit
-du corps ; un corps qui en propose un autre est refusé en `400`. Laisser l'appelant choisir le
+`expected_authority_domain` est fixé par `ZS_ADMIN_API_EXPECTED_AUTHORITY_DOMAIN` — **obligatoire
+au démarrage, sans valeur par défaut** : un ancrage de confiance qui se replie silencieusement sur
+une valeur générique n'ancre rien, et un déploiement qui oublie la variable démarrerait en croyant
+le contrôle actif. Jamais déduit du corps ; un corps qui en propose un autre est refusé en `400`. Laisser l'appelant choisir le
 domaine contre lequel il est vérifié rendrait le contrôle tautologique dès qu'un
 `identity-provider` accepte plus d'un domaine : il suffirait de présenter des assertions d'un
 domaine A pour agir sur le périmètre B.
@@ -103,12 +114,17 @@ attendu en dépendent), donc les bornes doivent tenir face à un anonyme :
 côté application). Chaque assertion déclenchant un appel gRPC sortant, une liste non bornée
 amplifierait une requête unique en autant d'appels vers `identity-provider`.
 
-### Délai d'attente explicite sur la vérification
+### Budget de temps sur la requête entière
 
-`context.WithTimeout` de 5 s autour de l'appel sortant, conformément aux conventions Go du projet.
-Un vérificateur qui accepte la connexion sans jamais répondre immobiliserait sinon le handler
-jusqu'à déconnexion du client, dont l'attaquant tient les deux bouts. Le dépassement produit le
-même `502` qu'une panne : une lenteur indistinguable d'une panne est traitée comme une panne.
+Deux échéances imbriquées : **30 s** posées en tête du handler sur `r.Context()`, et **5 s** pour
+la vérification de l'appelant. Le budget global couvre ce que le seul délai de l'appelant laissait
+sans échéance : jusqu'à 64 vérifications de porteurs faites en série par le module `quorum`, et
+les N+1 envois d'audit. Sans lui, un vérificateur lent — ou tenu par l'attaquant, qui contrôle les
+deux bouts — immobilisait un goroutine jusqu'à déconnexion du client, sur le composant même qui
+porte le chemin d'une révocation d'urgence.
+
+Le dépassement produit le même `502` qu'une panne : une lenteur indistinguable d'une panne est
+traitée comme une panne (règle absolue #2).
 
 ### `quorum` reste agnostique
 

@@ -22,7 +22,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log"
@@ -54,11 +53,16 @@ const maxOctetsCorps = 512 * 1024
 // (maxItems) : ici c'est l'application qui refuse, le contrat qui documente.
 const maxAssertions = 64
 
-// delaiVerification borne chaque appel sortant vers identity-provider. Un verificateur qui accepte
-// la connexion sans jamais repondre immobiliserait sinon le handler jusqu'a deconnexion du client,
-// dont l'attaquant tient les deux bouts. Le depassement produit le meme refus 502 qu'une panne :
-// une lenteur indistinguable d'une panne doit etre traitee comme une panne (regle absolue #2).
+// delaiVerification borne la verification de l'appelant, premier appel sortant du handler.
 const delaiVerification = 5 * time.Second
+
+// delaiTraitement borne la requete ENTIERE : verification de l'appelant, puis jusqu'a
+// maxAssertions verifications de porteurs faites en serie par le module quorum, puis les N+1
+// evenements d'audit. Un delai pose sur le seul appelant laissait les N+1 autres appels sortants
+// sans echeance — un verificateur lent, ou tenu par l'attaquant, immobilisait alors un goroutine
+// jusqu'a deconnexion du client. Convention Go du projet : timeout explicite sur TOUT appel
+// sortant.
+const delaiTraitement = 30 * time.Second
 
 type API struct {
 	verifier *quorum.Verifier
@@ -105,10 +109,24 @@ func writeParamError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnauthorized, "assertion_de_lappelant_absente")
 		return
 	}
+	// Un en-tete d'assertion non decodable en base64 est refuse par le binding genere avant
+	// d'atteindre le handler. C'est un refus d'AUTHENTIFICATION (401), pas une requete malformee :
+	// le statut doit dire la meme chose que si l'assertion avait ete rejetee par le verificateur,
+	// sans quoi un client apprend, par le seul code de statut, ou son assertion a echoue.
+	var format *InvalidParamFormatError
+	if errors.As(err, &format) && format.ParamName == "X-Identity-Assertion" {
+		writeError(w, http.StatusUnauthorized, "assertion_de_lappelant_malformee")
+		return
+	}
 	writeError(w, http.StatusBadRequest, "parametre_de_requete_invalide")
 }
 
 func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId string, params VerifyQuorumParams) {
+	// Budget de temps de la requete entiere : couvre la verification de l'appelant, celles des
+	// porteurs faites en serie par le module quorum, et les envois d'audit.
+	ctx, annulerTraitement := context.WithTimeout(r.Context(), delaiTraitement)
+	defer annulerTraitement()
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxOctetsCorps)
 
 	var body QuorumRequest
@@ -118,6 +136,17 @@ func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId s
 		writeError(w, http.StatusBadRequest, "corps_de_requete_malforme")
 		return
 	}
+
+	// Authentification de l'appelant AVANT tout autre controle de contenu (ADR-035). Les controles
+	// de domaine et de plafond viennent APRES : places avant, ils laissaient un anonyme enumerer
+	// par reponse differentielle le domaine d'autorite configure et la valeur exacte du plafond.
+	// Seul MaxBytesReader, qui ne renvoie aucune information, protege le chemin anonyme.
+	caller, refus := a.verifyCaller(ctx, params.XIdentityAssertion)
+	if refus != nil {
+		writeError(w, refus.status, refus.reason)
+		return
+	}
+
 	if len(body.Assertions) > maxAssertions {
 		writeError(w, http.StatusBadRequest, "trop_dassertions")
 		return
@@ -129,17 +158,10 @@ func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId s
 		return
 	}
 
-	// Authentification de l'appelant AVANT toute evaluation du quorum (ADR-035).
-	caller, refus := a.verifyCaller(r.Context(), params.XIdentityAssertion)
-	if refus != nil {
-		writeError(w, refus.status, refus.reason)
-		return
-	}
-
 	// quorum.VerifyQuorum panique si threshold < MinimumThreshold (erreur de configuration de
 	// l'appelant, par construction — voir ADR-021) : sur une requête HTTP non fiable, cette
 	// panique doit devenir un refus explicite (400), jamais un crash du processus.
-	result, err := verifyQuorumRecovered(r, a.verifier, body)
+	result, err := verifyQuorumRecovered(ctx, a.verifier, body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -150,10 +172,10 @@ func (a *API) VerifyQuorum(w http.ResponseWriter, r *http.Request, operationId s
 	// malformé) : sans identité établie, il n'y a personne à qui attribuer l'événement.
 	// Exclusion de l'initiateur AVANT l'audit et avant la reponse : le quorum publie, journalise et
 	// renvoye est celui des porteurs reellement independants de celui qui declenche.
-	result = excludeInitiator(result, caller.SubjectId, body.Threshold)
+	result, initiateurEtaitPorteur := excludeInitiator(result, caller.SubjectId, body.Threshold)
 
-	a.recordQuorumOperation(r.Context(), operationId, a.expectedAuthorityDomain, result)
-	a.recordQuorumInitiator(r.Context(), operationId, a.expectedAuthorityDomain, caller, result)
+	a.recordQuorumOperation(ctx, operationId, a.expectedAuthorityDomain, result)
+	a.recordQuorumInitiator(ctx, operationId, a.expectedAuthorityDomain, caller, result, initiateurEtaitPorteur)
 
 	writeJSON(w, http.StatusOK, QuorumResult{
 		Reached:          result.Reached,
@@ -213,25 +235,19 @@ type refusAppelant struct {
 // Refus par defaut (regle absolue #2) : une indisponibilite d'identity-provider est un refus 502
 // explicite, jamais un repli permissif. Une assertion invalide et une assertion absente
 // produisent le meme 401 sans distinction exploitable.
-func (a *API) verifyCaller(ctx context.Context, assertion string) (*identityv1.VerifyAssertionResponse, *refusAppelant) {
-	if assertion == "" {
+func (a *API) verifyCaller(ctx context.Context, assertion []byte) (*identityv1.VerifyAssertionResponse, *refusAppelant) {
+	// L'en-tete est declare format: byte au contrat, comme les assertions de porteurs du corps :
+	// le decodage base64 est fait par le binding genere, jamais a la main ici. Un en-tete non
+	// decodable n'atteint donc pas cette fonction — writeParamError le refuse en 401.
+	if len(assertion) == 0 {
 		return nil, &refusAppelant{http.StatusUnauthorized, "assertion_de_lappelant_absente"}
-	}
-
-	// L'en-tete porte l'assertion en base64, comme les assertions de porteurs du corps (format:
-	// byte au contrat, decode par encoding/json). Decodage STRICT et unique : accepter a la fois
-	// le base64 et les octets bruts ferait exister deux representations de la meme entree, terrain
-	// classique de confusion de requete et de contournement de journalisation.
-	octets, err := base64.StdEncoding.Strict().DecodeString(assertion)
-	if err != nil {
-		return nil, &refusAppelant{http.StatusUnauthorized, "assertion_de_lappelant_malformee"}
 	}
 
 	ctx, annuler := context.WithTimeout(ctx, delaiVerification)
 	defer annuler()
 
 	resp, err := a.identityClient.VerifyAssertion(ctx, &identityv1.VerifyAssertionRequest{
-		Assertion:               octets,
+		Assertion:               assertion,
 		ExpectedAuthorityDomain: a.expectedAuthorityDomain,
 	})
 	// resp nil sans erreur ne peut pas venir d'un vrai client gRPC, mais un intercepteur ou un
@@ -247,6 +263,13 @@ func (a *API) verifyCaller(ctx context.Context, assertion string) (*identityv1.V
 	// champ non renseigne par le verificateur (P2) — est refusee.
 	if resp.Aal != aalRequisPourInitier {
 		return nil, &refusAppelant{http.StatusForbidden, "niveau_dauthentification_insuffisant"}
+	}
+	// subject_id et auth_method sont declares "presents seulement si valid = true" par le contrat
+	// (assertion_verification.proto) : une reponse valide mais incomplete est un verificateur qui
+	// ne respecte pas son contrat, pas une identite. Les accepter produirait un evenement d'audit
+	// sans acteur — non-repudiation perdue — et une cle d'exclusion vide.
+	if resp.SubjectId == "" || resp.AuthMethod == "" {
+		return nil, &refusAppelant{http.StatusBadGateway, "verification_de_lappelant_incomplete"}
 	}
 	return resp, nil
 }
@@ -264,13 +287,13 @@ func (a *API) verifyCaller(ctx context.Context, assertion string) (*identityv1.V
 // zs-replay (ADR-034) — compterait un approbateur de trop.
 //
 // Best-effort comme recordQuorumOperation : le quorum a deja ete evalue de facon irreversible.
-func (a *API) recordQuorumInitiator(ctx context.Context, operationID, authorityDomain string, caller *identityv1.VerifyAssertionResponse, result quorum.Result) {
+func (a *API) recordQuorumInitiator(ctx context.Context, operationID, authorityDomain string, caller *identityv1.VerifyAssertionResponse, result quorum.Result, initiateurEtaitPorteur bool) {
 	outcome := "denied"
 	if result.Reached {
 		outcome = "success"
 	}
 
-	res, err := a.auditClient.Record(ctx, &auditv1.RawEvent{
+	evenement := &auditv1.RawEvent{
 		AuthorityDomain: authorityDomain,
 		EventType:       "quorum.operation",
 		Actor: &auditv1.Actor{
@@ -284,7 +307,17 @@ func (a *API) recordQuorumInitiator(ctx context.Context, operationID, authorityD
 			Id:   operationID,
 		},
 		Outcome: outcome,
-	})
+	}
+	// Sans cette trace, une tentative d'auto-approbation ne laisse AUCUNE empreinte : le resultat
+	// audite est le resultat filtre, indiscernable d'une requete ou l'initiateur n'aurait soumis
+	// aucune assertion de porteur. Le champ justification du contexte (contrat existant, borne a
+	// 512 caracteres) porte le fait, sans modifier le schema d'evenement.
+	if initiateurEtaitPorteur {
+		motif := "assertion de porteur de l'initiateur ecartee du quorum (ADR-035)"
+		evenement.Context = &auditv1.Context{Justification: &motif}
+	}
+
+	res, err := a.auditClient.Record(ctx, evenement)
 	if err != nil {
 		log.Printf("admin-api: échec de l'envoi de quorum.operation (initiateur %s, opération %s) : %v", caller.SubjectId, operationID, err)
 		return
@@ -304,23 +337,24 @@ func (a *API) recordQuorumInitiator(ctx context.Context, operationID, authorityD
 //
 // Vit dans la couche HTTP et non dans le module quorum : ADR-021 impose que quorum ignore
 // l'operation et les roles, et l'initiateur est une notion de la couche HTTP.
-func excludeInitiator(result quorum.Result, initiateur string, threshold int) quorum.Result {
+func excludeInitiator(result quorum.Result, initiateur string, threshold int) (quorum.Result, bool) {
 	porteurs := slices.DeleteFunc(slices.Clone(result.DistinctSubjects), func(sujet string) bool {
 		return sujet == initiateur
 	})
+	exclu := len(porteurs) != len(result.DistinctSubjects)
 	return quorum.Result{
 		Reached:          len(porteurs) >= threshold,
 		DistinctSubjects: porteurs,
-	}
+	}, exclu
 }
 
-func verifyQuorumRecovered(r *http.Request, v *quorum.Verifier, body QuorumRequest) (result quorum.Result, err error) {
+func verifyQuorumRecovered(ctx context.Context, v *quorum.Verifier, body QuorumRequest) (result quorum.Result, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			err = errPanic(rec)
 		}
 	}()
-	result, callErr := v.VerifyQuorum(r.Context(), body.ExpectedAuthorityDomain, body.Assertions, body.Threshold)
+	result, callErr := v.VerifyQuorum(ctx, body.ExpectedAuthorityDomain, body.Assertions, body.Threshold)
 	if callErr != nil {
 		return quorum.Result{}, callErr
 	}

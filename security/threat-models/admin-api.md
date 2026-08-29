@@ -76,9 +76,11 @@ Ce contrôle ferme le déclenchement anonyme mais crée sa propre surface, revue
 | Catégorie STRIDE | Menace | Traitement |
 |---|---|---|
 | Élévation de privilège | Un porteur se déclare aussi initiateur : le quorum de 2 est atteint avec un seul approbateur réellement indépendant de lui | `excludeInitiator` retire le sujet de l'initiateur des porteurs comptés avant réévaluation du seuil — `TestSecurityInitiateurNestJamaisComptePorteur` |
-| Répudiation | L'événement de l'initiateur est indiscernable de celui d'un porteur : l'auditeur compte un approbateur de trop, ou la déduplication efface la trace de déclenchement | `actor.aal` et `actor.auth_method` renseignés sur le seul événement d'initiateur — `TestSecurityEvenementInitiateurEstDistinguableDesPorteurs` |
-| Déni de service | Corps décodé avant authentification (le seuil et le domaine en dépendent) : allocation non bornée par un anonyme, et amplification d'une requête en N appels gRPC sortants | `http.MaxBytesReader` 512 Kio, 64 assertions au plus, délai d'attente de 5 s sur chaque appel sortant |
-| Usurpation | L'appelant choisit le domaine d'autorité contre lequel il est vérifié : contrôle tautologique dès qu'un identity-provider accepte plus d'un domaine | Domaine épinglé par configuration, refus 400 si le corps en propose un autre |
+| Répudiation | L'événement de l'initiateur est indiscernable de celui d'un porteur : l'auditeur compte un approbateur de trop, ou la déduplication efface la trace de déclenchement | `actor.aal` et `actor.auth_method` renseignés sur le seul événement d'initiateur, tous deux refusés vides (502) — `TestSecurityEvenementInitiateurEstDistinguableDesPorteurs` |
+| Répudiation | L'exclusion de l'initiateur efface du journal le fait qu'il avait aussi soumis une assertion de porteur : une campagne d'auto-approbation devient indétectable a posteriori | `context.justification` de l'événement d'initiateur porte le fait (champ existant du contrat, schéma inchangé) — `TestSecurityExclusionDeLinitiateurEstAuditee` |
+| Déni de service | Corps décodé avant authentification (le seuil et le domaine en dépendent) : allocation non bornée par un anonyme, et amplification d'une requête en N appels gRPC sortants | `http.MaxBytesReader` 512 Kio, 64 assertions au plus, budget de 30 s sur la requête entière (couvre les vérifications de porteurs faites en série et les envois d'audit) dont 5 s pour la vérification de l'appelant |
+| Usurpation | L'appelant choisit le domaine d'autorité contre lequel il est vérifié : contrôle tautologique dès qu'un identity-provider accepte plus d'un domaine | Domaine épinglé par `ZS_ADMIN_API_EXPECTED_AUTHORITY_DOMAIN`, **obligatoire au démarrage** (pas de valeur par défaut), refus 400 si le corps en propose un autre |
+| Divulgation | Les contrôles de domaine et de plafond, placés avant l'authentification, laissaient un anonyme énumérer la configuration par réponse différentielle | Déplacés après `verifyCaller` ; seul `MaxBytesReader`, qui ne renvoie aucune information, protège le chemin anonyme |
 
 Menace résiduelle assumée : un refus d'appelant ne produit aucun événement d'audit — une campagne
 de sondage de l'endpoint reste invisible au journal. Auditer un refus supposerait d'attribuer un
@@ -112,6 +114,9 @@ adossée à un mécanisme :
   comme « aucun finding ».
 - **Écriture vérifiable.** Le dossier de rapport est résolu en remontant jusqu'à `go.work` ; une
   racine introuvable fait échouer le test au lieu d'écrire hors du dépôt.
+- **Actions CI épinglées par SHA.** Les neuf références des trois workflows sont épinglées au
+  condensat de commit ; un tag repointé ne peut plus modifier ce qui s'exécute. Le jeton par
+  défaut est réduit à `contents: read` au niveau de `ci.yml` et `contracts.yml`.
 - **Contrôle infra parsé, pas grepé.** `check_compose_dev.py` charge le YAML et refuse
   explicitement si PyYAML est absent — un motif textuel ne couvre pas les formes équivalentes
   (`- 5432:5432`, syntaxe longue, `network_mode: host`).

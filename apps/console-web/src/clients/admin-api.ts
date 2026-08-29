@@ -31,8 +31,12 @@ export class HttpAdminApiClient {
   constructor(private readonly baseUrl: string) {}
 
   /** Chaque assertion est rejouée telle quelle — console-web ne les vérifie ni ne les
-   * réinterprète, admin-api revérifie chacune via identity-provider (ADR-021/ADR-024). */
-  async requestQuorum(input: QuorumInput): Promise<QuorumResult> {
+   * réinterprète, admin-api revérifie chacune via identity-provider (ADR-021/ADR-024).
+   *
+   * `identityAssertion` est celle de l'APPELANT, rejouée depuis la session et transmise en
+   * en-tête : depuis ADR-035, admin-api refuse (401) tout déclenchement de quorum par un
+   * appelant anonyme. Elle n'est jamais comptée parmi les porteurs. */
+  async requestQuorum(identityAssertion: Uint8Array, input: QuorumInput): Promise<QuorumResult> {
     const response = await fetch(
       new URL(
         `/v1/critical-operations/${encodeURIComponent(input.operationId)}/quorum`,
@@ -40,7 +44,10 @@ export class HttpAdminApiClient {
       ),
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "X-Identity-Assertion": b64Encode(identityAssertion),
+        },
         body: JSON.stringify({
           assertions: input.assertions.map(b64Encode),
           threshold: input.threshold,
