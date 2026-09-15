@@ -1,6 +1,6 @@
 module github.com/AlexisTak/biscuits-shield/apps/admin-api
 
-go 1.25
+go 1.25.0
 
 require (
 	github.com/AlexisTak/biscuits-shield/pkg/gen v0.0.0
