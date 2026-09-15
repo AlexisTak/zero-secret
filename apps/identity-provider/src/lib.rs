@@ -94,6 +94,10 @@ fn verify_error_reason(e: &VerifyError) -> &'static str {
     }
 }
 
+/// Sert `AssertionVerificationService` en gRPC clair sur `addr` — mTLS/SPIFFE-SPIRE non câblé
+/// dans ce dépôt (ADR-001, ADR-036). `Server::builder()` sans `.tls_config(...)` est le point
+/// d'insertion prévu pour la migration ; côté Go, `pkg/zstransport` joue le même rôle pour les
+/// quatre binaires qui composent avec ce service.
 pub async fn serve(
     addr: std::net::SocketAddr,
     key: AcceptedVerifyingKey,

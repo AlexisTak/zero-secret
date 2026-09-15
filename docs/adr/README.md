@@ -41,6 +41,7 @@ divergence silencieuse.
 | [033](ADR-033-github-actions-remplace-jenkins.md) | GitHub Actions remplace Jenkins pour la CI | accepté | 2026-08-24 |
 | [034](ADR-034-zs-replay-rejeu-decisions-archivees.md) | Crate zs-replay : rejeu hors ligne des décisions archivées | proposé | 2026-08-25 |
 | [035](ADR-035-authentification-appelant-quorum-admin-api.md) | Authentification de l'appelant sur le quorum admin-api (referme l'angle mort d'ADR-021) | accepté | 2026-08-29 |
+| [036](ADR-036-trajectoire-mtls-inter-services.md) | Trajectoire mTLS/SPIFFE-SPIRE pour les communications inter-services (corrige la formulation d'ADR-001) | proposé | 2026-09-15 |
 
 ## Règles
 

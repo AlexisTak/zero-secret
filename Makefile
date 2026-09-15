@@ -81,6 +81,9 @@ fuzz: ## Fuzzing ciblé — make fuzz TARGET=attestation_parser
 	@test -n "$(TARGET)" || { echo "Usage: make fuzz TARGET=<cible>"; exit 1; }
 	cargo fuzz run $(TARGET) -- -max_total_time=300
 
+bench-policy: ## Mesure p50/p95/p99 de Pdp::decide (objectif < 25 ms p99, docs/architecture.md) — résultat à recopier à la main, jamais affirmé sans mesure (CLAUDE.md §11)
+	cargo test -p zs-policy --test decide_p99_bench --release -- --ignored --nocapture
+
 audit: ## cargo-audit, cargo-deny, govulncheck, gitleaks
 	cargo audit
 	cargo deny check licenses bans sources advisories
@@ -138,6 +141,9 @@ down: ## Arrête l'environnement local
 
 test-e2e: ## Tests de bout en bout contre l'environnement local (make up requis)
 	@bash tests/e2e/audit_writer_refuses_delete.sh
+
+demo-jit: ## Démonstration reproductible du parcours JIT complet (make up requis, ADR-036)
+	@bash tests/e2e/jit_flow_demo.sh
 
 replay: ## Rejeu des décisions depuis le journal d'audit — NON IMPLÉMENTÉ (audit.md §5.4)
 	@echo "make replay : crate zs-replay non implémenté — voir audit.md §5.4. Rejeu indisponible." >&2

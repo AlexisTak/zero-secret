@@ -4,9 +4,11 @@
 // (access-broker/admin-api/credential-issuer) différé, hors périmètre de ce lot.
 //
 // gRPC en clair côté serveur (AuditCollectionService, réseau normal) — même dette de TLS que
-// partout ailleurs. Le lien vers audit-sealer, lui, n'est délibérément PAS du réseau ouvert : un
-// socket Unix, seul moyen retenu de fermer l'oracle de signature sans mTLS/SPIFFE (absents du
-// dépôt à ce jour).
+// partout ailleurs (voir ADR-036 : pkg/zstransport centralise ce choix, seul point de bascule
+// vers mTLS le jour venu). Le lien vers audit-sealer, lui, n'est délibérément PAS du réseau
+// ouvert : un socket Unix, seul moyen retenu de fermer l'oracle de signature sans mTLS/SPIFFE
+// (absents du dépôt à ce jour) — hors périmètre de pkg/zstransport, qui ne vise que les
+// frontières réseau (ADR-026).
 package main
 
 import (
@@ -19,6 +21,8 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/AlexisTak/biscuits-shield/pkg/zstransport"
 
 	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
 
@@ -78,7 +82,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	server := grpc.NewServer()
+	server := grpc.NewServer(zstransport.ServerOptions()...)
 	auditv1.RegisterAuditCollectionServiceServer(server, api)
 
 	log.Printf("audit-collector: en écoute sur %s (audit-sealer via socket Unix %s — jamais un port réseau)", addr, sealerSocket)

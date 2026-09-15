@@ -6,9 +6,11 @@
 ## Périmètre
 
 Interface unique vers OpenBao, la PKI et le HSM. **Seul composant autorisé à dialoguer avec le
-HSM.** N'accepte d'ordre que d'un `access-broker` authentifié en mTLS et porteur d'une décision
-signée par le PDP. Génère un credential à durée de vie bornée, jamais persisté au-delà de sa
-propre émission.
+HSM.** N'accepte d'ordre que porteur d'une décision **signée par le PDP** — c'est cette
+signature, vérifiée via `zs-crypto`, qui authentifie l'origine de l'ordre, pas le transport :
+la liaison gRPC depuis `access-broker` est en clair dans ce dépôt (mTLS/SPIFFE-SPIRE PLANNED,
+non câblé, ADR-001/ADR-036). Génère un credential à durée de vie bornée, jamais persisté au-delà
+de sa propre émission.
 
 **Depuis ADR-029** : chaque émission réussie (succès OpenBao réel, jamais un refus) envoie
 `credential.issued` vers `audit-collector` (réseau normal, même dette de TLS que partout
@@ -37,7 +39,7 @@ si la vérification de signature de décision est contournée.
 
 | Entrée | Origine | Analyseur | Couverte par fuzzing ? |
 |---|---|---|---|
-| Ordre d'émission (décision signée) | `access-broker`, mTLS interne | Vérification de signature via `zs-crypto` (jamais directement) | Prévu — surface prioritaire, signature à vérifier avant tout traitement |
+| Ordre d'émission (décision signée) | `access-broker`, gRPC en clair (mTLS PLANNED, ADR-036) | Vérification de signature via `zs-crypto` (jamais directement) | Prévu — surface prioritaire, signature à vérifier avant tout traitement |
 | Réponse d'OpenBao/PKI | OpenBao (composant tiers, MPL-2.0, ADR-002) | Client OpenBao officiel, validation de la structure de réponse | Hors périmètre de ce dépôt (bibliothèque tierce), mais une réponse malformée doit rester un refus |
 | Réponse du HSM (PKCS#11) | `zs-hsm` (FFI, seul point d'`unsafe` du dépôt) | `zs-hsm` lui-même | Prévu — FFI, surface classique de bugs mémoire, prioritaire pour `make fuzz` |
 
@@ -49,7 +51,7 @@ fait qu'il ne peut pas être forgé sans la clé de signature du PDP, détenue e
 
 | Menace | Scénario concret | Probabilité | Impact | Mesure compensatoire | Risque résiduel |
 |---|---|---|---|---|---|
-| **S**poofing | Un ordre d'émission arrive d'un composant se faisant passer pour `access-broker` | Faible (mTLS SPIFFE) | Critique (émission non autorisée) | mTLS avec identité SPIFFE, vérifiée avant tout traitement de l'ordre | Dépend entièrement de la robustesse de l'infrastructure SPIFFE/SPIRE — non revérifiée par ce composant |
+| **S**poofing | Un ordre d'émission arrive d'un composant se faisant passer pour `access-broker` | Faible : un ordre n'est traité que s'il porte une décision **signée par le PDP** (`zs-crypto`) — un composant qui usurpe seulement l'identité réseau d'`access-broker` ne peut pas produire cette signature | Critique (émission non autorisée) | Vérification de signature PDP sur toute décision reçue, indépendante de l'identité réseau de l'appelant | Pas de mTLS/identité SPIFFE aujourd'hui (PLANNED, ADR-036) : rien n'authentifie l'appelant au niveau transport, la protection repose entièrement sur la signature de décision — si elle est un jour contournée, aucune seconde couche ne compense |
 | **T**ampering | Un ordre d'émission légitime est rejoué ou modifié (TTL allongé, ressource substituée) | Faible si la signature couvre l'intégralité de la décision | Critique | La signature du PDP porte sur `decision_hash` = empreinte requête + politiques ; toute modification du contenu invalide la signature | Si le `decision_hash` ne couvre pas un champ pertinent (ex. le TTL demandé n'est pas inclus dans l'empreinte signée), une modification de ce champ passerait inaperçue — à vérifier explicitement lors de l'implémentation du contrat de vérification (backlog L2+) |
 | **R**epudiation | Une émission de credential est contestée a posteriori | Faible | Moyen | Événement d'audit signé à l'émission, portant la décision source et l'identifiant du bail | Si l'audit échoue à être écrit avant l'émission effective (ordre des opérations), une fenêtre de répudiation existe — à trancher : audit avant ou après émission ? (angle mort explicite, voir hypothèses) |
 | **I**nformation Disclosure | Fuite du credential émis (en transit, en mémoire, en journal) | Faible à moyenne selon l'hygiène du code | Critique (c'est littéralement le secret d'accès) | Aucun credential en journal (règle absolue #1), transmission chiffrée à l'utilisateur, pas de persistance au-delà de l'émission | Le scénario 2 de `docs/architecture.md` (vol de credential en mémoire) est explicitement assumé comme un risque à impact borné — la fenêtre résiduelle est la durée de vie du credential, pas plus |
@@ -94,3 +96,4 @@ décision, déjà pseudonymisés en amont. Pas de donnée biométrique.
 - Pas de mTLS entre `access-broker` et `credential-issuer` — l'hypothèse « seul access-broker
   authentifié peut dialoguer avec credential-issuer » (périmètre de ce document) n'est donc pas
   encore appliquée techniquement, seulement par convention réseau (adresses non exposées).
+  Trajectoire de migration : ADR-036.

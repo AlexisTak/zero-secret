@@ -7,5 +7,6 @@ use (
 	./apps/credential-issuer
 	./pkg/gen
 	./pkg/zstelemetry
+	./pkg/zstransport
 	./tests/security/report/aggregate
 )

@@ -207,6 +207,7 @@ make setup      # dépendances, SoftHSM2, hooks git, outillage (cargo-deny, opa,
 make up         # environnement local complet (Podman) : Postgres, OpenBao, SoftHSM2
 make check      # fmt + lint + tests d'architecture — rapide, à lancer souvent
 make test       # unitaires + politiques (Cedar + Rego)
+make demo-jit   # démonstration reproductible du parcours JIT complet (identité → audit)
 make down       # arrête l'environnement local
 ```
 

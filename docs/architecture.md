@@ -72,14 +72,22 @@ biométrique. Seulement des clés publiques, des empreintes, des identifiants de
 
 ## Objectifs de service (pilote)
 
-| Indicateur | Cible |
-|---|---|
-| Évaluation de politique (p99) | < 25 ms |
-| Émission de credential (p99) | < 400 ms |
-| Vérification d'assertion WebAuthn (p99) | < 80 ms |
-| Délai de révocation effective | < 5 s |
-| Disponibilité du plan de données | 99,9 % |
-| Perte d'événements d'audit | 0, détection obligatoire |
+Ce sont des objectifs, pas des propriétés acquises (`CLAUDE.md` §11) : une cible n'est présentée
+comme tenue qu'accompagnée d'une mesure réelle, documentée avec son matériel, sa configuration et
+sa méthode. Statut au 2026-09-15 :
+
+| Indicateur | Cible | Statut |
+|---|---|---|
+| Évaluation de politique (p99) | < 25 ms | **NOT MEASURED** — harnais disponible (`make bench-policy`, `crates/zs-policy/tests/decide_p99_bench.rs`), jamais exécuté et consigné ici |
+| Émission de credential (p99) | < 400 ms | **NOT MEASURED** — aucun harnais ; dépend d'OpenBao/PKI/HSM réels, non disponibles dans tous les environnements de dev (voir H2/H1) |
+| Vérification d'assertion WebAuthn (p99) | < 80 ms | **NOT MEASURED** — aucun harnais ; dépend d'un HSM réel (SoftHSM2), même limite que `sign_digest` (L1.2c/backlog H1) |
+| Délai de révocation effective | < 5 s | **NOT MEASURED** — aucun harnais |
+| Disponibilité du plan de données | 99,9 % | **NOT MEASURED** — aucun déploiement de production, aucune série d'observation |
+| Perte d'événements d'audit | 0, détection obligatoire | **VERIFIED partiellement** — le mécanisme de détection de rupture de chaîne est testé (`crates/zs-audit/src/chain.rs`), mais une troncature en queue de chaîne reste indétectable par `verify_chain` seul (limite assumée, ADR-031) |
+
+Un seul harnais existe à ce jour (`bench-policy`, ci-dessus) — les quatre autres cibles de latence
+et de disponibilité n'ont ni harnais ni mesure. Ne pas les présenter comme atteintes tant que ce
+tableau n'a pas été mis à jour avec un chiffre réel et sa méthode.
 
 ## Scénarios d'attaque que l'architecture doit tenir
 
@@ -118,6 +126,8 @@ décision documentée.
 - La compromission de l'IdP reste un risque critique résiduel.
 - La reprise après sinistre n'est pas prête tant que l'exercice de destruction/reconstruction
   n'a pas été réalisé et chronométré (lot L6). Avant cela, aucun accès critique ne transite ici.
+  Procédure de référence et prérequis manquants : [`docs/disaster-recovery.md`](disaster-recovery.md)
+  (`DR STATUS = NOT READY`).
 - Les politiques ABAC fondées sur la télémétrie des postes sont expérimentales.
 - La charge d'exploitation est supérieure à celle d'un modèle à secrets statiques. À mesurer
   honnêtement, pas à minimiser.

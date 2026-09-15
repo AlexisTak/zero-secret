@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/AlexisTak/biscuits-shield/pkg/gen v0.0.0
+	github.com/AlexisTak/biscuits-shield/pkg/zstransport v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
 	google.golang.org/grpc v1.83.2
@@ -24,3 +25,5 @@ require (
 // pkg/gen n'est jamais publié (module interne au monorepo) — résolu localement, même patron
 // qu'apps/access-broker (L2.3).
 replace github.com/AlexisTak/biscuits-shield/pkg/gen => ../../pkg/gen
+
+replace github.com/AlexisTak/biscuits-shield/pkg/zstransport => ../../pkg/zstransport
