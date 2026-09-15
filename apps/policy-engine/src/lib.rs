@@ -180,6 +180,10 @@ fn decision_fields(
 
 /// Démarre le service gRPC sur `addr` et bloque jusqu'à arrêt (échec réseau ou signal).
 ///
+/// Sert en gRPC clair — mTLS/SPIFFE-SPIRE non câblé dans ce dépôt (ADR-001, ADR-036).
+/// `Server::builder()` sans `.tls_config(...)` est le point d'insertion prévu pour la migration ;
+/// côté Go, `pkg/zstransport` joue le même rôle pour les binaires qui appellent ce service.
+///
 /// # Panics
 /// Si la dérivation de la clé de vérification depuis le scelleur échoue — ne devrait jamais
 /// arriver en pratique (`DecisionSealer::open` a déjà réussi à résoudre la même clé publique).

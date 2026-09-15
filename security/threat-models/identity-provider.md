@@ -11,8 +11,8 @@ d'accès ; celle-ci reste au `policy-engine`.
 
 Frontières de confiance traversées : navigateur/authentificateur (non fiable, protocole WebAuthn)
 → `identity-provider` (Rust, réseau public ou périmétré selon déploiement) → `crates/zs-crypto`
-(vérification de signature) → schéma `identity` PostgreSQL → `audit-collector` (gRPC interne,
-mTLS SPIFFE).
+(vérification de signature) → schéma `identity` PostgreSQL → `audit-collector` (gRPC en clair —
+mTLS/SPIFFE-SPIRE PLANNED, non câblé dans ce dépôt, ADR-001/ADR-036).
 
 ## Actifs
 
@@ -32,7 +32,7 @@ mTLS SPIFFE).
 | Assertion signée (authentification) | Authentificateur, via navigateur | `zs-webauthn` (vérification de signature via `zs-crypto`) | Non — mêmes structures binaires que l'attestation, pas d'analyseur distinct ; couverte par les tests unitaires d'`authentication.rs` (L1.2a) |
 | `origin` / `rpId` déclarés par le client | Navigateur (client_data_json) | `zs-webauthn` | Non — validation par comparaison stricte, pas de parseur complexe à fuzzer, revu en priorité 5.1 si un format enrichi est introduit |
 | Challenge retourné par le client | Navigateur | Comparaison en mémoire côté serveur (émis puis vérifié par l'IdP lui-même) | Sans objet — pas un analyseur de format |
-| Requête de révocation / récupération | `admin-api` (interne, mTLS) | `crates/zs-webauthn::recovery::verify_quorum` (L1.3, ADR-009) — comptage de porteurs distincts, aucune structure binaire complexe à fuzzer | Sans objet — pas un analyseur de format |
+| Requête de révocation / récupération | `admin-api`, gRPC en clair (mTLS PLANNED, ADR-036) | `crates/zs-webauthn::recovery::verify_quorum` (L1.3, ADR-009) — comptage de porteurs distincts, aucune structure binaire complexe à fuzzer | Sans objet — pas un analyseur de format |
 
 Toute entrée non fiable sans analyseur identifié est un angle mort : ici, le parseur
 d'attestation CBOR est le point le plus exposé (format binaire, source externe non fiable) et
@@ -122,6 +122,9 @@ contraire (ex. un commentaire minimisant ce risque) doit être corrigée.
   assertions en dépend directement.
 - Le canal navigateur ↔ `identity-provider` est en TLS ; ce composant ne compense pas
   l'absence de TLS en amont.
+- Pas de mTLS entre `identity-provider` et les composants Go qui l'appellent (`admin-api`,
+  `audit-collector`) — liaisons gRPC en clair dans ce dépôt à ce jour, mTLS/SPIFFE-SPIRE PLANNED
+  (ADR-001/ADR-036), pas une propriété acquise.
 - `audit-collector` est disponible et accepte les événements dans un délai borné ; en cas
   d'indisponibilité prolongée, le comportement (bloquer l'action ou l'autoriser sans preuve
   d'audit immédiate) n'est pas encore spécifié — tranché pour la partie HSM (refus, voir

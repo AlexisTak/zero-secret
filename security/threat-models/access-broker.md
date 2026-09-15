@@ -11,10 +11,11 @@ de la révocation. C'est l'orchestrateur du plan de données — il ne décide r
 `credential-issuer`).
 
 Frontières de confiance : utilisateur authentifié (assertion `identity-provider`) →
-`access-broker` (Go, exposé) → `policy-engine` (mTLS interne) → `credential-issuer` (mTLS
-interne, ordre d'émission portant la décision signée) → `audit-collector` (réseau normal, même
-dette de TLS, ADR-027 : `policy.decided` envoyé après chaque décision réellement consultée
-auprès du PDP, ALLOW et DENY, best-effort — un échec n'invalide jamais la réponse HTTP).
+`access-broker` (Go, exposé) → `policy-engine` (gRPC en clair — mTLS/SPIFFE-SPIRE PLANNED,
+non câblé dans ce dépôt, ADR-001/ADR-036) → `credential-issuer` (même dette de TLS, ordre
+d'émission portant la décision signée) → `audit-collector` (réseau normal, même dette de TLS,
+ADR-027 : `policy.decided` envoyé après chaque décision réellement consultée auprès du PDP,
+ALLOW et DENY, best-effort — un échec n'invalide jamais la réponse HTTP).
 Composant le plus exposé du plan de données : c'est lui qui reçoit les requêtes utilisateur
 directement.
 
@@ -34,14 +35,14 @@ directement.
 |---|---|---|---|
 | Requête d'accès (ressource, motif, ticket) | Utilisateur authentifié, HTTP | Validation de schéma OpenAPI (`contracts/openapi/`) | Non prévu — surface HTTP structurée, priorité moindre que le binaire WebAuthn |
 | Réponse d'approbation | Approbateur (humain ou système), HTTP | Vérification que l'approbateur est distinct du demandeur et habilité | Non prévu |
-| `DecisionResponse` (proto) | `policy-engine`, mTLS interne | Désérialisation prost côté Go | Sans objet — appelant de confiance mTLS, mais une réponse malformée doit rester un refus, pas un plantage |
+| `DecisionResponse` (proto) | `policy-engine`, gRPC en clair (mTLS PLANNED, ADR-036) | Désérialisation prost côté Go | Sans objet — appelant de confiance applicative (décision signée, ADR-019), mais une réponse malformée doit rester un refus, pas un plantage |
 
 ## STRIDE
 
 | Menace | Scénario concret | Probabilité | Impact | Mesure compensatoire | Risque résiduel |
 |---|---|---|---|---|---|
 | **S**poofing | Un attaquant se fait passer pour l'approbateur légitime d'une demande | Faible à moyenne selon le mécanisme d'authentification de l'approbateur (non encore spécifié) | Élevé (approbation frauduleuse → émission réelle) | Authentification forte requise pour l'approbateur (même socle WebAuthn que le demandeur, à spécifier précisément en L2) | Le mécanisme d'authentification de l'approbateur n'est pas encore défini — angle mort explicite à combler avant L2 |
-| **T**ampering | Modification de la décision du PDP entre l'évaluation et l'ordre d'émission (l'accès-broker élève lui-même le TTL ou l'effet) | Faible (décision transmise en interne, mTLS) | Critique (contournement total du PDP) | `credential-issuer` n'accepte d'ordre que porteur d'une décision **signée** par le PDP (règle d'architecture explicite) — `access-broker` ne peut pas forger une décision `ALLOW` | Si la clé de signature du PDP est compromise, cette protection tombe — dépend entièrement de l'hypothèse de sécurité sur `zs-crypto`/HSM, hors périmètre de ce composant |
+| **T**ampering | Modification de la décision du PDP entre l'évaluation et l'ordre d'émission (l'accès-broker élève lui-même le TTL ou l'effet, ou un tiers positionné sur le réseau la modifie en transit — le lien est en clair, pas de mTLS) | Faible : la décision est **signée** par le PDP, pas seulement transportée — une falsification est détectée à la vérification de signature, jamais empêchée par le transport (voir Hypothèses de sécurité) | Critique (contournement total du PDP) | `credential-issuer` n'accepte d'ordre que porteur d'une décision **signée** par le PDP (règle d'architecture explicite) — `access-broker` ne peut pas forger une décision `ALLOW` | Si la clé de signature du PDP est compromise, cette protection tombe — dépend entièrement de l'hypothèse de sécurité sur `zs-crypto`/HSM, hors périmètre de ce composant. L'absence de mTLS reste un risque de confidentialité en transit, distinct de la falsification (voir Hypothèses de sécurité) |
 | **R**epudiation | Un utilisateur nie avoir demandé un accès effectivement accordé | Faible | Moyen | Chaque étape du parcours JIT produit un événement d'audit signé (motif, ticket, approbation, décision, émission) | La qualité de la preuve dépend de l'authentification initiale de l'utilisateur (héritée d'`identity-provider`) — une faille en amont se répercute ici sans que ce composant puisse la détecter |
 | **I**nformation Disclosure | Fuite du motif ou de la justification saisis par l'utilisateur (texte libre) | Moyenne | Moyen (peut contenir une information sensible sur la ressource ou l'incident traité) | Champ borné en taille (`contracts/events/audit-event.schema.json`), pas de journal applicatif verbeux au-delà de l'événement structuré | Risque résiduel assumé — un utilisateur peut toujours saisir une donnée sensible dans un champ texte libre, aucun filtrage de contenu n'est prévu |
 | **D**enial of Service | Volume de demandes d'accès dépassant la capacité de sollicitation d'approbation ou d'appel au PDP | Moyenne (composant le plus exposé, en façade) | Moyen (bloque le plan de données, dimensionné pour la charge selon `docs/architecture.md`) | Limitation de débit à spécifier (backlog L2+), objectifs de service définis (émission < 400 ms p99) à tester en charge | Aucune limitation de débit n'est encore implémentée — dette explicite avant mise en charge |
@@ -72,7 +73,7 @@ si le texte libre en introduit (risque résiduel déjà noté ci-dessus). Pas de
   c'est un angle mort explicite de ce modèle (voir STRIDE Spoofing ci-dessus).
 - mTLS/SPIFFE est établi correctement vers `policy-engine` et `credential-issuer` en amont de ce
   composant — **hypothèse, pas encore appliquée techniquement** : les trois liaisons gRPC sont
-  en clair dans ce dépôt à ce jour (L2.4 suite, ADR-025).
+  en clair dans ce dépôt à ce jour (L2.4 suite, ADR-025). Trajectoire de migration : ADR-036.
 
 ## Addendum (L2.4 suite, ADR-025) — déclenchement réel de l'émission
 

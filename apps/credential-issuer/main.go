@@ -5,6 +5,8 @@
 //
 // gRPC en clair vers policy-engine — mTLS non câblé dans ce dépôt (aucune intégration
 // SPIFFE/SPIRE), même limite que partout ailleurs. Pas de TLS sur le serveur gRPC non plus.
+// Voir ADR-036 : pkg/zstransport centralise ce choix, seul point de bascule vers mTLS le jour
+// venu.
 package main
 
 import (
@@ -15,7 +17,8 @@ import (
 	"os"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/AlexisTak/biscuits-shield/pkg/zstransport"
 
 	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
 	credentialv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/credential/v1"
@@ -70,7 +73,7 @@ func main() {
 	// Jeton provisoire, signalé (ADR-018) — jamais fixé en dur (règle absolue #1).
 	openBaoToken := requireEnv("ZS_CI_OPENBAO_TOKEN")
 
-	policyConn, err := grpc.NewClient(policyEngineAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	policyConn, err := grpc.NewClient(policyEngineAddr, zstransport.DialOptions()...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "credential-issuer: connexion à %s : %v\n", policyEngineAddr, err)
 		os.Exit(1)
@@ -78,7 +81,7 @@ func main() {
 	defer policyConn.Close()
 	policyClient := policyv1.NewPolicyDecisionServiceClient(policyConn)
 
-	auditConn, err := grpc.NewClient(auditCollectorAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	auditConn, err := grpc.NewClient(auditCollectorAddr, zstransport.DialOptions()...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "credential-issuer: connexion à %s : %v\n", auditCollectorAddr, err)
 		os.Exit(1)
@@ -101,7 +104,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	server := grpc.NewServer()
+	server := grpc.NewServer(zstransport.ServerOptions()...)
 	credentialv1.RegisterCredentialIssuanceServiceServer(server, api)
 
 	log.Printf("credential-issuer: en écoute sur %s (gRPC en clair vers %s, %s — mTLS hors périmètre)", addr, policyEngineAddr, auditCollectorAddr)

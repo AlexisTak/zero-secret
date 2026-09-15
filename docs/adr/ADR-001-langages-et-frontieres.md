@@ -42,8 +42,12 @@ encore l'essentiel des CVE critiques sur les bases de code C/C++.
 - **TypeScript** : `console-web` uniquement, sans logique de sécurité, budget de dépendances
   plafonné, rendu côté serveur.
 
-La frontière entre Rust et Go est **réseau (gRPC sur mTLS)**, pas FFI. Une frontière FFI aurait
-réintroduit une surface mémoire non sûre exactement là où on cherche à l'éliminer.
+La frontière entre Rust et Go est **réseau (gRPC)**, pas FFI. Une frontière FFI aurait
+réintroduit une surface mémoire non sûre exactement là où on cherche à l'éliminer. mTLS est la
+cible retenue pour authentifier cette frontière réseau, **pas son état actuel** : à ce jour ces
+liaisons gRPC sont en clair, aucun credential TLS n'est configuré côté serveur ou client — voir
+ADR-036 pour l'état détaillé (trois niveaux `IMPLEMENTED`/`EXPERIMENTAL`/`PLANNED`) et
+l'abstraction de migration fournie (`pkg/zstransport`).
 
 Applique P3 (sécurité mémoire), P7 (frontières vérifiables), P10 (simplicité auditée).
 
@@ -58,8 +62,9 @@ composants qui auraient pu être une seule bibliothèque, donc latence suppléme
 charge cognitive réelle pour une équipe réduite ; risque de divergence de conventions entre les
 deux moitiés du dépôt, à contenir par des tests d'architecture.
 
-**Surface d'attaque** — la frontière réseau interne devient une surface à protéger, traitée par
-mTLS et identité SPIFFE.
+**Surface d'attaque** — la frontière réseau interne devient une surface à protéger. mTLS et une
+identité de workload (SPIFFE/SPIRE ou équivalent) sont la cible retenue pour la protéger, **non
+implémentée à ce jour** — trajectoire et abstraction de migration dans ADR-036.
 
 ## Critère de réexamen
 

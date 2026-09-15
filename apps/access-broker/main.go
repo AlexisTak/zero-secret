@@ -5,7 +5,8 @@
 //
 // gRPC en clair vers policy-engine/identity-provider — mTLS non câblé dans ce dépôt (aucune
 // intégration SPIFFE/SPIRE), même limite que partout ailleurs (L2.2/H3/H4). Pas de TLS sur le
-// serveur HTTP non plus — jamais un déploiement de production sans les deux.
+// serveur HTTP non plus — jamais un déploiement de production sans les deux. Voir ADR-036 :
+// pkg/zstransport centralise ce choix, seul point de bascule vers mTLS le jour venu.
 package main
 
 import (
@@ -15,7 +16,8 @@ import (
 	"os"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/AlexisTak/biscuits-shield/pkg/zstransport"
 
 	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
 	credentialv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/credential/v1"
@@ -34,7 +36,7 @@ func envOr(key, fallback string) string {
 }
 
 func mustDial(addr string) *grpc.ClientConn {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(addr, zstransport.DialOptions()...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "access-broker: connexion à %s : %v\n", addr, err)
 		os.Exit(1)

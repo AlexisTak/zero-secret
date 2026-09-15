@@ -4,7 +4,8 @@
 //
 // Portée réduite assumée (ADR-021) : ce binaire ne gère ni politique ni identité, seulement la
 // vérification de quorum. gRPC en clair vers identity-provider, pas de TLS sur le serveur HTTP —
-// mêmes limites que partout ailleurs dans ce lot.
+// mêmes limites que partout ailleurs dans ce lot. Voir ADR-036 : pkg/zstransport centralise ce
+// choix, seul point de bascule vers mTLS le jour venu.
 package main
 
 import (
@@ -15,7 +16,8 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/AlexisTak/biscuits-shield/pkg/zstransport"
 
 	auditv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/audit/v1"
 	identityv1 "github.com/AlexisTak/biscuits-shield/pkg/gen/identity/v1"
@@ -45,14 +47,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	identityConn, err := grpc.NewClient(identityAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	identityConn, err := grpc.NewClient(identityAddr, zstransport.DialOptions()...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "admin-api: connexion à %s : %v\n", identityAddr, err)
 		os.Exit(1)
 	}
 	defer identityConn.Close()
 
-	auditConn, err := grpc.NewClient(auditCollectorAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	auditConn, err := grpc.NewClient(auditCollectorAddr, zstransport.DialOptions()...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "admin-api: connexion à %s : %v\n", auditCollectorAddr, err)
 		os.Exit(1)
